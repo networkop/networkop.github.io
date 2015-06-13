@@ -1,0 +1,456 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Network oriented programming]]></title>
+  <link href="http://networkop.github.io/atom.xml" rel="self"/>
+  <link href="http://networkop.github.io/"/>
+  <updated>2015-06-13T01:06:20-07:00</updated>
+  <id>http://networkop.github.io/</id>
+  <author>
+    <name><![CDATA[Michael Kashin]]></name>
+    <email><![CDATA[mmkashin@gmail.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[iBGP Fall-over Trick]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/"/>
+    <updated>2015-06-11T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick</id>
+    <content type="html"><![CDATA[<h2>What gives?</h2>
+
+<p>BGP fall-over is a neat BGP convergence optimisation technique whereby BGP peering is brought down as soon as the route to neighbor disappears from a routing table.
+The difference between external and internal BGP is that the former usually peers over a directly-attached interface so that when the interface to neighbor is disconnected,
+route is withdrawn from the routing table which triggers eBGP fall-over to bring down the neighborship.
+iBGP, on the other hand, normally uses device loopbacks to establish peering sessions. What this means is if a summary or a default route is present in the routing table (either static or learned
+via IGP), there is always a route to iBGP neighbor. In this case BGP has to wait for default 180 seconds (3 x keepalive timer) to bring down the neighborship and withdraw all the routes learned from dead neighbor.<br/>
+To overcome that there&rsquo;s a route-map option for a <code>neighbor fall-over</code> command which allows user to specify the exact prefix for which to look in the routing table. In the example below, the router will
+look for specific host routes representing neighbor&rsquo;s loopbacks and will trigger reconvergence as soon as those routes disappear.</p>
+
+<!--more-->
+
+
+
+
+<div class="highlight"><pre><code class="language-text" data-lang="text">!
+router bgp 100
+ neighbor 1.1.1.1 remote-as 100
+ neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER-1
+ neighbor 2.2.2.2 remote-as 200
+ neighbor 2.2.2.2 fall-over route-map RM-BGP-FALLOVER-2
+!
+ip prefix-list PL-ROUTER-1 seq 5 permit 1.1.1.1/32
+!
+ip prefix-list PL-ROUTER-2 seq 5 permit 2.2.2.2/32
+!
+route-map RM-BGP-FALLOVER-1 permit 10
+ match ip address prefix-list PL-ROUTER-1
+!
+route-map RM-BGP-FALLOVER-2 permit 10
+ match ip address prefix-list PL-ROUTER-2
+!</code></pre></div>
+
+
+<p>It&rsquo;s obvious that this configuration is not very scalable as it requires a separate route-map and a separate prefix-list for each of the iBGP neighbors which,
+on a device like a route-reflector, can easily turn into dozens of lines of code.</p>
+
+<h2>Solution</h2>
+
+<p>There is a nice and short way of how to accomplish the same task which relies on a prefix-list property often overlooked. Cisco&rsquo;s ip prefix-list are often used in the
+most straight-forward way, e.g. to define a a link-local subnet we&rsquo;d use <code>169.254.0.0/16</code> or <code>0.0.0.0/0 le 32</code> for all possible prefixes. However, there&rsquo;s a way
+to define, for example, a list of prefixes that start with 10.0. and have a length from /24 to /25 with <code>10.0.0.0/16 ge 24 le 25</code>. In this case the first /16 defines
+the number of bits in the prefix to be matched and ge, le simple define the length boundaries. Using a similar logic it is possible to define all prefix-list that
+would match all possible host-routes - <code>ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32</code>. The first part <code>0.0.0.0/0</code> makes the router ignore the actual
+bits in the prefix effectively making it match ALL prefixes, while the second part <code>ge 32</code> tells the router to only match prefixes that are => 32 effectively matching
+only host-specific routes.<br/>
+With that in mind, it is possible to re-write the former
+config in a much more concise format so that all iBGP neighbors would use a single route-map with a single prefix-list.</p>
+
+<div class="highlight"><pre><code class="language-text" data-lang="text">!
+router bgp 100
+ neighbor 1.1.1.1 remote-as 100
+ neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER
+ neighbor 2.2.2.2 remote-as 200
+ neighbor 2.2.2.2 fall-over route-map RM-BGP-FALLOVER
+!
+ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32
+!
+route-map RM-BGP-FALLOVER permit 10
+ match ip address prefix-list PL-ALL-LOOPBACKS
+!</code></pre></div>
+
+
+<p>What happens now is that Cisco router, when bringing up the neighbor, scans it&rsquo;s own routing table looking for a /32 host-route that matches the ip address of that neighbor and
+attaches a listener to this route. If the neighbor goes down, the IGP will detect it a lot sooner than BGP and will withdraw that host-route; our router&rsquo;s bgp process will get notified
+and will re-scan it&rsquo;s routing table for any other matches and, having found none, will bring down the neighborship immediately. Effectively this makes iBGP rely totally on timers of underlying IGP, which,
+needless to say, dramatically speeds up convergence times for BGP.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Structured Approach to Troubleshooting of L3VPN Networks]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/10/l3vpn-mpls-troubleshoot/"/>
+    <updated>2015-06-10T05:52:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/10/l3vpn-mpls-troubleshoot</id>
+    <content type="html"><![CDATA[<h2>What gives?</h2>
+
+<p>With the amount of configuration involved in a typical L3VPN configuration, troubleshooting process can get pretty chaotic, especially
+in a time-constrained environments like CCIE lab. That&rsquo;s why it is extremely important to have a well-structured approach to quickly
+narrow down the potential problem area. I used the below algorithm while preparing for my lab exam.
+Like most of the networking problems, troubleshooting of L3VPNs can and must be split into two different phases - control plane and data plane.
+All steps must be done sequentially with each next step relying on the successful verification of all previous steps.</p>
+
+<p><img class="centre" src="http://networkop.github.io/images/l3vpn.jpg" title="Test topology" ></p>
+
+<dl>
+<dt>Problem definition</dt>
+<dd>CE-1 (10.0.0.1) can not reach CE-2 (10.0.0.2)</dd>
+</dl>
+
+<!--more-->
+
+
+<h2>Troubleshooting L3VPN control plane</h2>
+
+<ol>
+<li>Check if PE-2 can reach CE-2 from it&rsquo;s VRF <code>ping vrf A 10.0.0.2</code>. If not - make sure the PE-CE routing protocol is configured to propagate CE subnet.</li>
+<li>Make sure that 10.0.0.2 is in vpnv4 BGP RIB on PE-2 with <code>show bgp vpnv4 unicast 10.0.0.2/32</code>. If not - make sure this route gets redistributed into
+vpnv4 bgp <code>address family ipv4 vrf A</code>.</li>
+<li>Check vpnv4 BGP peerings on PE-2 with <code>show ip bgp vpnv4 unicast all summary</code>. In our case it peers with VPNV4 Route-Reflector (3.3.3.3).
+If not - check that the neighbor is configured and activated under <code>address family vpnv4</code> and that the neighbor address (3.3.3.3) is reachable.</li>
+<li>On intermediate Route-Reflector P check that the CE-2 subnet is present in BGP RIB with <code>show ip bgp vpnv4 unicast 10.0.0.2/32</code>. If not - check that
+PE-02 advertises this subnet to P with <code>show ip bgp vpnv4 unicast all neighbor 3.3.3.3 advertised</code></li>
+<li>On PE-1 check that CE-2 subnet is present in vpnv4 BGP RIB with <code>show ip bgp vpnv4 unicast 10.0.0.2/32</code>. If not - make sure P is one of it&rsquo;s vpnv4 peers
+and that P advertises this subnet to PE-1</li>
+<li>Check that vrf A on PE-1 contains the advertised subnet 10.0.0.2 with <code>show ip route vrf A 10.0.0.2</code>. If not - make sure that import route target on PE-1 equals
+to export route target on PE-2 and that this subnet is redistributed from BGP into PE-CE routing protocol</li>
+</ol>
+
+
+<h2>Troubleshooting L3VPN data plane</h2>
+
+<p>If control plane is working fine, next step is to troubleshoot the data plane. This can be most difficult since LDP can be so easily broken by summarisation
+or filtering. However, in general, data plane troubleshooting will consist of the following
+steps:</p>
+
+<ol>
+<li>Make sure PE-2 knows how to reach PE-1 over the LSP with <code>show mpls forwarding 1.1.1.1</code>.</li>
+<li>Make sure PE-1 knows how to reach PE-2 over the LSP with <code>show mpls forwarding 2.2.2.2</code>.</li>
+<li>MPLS-trace the path from PE-2 to PE-1 with <code>traceroute mpls ipv4 1.1.1.1 source 2.2.2.2</code>.</li>
+<li>Do the same in the other direction. In case traceroute stops, jump on the last responded node and check that LDP peering
+is running with all its neighbors with <code>show mpls ldp neighbor</code></li>
+</ol>
+
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Enterprise IP Routing Best Practices]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/03/ent-ip-routing-bcp/"/>
+    <updated>2015-06-03T14:19:02-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/03/ent-ip-routing-bcp</id>
+    <content type="html"><![CDATA[<h2>What gives?</h2>
+
+<p>What motivated me to write this post is a state of the IP routing of some of the enterprise networks I&rsquo;ve seen.
+A quick <code>show ip route</code> command reveals a non-disentanglable mixture of dynamic and static route with multiple points of redistribution and complex,
+rigid filtering rules, something you&rsquo;d only see in your bad dream or a CCIE-level lab. It certainly takes
+a good engineer to understand how it works and even that can take up to several hours. I think the reason for that
+is that people have generally been concentrated on learning about the routing protocol, how it works, all the knobs you can twist
+to influence a routing decision logic. However, one thing often overlooked is the routing protocols best practice design,
+i.e. <strong>when</strong> and <strong>how</strong> to use a particular protocol.
+And since the latter is often an acquired skill, a lot of not-so-lucky engineers end up with wrong ideas and concepts
+in the heads. Below I&rsquo;ll try to list what <em>I</em>{:.underline} consider a best practice design of today&rsquo;s enterprise networks.</p>
+
+<!--more-->
+
+
+<h2>OSPF, EIGRP, BGP? Which one to use?</h2>
+
+<p>Golden rule is to always use a protocol where it was designed to be used. Use and constrain IGP to a single autonomous system.
+For enterprise networks autonomous system can be:</p>
+
+<ul>
+<li>a single, geographically-constrained office network</li>
+<li>remote branch office network</li>
+<li>campus network</li>
+<li>data centre</li>
+</ul>
+
+
+<p>Use BGP to interconnect these systems. When there&rsquo;s a choice to use iBGP vs eBGP, always prefer eBGP since it has less restrictions.
+However for some designs iBGP is a better fit (i.e. Hub-and-Spoke topologies). Almost for every WAN technology there&rsquo;s a <em>preferred</em>
+WAN protocol, e.g. eBGP for L3VPN, iBGP for DMVPN/FlexVPN, so always check with the vendor&rsquo;s design guide.</p>
+
+<h2>IGP best practices</h2>
+
+<p>The choice of a particular IGP is mainly irrelevant. EIGRP scales better in a well-structured hierarchical network, whereas link-state protocol like OSPF
+don&rsquo;t require any underlying structure. In fact, best practice for OSPF design, for quite some time, has been to put all routers in a single Area 0 regardless
+of their geographical location. This rule, like any, has its' exceptions and special dampening/ advertisement containment rules need to be applied
+to links prone to flapping (e.g. aerial links). However, both EIGRP and OSPF have proven to be quite stable and scalable even with <em>not-so-good</em> designs.<br/>
+I follow the these rules when designing an IGP:</p>
+
+<ul>
+<li>Advertise all routers' networks, i.e. <code>network 0.0.0.0 0.0.0.0</code> command</li>
+</ul>
+
+
+<blockquote><p>ideally within a single AS there will be a full-mesh reachability between the devices</p></blockquote>
+
+<ul>
+<li>Explicitly control which interfaces will form routing adjacencies with <code>passive interface</code> commands</li>
+<li>statically set router-id to the address of loopback interface which uniquely identifies the device
+(not included in any other summary and not advertise by anyone else)</li>
+<li>When using EIGRP exclude bandwidth and leave only delay in metric calculation with <code>metric weights 0 0 0 1 0 0</code></li>
+</ul>
+
+
+<blockquote><p>as opposed to bandwidth, interface delay is uniquely used by EIGRP so changing it won&rsquo;t negatively affect any other processes</p></blockquote>
+
+<ul>
+<li>When using OSPF always update reference bandwidth on all routers to 100G with <code>auto-cost reference-bandwidth 100000</code></li>
+<li>All WAN links should be known to IGP natively but should be passive at the same time</li>
+<li>Avoid redistribution between IGP and BGP at all costs</li>
+</ul>
+
+
+<blockquote><p>redistribution can create routing loops due to loss of native routing protocol metric. troubleshooting these loops is one of the most difficult
+tasks for a network engineer</p></blockquote>
+
+<h2>BGP best practices</h2>
+
+<p>Whenever I design a non-stub (i.e. transit) network I try to enable BGP on all transit devices. This rule helps me avoid using redistribution between
+IGP and BGP. Assuming a standard dual-core, dual-wan link topology the core will become a route-reflector whereas WAN routers will become RR-clients.
+The only issue is that a lot of devices used in the network core still come with limit or no BGP support. In this case redistribution can be an option, however
+carefull planning and strict filtering rules need to be put in place in order to prevent any potential routing loops.
+These are my BGP best practices:</p>
+
+<ul>
+<li>Always statically configure BGP router-id to be equal to ip address of loopback interface</li>
+<li>Always send/receive both standard and extended communities <code>neighbor X.X.X.X send-community both</code></li>
+<li>Always add description to a neighbor. You can&rsquo;t overdocument your network</li>
+<li>When configuring iBGP always use loopbacks (advertised by your IGP) for peering. This will help a lot with performance optimisation described below</li>
+<li>Always keep track of BGP AS numbers in use in the network</li>
+<li>For every network that doesn&rsquo;t need to be transit assign community <code>local-as</code> in the inbound route-map</li>
+<li>Whenever possible filter <strong>outbound</strong> rather than <strong>inbound</strong></li>
+</ul>
+
+
+<blockquote><p>this way only infromation <strong>that is needed</strong> is sent to the neighbor</p></blockquote>
+
+<ul>
+<li>Always configure <code>ip bgp community new-format</code> on all routers</li>
+<li>Only inject <strong>summaries</strong> into BGP. The only exception can be routers' loopback address which can be used by remote SLA monitoring.</li>
+</ul>
+
+
+<blockquote><p>This is the key distinction between IGP and BGP. IGPs deal with all networks within an AS big or small.
+BGP deals with networks that represent a whole AS, i.e. summaries.
+Normally, the core device in the network originates a summary from a static <em>null</em> route and advertises it to all the neighbors.</p></blockquote>
+
+<ul>
+<li>Always tag all prefixes injected into BGP with communities. For example:</li>
+</ul>
+
+
+<blockquote><p>65000:0 - for site-specific summary<br/>
+65000:1 - for smaller, site-specific subnets outside of summary range (e.g. DMZ)<br/>
+65000:3 - for 3rd-party routes (e.g. provider-originated routes, interconnects with other clients)</p></blockquote>
+
+<ul>
+<li>Always filter based on communities rather than prefix lists or access-lists</li>
+<li>Do not use route filtering as a security measure. Firewalls are designed to do that</li>
+<li>For any route decision manipulation rely on explicitly configured metrics and not on, say, router-id or IGP metric</li>
+</ul>
+
+
+<blockquote><p>Use as few metric manipulations as possible. For example use local-preference for outbound and as-path for inbound path selection</p></blockquote>
+
+<ul>
+<li>Always tune BGP convergence timers (more on that below)</li>
+</ul>
+
+
+<h2>BGP performance tuning</h2>
+
+<ul>
+<li>BFD</li>
+</ul>
+
+
+<p>This seemingly <em>old</em> technology unfortunately still sees very little adoption in the enterprise market. It is the best option for
+fast high-bandwidth links and should be used whenever possible</p>
+
+<ul>
+<li>external/internal fall-over</li>
+</ul>
+
+
+<p>This convergence optimisation techniques rely on the presence of route to neighbor in the routing table.
+as soon the route is gone, the neighborship is brought down. Fast fall-over is enabled by default for eBGP neighbors
+on Cisco devices and should be enabled manually per neighbor(-group) for iBGP neighbors.</p>
+
+<pre><code># the following triggers fall-over only if host-route to neighbor disappears
+router bgp 10
+ neighbor 1.1.1.1 remote-as 10
+ neigbhor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER
+!
+ip prefix-list PL-ALL-LOOPBACKS 0.0.0.0/0 ge 32
+!
+route-map RM-BGP-FALLOVER
+ match ip address prefix-list PL-ALL-LOOPBACKS
+!
+</code></pre>
+
+<ul>
+<li>BGP keepalive timer</li>
+</ul>
+
+
+<p>Default BGP timers 30/180 seconds are too big for most of the cases. However, if fast fall-over is properly used they never need to be modified.
+Internal fall-over effectively makes BGP neighborships rely on IGP default timers instead, while external fall-over will work only for directly connected
+neighbor (or if a route to this neighbor recurses over a directly connected interface). The only reason to change the default timer values would be if the route
+to external neighbor can potentially recurse over an internal interface (e.g. in case default route is present). In this case using `neighbor X.X.X.X keepalive 10 30"
+would set keepalive/dead timers to 10/30 seconds. The timer values are negotiated to the lowest values between the two peers during neighborship establishment.</p>
+
+<ul>
+<li>Prefix-independent convergence and ip next-hop tracking</li>
+</ul>
+
+
+<p>These two optimisation techniques do not require any configuration and are enabled by default in all recent code versions.
+PIC decouples ip prefixes and next-hops and allows for quicker convergence when multiple BGP prefixes are present in BGP RIB with different next-hops.
+IP NH-tracking triggers route recomputation based on changes in the routing table (i.e. next-hop becoming unavailable) rather than waiting for the periodic update
+scanner to run every 60 seconds. There&rsquo;s plenty of additional information about both PIC (<a href="http://blog.ipspace.net/2012/01/prefix-independent-convergence-pic.html">one</a>, <a href="http://blog.ine.com/2010/11/22/understanding-bgp-convergence/">two</a>, <a href="http://www.cisco.com/c/en/us/td/docs/routers/7600/ios/15S/configuration/guide/7600_15_0s_book/BGP.html">three</a>) and
+IP NH-tracking (<a href="http://blog.ine.com/2010/11/22/understanding-bgp-convergence/">one</a>, <a href="http://www.cisco.com/c/en/us/td/docs/ios/12_2sb/feature/guide/sbbnhop.html">two</a>) on the internet.</p>
+
+<h2>Conclusion</h2>
+
+<p>Enterprise network designers should more often look at their Service Provider counterparts and how they do things.
+SP design practices have been evolving for years and proved to be stable and scalable. License permitting, we can
+apply the same rules in enterprise networks and end up with a more stable and scalable network.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[My First Post]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/02/my-first-post/"/>
+    <updated>2015-06-02T14:19:02-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/02/my-first-post</id>
+    <content type="html"><![CDATA[<h2>Syntax highlighting</h2>
+
+<p>Here&rsquo;s the first post written in kramdown markup. Example of <code>text</code> syntax highlighting</p>
+
+<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>enable
+</span><span class='line'>! IOS comment
+</span><span class='line'>configure terminal
+</span><span class='line'>hostname MY-NEW-BLOG
+</span><span class='line'>interface GigabitEthernet0/0
+</span><span class='line'> description WAN INTERFACE
+</span><span class='line'> ip address 192.168.1.1 255.255.255.0
+</span><span class='line'>banner motd ^
+</span><span class='line'> BANNER-TEXT
+</span><span class='line'>^C
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>and now test it with <code>fenced code block</code> highlighting</p>
+
+<pre><code>route-map RM-FILTER-OUT 10 permit
+version 15.2
+ip prefix-list PL-TEST permit 0.0.0.0/0 le 32
+ip access-list ACL-DENY deny ip any any
+!
+router bgp 100
+ bgp router-id 1.1.1.1
+ neighbor peer-group SPOKES
+ neighbor SPOKES remote-as 100
+ neighbor SPOKES update-source Loopback0
+ neighbor 2.2.2.2 peer-group SPOKES
+ neighbor 3.3.3.3 peer-group SPOKES
+!
+line vty 0 4
+ transport input ssh
+!
+end
+</code></pre>
+
+<hr />
+
+<!--more-->
+
+
+<p>Unfortunately, there&rsquo;s no way to modify GH-PAGES&rsquo;s default syntax highlighter. Otherwise it could have been possible
+to use a version of <a href="https://github.com/nemith/pygments-routerlexers">Cisco IOS lexer</a> developed by <a href="https://github.com/nemith">Brandon Bennett</a> for pygments.
+Of course, there&rsquo;s always an option to build a site locally and push it out already compiled. That&rsquo;s something I might consider later on, if I really need that IOS syntax highlighter.</p>
+
+<p>BTW, while playing with lexers and troubleshooting regexps found <a href="https://regex101.com/">a brilliant tool for regex testing</a></p>
+
+<p>Installation procedure of a new pygments lexer is described on <a href="http://pygments.org/docs/lexerdevelopment/">Pygments Website</a>.</p>
+
+<h2>Diagrams</h2>
+
+<p><img class="centre" src="http://networkop.github.io/images/unetlab-full-topo.png" title="'Big Network topology'" ></p>
+
+<p>For network virtualization I&rsquo;ll be using <a href="http://www.unetlab.com/">Unetlab</a></p>
+
+<h2>Guithub gists</h2>
+
+<div><script src='https://gist.github.com/1ae62939b268945cec10.js?file=gistfile1.py'></script>
+<noscript><pre><code>class TraceParse(object):
+ 
+    def __init__(self, module):
+        self.std_out = module.params[&#39;std_out&#39;]
+        self.dest_host = module.params[&#39;dest_host&#39;]
+ 
+    def parse(self):
+        result = {}
+        path = list()
+        for line in self.std_out.split(&quot;\n&quot;):
+            if &#39;msec&#39; in line:
+                path.append(line.split()[1])
+        result[self.dest_host] = path
+        return 0, result
+ 
+ 
+def main():
+    # creating module instance. accepting raw text output and abbreviation of command
+    module = AnsibleModule(
+        argument_spec=dict(
+            std_out=dict(required=True, type=&#39;str&#39;),
+            dest_host=dict(required=True, type=&#39;str&#39;)
+        ),
+        supports_check_mode=True,
+    )
+ 
+    # instantiate command parser
+    traceParser = TraceParse(module)
+    # parse the output of show ip interface brief command
+    rc, result = traceParser.parse()
+    # exiting module
+    #print &quot;RESULT=&quot; + str(result)
+    if rc != 0:
+        module.fail_json(msg=&quot;Failed to parse. Incorrect input.&quot;)
+    else:
+        module.exit_json(changed=False, ansible_facts=result)
+ 
+# import module snippets
+from ansible.module_utils.basic import *
+main()</code></pre></noscript></div>
+
+
+<p>Link to the site of <a href="http://cisco.com">Big C</a>. And here&rsquo;s the link to github pages blog <a href="https://github.io/">Github.io</a>. Link to my github account <a href="https://github.com/mkashin">Michael Kashin&rsquo;s github</a>.</p>
+]]></content>
+  </entry>
+  
+</feed>

@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Category: Sample | Network oriented programming]]></title>
+  <link href="http://networkop.github.io/blog/categories/sample/atom.xml" rel="self"/>
+  <link href="http://networkop.github.io/"/>
+  <updated>2015-06-13T01:06:20-07:00</updated>
+  <id>http://networkop.github.io/</id>
+  <author>
+    <name><![CDATA[Michael Kashin]]></name>
+    <email><![CDATA[mmkashin@gmail.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[My First Post]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/02/my-first-post/"/>
+    <updated>2015-06-02T14:19:02-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/02/my-first-post</id>
+    <content type="html"><![CDATA[<h2>Syntax highlighting</h2>
+
+<p>Here&rsquo;s the first post written in kramdown markup. Example of <code>text</code> syntax highlighting</p>
+
+<p><figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>enable
+</span><span class='line'>! IOS comment
+</span><span class='line'>configure terminal
+</span><span class='line'>hostname MY-NEW-BLOG
+</span><span class='line'>interface GigabitEthernet0/0
+</span><span class='line'> description WAN INTERFACE
+</span><span class='line'> ip address 192.168.1.1 255.255.255.0
+</span><span class='line'>banner motd ^
+</span><span class='line'> BANNER-TEXT&lt;br/&gt;
+</span><span class='line'>^C
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>and now test it with <code>fenced code block</code> highlighting</p>
+
+<pre><code>route-map RM-FILTER-OUT 10 permit
+version 15.2
+ip prefix-list PL-TEST permit 0.0.0.0/0 le 32
+ip access-list ACL-DENY deny ip any any
+!
+router bgp 100
+ bgp router-id 1.1.1.1
+ neighbor peer-group SPOKES
+ neighbor SPOKES remote-as 100
+ neighbor SPOKES update-source Loopback0
+ neighbor 2.2.2.2 peer-group SPOKES
+ neighbor 3.3.3.3 peer-group SPOKES
+!
+line vty 0 4
+ transport input ssh
+!
+end
+</code></pre>
+
+<hr />
+
+<!--more-->
+
+
+<p>Unfortunately, there&rsquo;s no way to modify GH-PAGES&rsquo;s default syntax highlighter. Otherwise it could have been possible
+to use a version of <a href="https://github.com/nemith/pygments-routerlexers">Cisco IOS lexer</a> developed by <a href="https://github.com/nemith">Brandon Bennett</a> for pygments.
+Of course, there&rsquo;s always an option to build a site locally and push it out already compiled. That&rsquo;s something I might consider later on, if I really need that IOS syntax highlighter.</p>
+
+<p>BTW, while playing with lexers and troubleshooting regexps found <a href="https://regex101.com/">a brilliant tool for regex testing</a></p>
+
+<p>Installation procedure of a new pygments lexer is described on <a href="http://pygments.org/docs/lexerdevelopment/">Pygments Website</a>.</p>
+
+<h2>Diagrams</h2>
+
+<p><img class="centre" src="/images/unetlab-full-topo.png" title="&lsquo;Big Network topology&rsquo;" ></p>
+
+<p>For network virtualization I&rsquo;ll be using <a href="http://www.unetlab.com/">Unetlab</a></p>
+
+<h2>Guithub gists</h2>
+
+<p><div><script src='https://gist.github.com/1ae62939b268945cec10.js?file=gistfile1.py'></script>
+<noscript><pre><code>class TraceParse(object):
+ 
+    def __init__(self, module):
+        self.std_out = module.params[&#39;std_out&#39;]
+        self.dest_host = module.params[&#39;dest_host&#39;]
+ 
+    def parse(self):
+        result = {}
+        path = list()
+        for line in self.std_out.split(&quot;\n&quot;):
+            if &#39;msec&#39; in line:
+                path.append(line.split()[1])
+        result[self.dest_host] = path
+        return 0, result
+ 
+ 
+def main():
+    # creating module instance. accepting raw text output and abbreviation of command
+    module = AnsibleModule(
+        argument_spec=dict(
+            std_out=dict(required=True, type=&#39;str&#39;),
+            dest_host=dict(required=True, type=&#39;str&#39;)
+        ),
+        supports_check_mode=True,
+    )
+ 
+    # instantiate command parser
+    traceParser = TraceParse(module)
+    # parse the output of show ip interface brief command
+    rc, result = traceParser.parse()
+    # exiting module
+    #print &quot;RESULT=&quot; + str(result)
+    if rc != 0:
+        module.fail_json(msg=&quot;Failed to parse. Incorrect input.&quot;)
+    else:
+        module.exit_json(changed=False, ansible_facts=result)
+ 
+# import module snippets
+from ansible.module_utils.basic import *
+main()</code></pre></noscript></div>
+
+Link to the site of <a href="http://cisco.com">Big C</a>. And here&rsquo;s the link to github pages blog <a href="https://github.io/">Github.io</a>. Link to my github account <a href="https://github.com/mkashin">Michael Kashin&rsquo;s github</a>.</p>
+]]></content>
+  </entry>
+  
+</feed>
