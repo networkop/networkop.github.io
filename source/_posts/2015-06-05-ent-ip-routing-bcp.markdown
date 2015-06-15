@@ -2,9 +2,11 @@
 layout: post
 title:  "Enterprise IP routing best practices"
 date:   2015-06-03 21:19:02
-tags: [bgp, eigpr, ospf, igp, cisco, best practice, routing, enterprise]
-image:
-  feature: abstract-3.jpg
+sharing: true
+footer: true
+comments: true
+categories: [routing, best practice]
+keywords: bgp, igp, best practice, routing, enterprise
 modified: 2015-06-09
 published: true
 description: IGP/BGP best practices for enterprise network.

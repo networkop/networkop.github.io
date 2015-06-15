@@ -2,7 +2,11 @@
 layout: post
 title:  "Structured approach to troubleshooting of L3VPN networks"
 date:   2015-06-10 12:52:00
-tags: [mpls, troubleshooting, l3vpn, cisco]
+sharing: true
+footer: true
+comments: true
+categories: [L3VPN, Troubleshooting]
+keywords: mpls, l3vpn, troubleshooting, cisco
 modified: 2015-06-10
 published: true
 description: L3VPN troubleshooting algorithm.

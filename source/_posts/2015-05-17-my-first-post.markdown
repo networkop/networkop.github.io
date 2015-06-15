@@ -2,12 +2,11 @@
 layout: post
 title:  "My First Post"
 date:   2015-06-02 21:19:02
-tags: [sample post, code, highlighting, cisco, ios]
 modified: 2015-06-05
-published: true
-categories: [sample, octopress]
+categories: [sample, octopress, bgp]
 keywords: sample, post, octopress, blog
 comments: true
+published: true
 ---
 
 
@@ -49,6 +48,16 @@ line vty 0 4
 end
 ~~~~
 
+some python code
+{% codeblock lang:python %}
+import re
+for test_string in ['555-1212', 'ILL-EGAL']:
+    if re.match(r'^\d{3}-\d{4}$', test_string):
+        print test_string, 'is a valid US local phone number'
+    else:
+        print test_string, 'rejected'
+{% endcodeblock  %}
+		
 ---
 
 <!--more-->

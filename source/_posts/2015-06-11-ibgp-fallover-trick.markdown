@@ -2,9 +2,11 @@
 layout: post
 title:  "iBGP fall-over trick"
 date:   2015-06-11
-tags: [bgp, fall-over, trick, ibgp]
-image:
-  feature: abstract-6.jpg
+sharing: true
+footer: true
+comments: true
+categories: [BGP, Trick]
+keywords: bgp, fall-over, trick, ibgp
 modified: 2015-06-11
 description: iBGP fall-over trick
 ---
