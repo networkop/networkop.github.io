@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Category: Tdd | Network-oriented programming]]></title>
+  <link href="http://networkop.github.io/blog/categories/tdd/atom.xml" rel="self"/>
+  <link href="http://networkop.github.io/"/>
+  <updated>2015-06-15T05:30:13-07:00</updated>
+  <id>http://networkop.github.io/</id>
+  <author>
+    <name><![CDATA[Michael Kashin]]></name>
+    <email><![CDATA[mmkashin@gmail.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[Building a Simple Network TDD Framework]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/"/>
+    <updated>2015-06-15T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/15/simple-tdd-framework</id>
+    <content type="html"><![CDATA[<h2>Intro</h2>
+
+<p>In the following series of posts I will show how to build a simple Test-Driven Development framework
+for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of <a href="[http://docs.ansible.com/list_of_files_modules.html]">Ansible</a> <em>modules</em> and <em>playbooks</em>. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. <abbr title="Software-Defined Network">SDN</abbr>. The reader is assumed to have only a basic networking and python programming skills.</p>
+
+<!--more-->
+
+
+<h2>Before we begin (optional section)</h2>
+
+<p>Before we go on, I&rsquo;d like to put a little disclaimer about terms being used in this post. <abbr title="Test-Driven Development">TDD</abbr>, and its counterpart <abbr title="Behaviour-Driven Development">BDD</abbr>,
+are well-known and accepted practices in development world. Both rely on the assumption that tests will be written
+before the code and will <em>drive</em> code development. This seemingly unnatural approach became extremely popular with the advent of <a href="[http://agilemanifesto.org/]">Agile</a> and is still being widely used, specifically in web development. What I will be developing will look more like a BDD rather than TDD, since it will be testing overall system behaviour rather than small self-contained portions of configuration. However, I still prefer to use the term TDD, firstly, because it&rsquo;s easier to understand for people from a non-dev background, secondly, because it&rsquo;s very hard/impossible to test small portions of network configuration (like routing protocol configuration), and lastly, since my tests will rely heavily on traceroutes, TDD may as well stand for Traceroute-Driven Development.</p>
+
+<h2>How will it work?</h2>
+
+<p>Traffic flow patterns, a.k.a. traffic paths is one bit of information that even higher-level management is able to comprehend. With a nice network diagram it is easy to show how low-latency traffic from Network_A will flow to Network_B through private VPN link on Router_X, while an internet-bound traffic will traverse a low-cost, high-latency Internet link on Router_Y. The TDD framework will use the same idea but in a text format</p>
+
+<pre><code>1. Testing of BGP
+  1. From Router1 to Router2 via Router4, Router5
+  2. From Router2 to Router1 via Router5, Router4
+2. Test suite 2
+  1. From Router4 to Router1 via Router3
+  2. From Router4 to Router2 via Router7
+</code></pre>
+
+<p>This format can be understood by both network engineers and their clients and can be used as a basis for network acceptance and verification testing. At the same time it follows a strictly defined format which can be parsed, processed and actioned by a program. I&rsquo;ll show how to write an Ansible module that parses this text, runs a traceroute and checks if the test was successful.<br/>
+These tests can also be used during regression testing of the network each time network configuration changes. This kind of verification offers a much more reliable result compared to visual examination of traceroute results and routing tables.</p>
+
+<h2>Step-by-step procedure</h2>
+
+<p>This is how I see the whole development process now (before I started). Some section may get added/removed in the process.</p>
+
+<ol>
+<li>Development environment setup</li>
+<li>Ansible basics and inventory setup</li>
+<li>Developing Ansible library to run traceroutes</li>
+<li>Developing Ansible library to verify test scenarios</li>
+</ol>
+
+]]></content>
+  </entry>
+  
+</feed>
