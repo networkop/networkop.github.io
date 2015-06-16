@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Category: Trick | Network-oriented programming]]></title>
+  <link href="http://networkop.github.io/blog/categories/trick/atom.xml" rel="self"/>
+  <link href="http://networkop.github.io/"/>
+  <updated>2015-06-15T22:13:14-04:00</updated>
+  <id>http://networkop.github.io/</id>
+  <author>
+    <name><![CDATA[Michael Kashin]]></name>
+    <email><![CDATA[mmkashin@gmail.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[iBGP Fall-over Trick]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/"/>
+    <updated>2015-06-11T00:00:00-04:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick</id>
+    <content type="html"><![CDATA[<p>BGP fall-over is a neat BGP convergence optimisation technique whereby BGP peering is brought down as soon as the route to neighbor disappears from a routing table.
+The difference between external and internal BGP is that the former usually peers over a directly-attached interface so that when the interface to neighbor is disconnected,
+route is withdrawn from the routing table which triggers eBGP fall-over to bring down the neighborship.
+iBGP, on the other hand, normally uses device loopbacks to establish peering sessions. What this means is if a summary or a default route is present in the routing table (either static or learned
+via IGP), there is always a route to iBGP neighbor. In this case BGP has to wait for default 180 seconds (3 x keepalive timer) to bring down the neighborship and withdraw all the routes learned from dead neighbor.<br/>
+To overcome that there&rsquo;s a route-map option for a <code>neighbor fall-over</code> command which allows user to specify the exact prefix for which to look in the routing table. In the example below, the router will
+look for specific host routes representing neighbor&rsquo;s loopbacks and will trigger reconvergence as soon as those routes disappear.</p>
+
+<!--more-->
+
+
+<p><div class="highlight"><pre><code class="language-text" data-lang="text">!
+router bgp 100
+ neighbor 1.1.1.1 remote-as 100
+ neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER-1
+ neighbor 2.2.2.2 remote-as 200
+ neighbor 2.2.2.2 fall-over route-map RM-BGP-FALLOVER-2
+!
+ip prefix-list PL-ROUTER-1 seq 5 permit 1.1.1.1/32
+!
+ip prefix-list PL-ROUTER-2 seq 5 permit 2.2.2.2/32
+!
+route-map RM-BGP-FALLOVER-1 permit 10
+ match ip address prefix-list PL-ROUTER-1
+!
+route-map RM-BGP-FALLOVER-2 permit 10
+ match ip address prefix-list PL-ROUTER-2
+!</code></pre></div></p>
+
+<p>It&rsquo;s obvious that this configuration is not very scalable as it requires a separate route-map and a separate prefix-list for each of the iBGP neighbors which,
+on a device like a route-reflector, can easily turn into dozens of lines of code.</p>
+
+<h2>Solution</h2>
+
+<p>There is a nice and short way of how to accomplish the same task which relies on a prefix-list property often overlooked. Cisco&rsquo;s ip prefix-list are often used in the
+most straight-forward way, e.g. to define a a link-local subnet we&rsquo;d use <code>169.254.0.0/16</code> or <code>0.0.0.0/0 le 32</code> for all possible prefixes. However, there&rsquo;s a way
+to define, for example, a list of prefixes that start with 10.0. and have a length from /24 to /25 with <code>10.0.0.0/16 ge 24 le 25</code>. In this case the first /16 defines
+the number of bits in the prefix to be matched and ge, le simple define the length boundaries. Using a similar logic it is possible to define all prefix-list that
+would match all possible host-routes - <code>ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32</code>. The first part <code>0.0.0.0/0</code> makes the router ignore the actual
+bits in the prefix effectively making it match ALL prefixes, while the second part <code>ge 32</code> tells the router to only match prefixes that are => 32 effectively matching
+only host-specific routes.<br/>
+With that in mind, it is possible to re-write the former
+config in a much more concise format so that all iBGP neighbors would use a single route-map with a single prefix-list.
+ <div class="highlight"><pre><code class="language-text" data-lang="text">!
+router bgp 100
+ neighbor 1.1.1.1 remote-as 100
+ neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER
+ neighbor 2.2.2.2 remote-as 200
+ neighbor 2.2.2.2 fall-over route-map RM-BGP-FALLOVER
+!
+ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32
+!
+route-map RM-BGP-FALLOVER permit 10
+ match ip address prefix-list PL-ALL-LOOPBACKS
+!</code></pre></div></p>
+
+<p>What happens now is that Cisco router, when bringing up the neighbor, scans it&rsquo;s own routing table looking for a /32 host-route that matches the ip address of that neighbor and
+attaches a listener to this route. If the neighbor goes down, the IGP will detect it a lot sooner than BGP and will withdraw that host-route; our router&rsquo;s bgp process will get notified
+and will re-scan it&rsquo;s routing table for any other matches and, having found none, will bring down the neighborship immediately. Effectively this makes iBGP rely totally on timers of underlying IGP, which,
+needless to say, dramatically speeds up convergence times for BGP.</p>
+]]></content>
+  </entry>
+  
+</feed>

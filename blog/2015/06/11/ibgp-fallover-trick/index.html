@@ -2,11 +2,11 @@
 <html class="no-js" lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Network-oriented programming</title>
+  <title>iBGP Fall-over Trick - Network-oriented programming</title>
   <meta name="author" content="Michael Kashin">
 
-  
-  
+  <meta name="description" content="iBGP fall-over trick">
+  <meta name="keywords" content="bgp, fall-over, trick, ibgp">
 
   <!-- http://t.co/dKP3o1e -->
   <meta name="HandheldFriendly" content="True">
@@ -14,16 +14,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   
-  <link rel="canonical" href="http://networkop.github.io/">
+  <link rel="canonical" href="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/">
   <link href="/favicon.png" type="image/png" rel="icon">
   <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
 
   <!-- http://opengraphprotocol.org/ -->
   <meta name="twitter:card" content="summary_large_image">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/">
-  <meta property="og:title" content="Network-oriented programming">
-  <meta property="og:description" content="description goes here">
+  <meta property="og:url" content="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/">
+  <meta property="og:title" content="iBGP Fall-over Trick - Network-oriented programming">
+  <meta property="og:description" content="iBGP fall-over trick">
 
   <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
 
@@ -102,62 +102,12 @@
       <div id="main" role="main" class="container">
         <div id="content">
           <div class="row">
-  <div class="page-content col-md-9">
-    <div class="blog-index" itemscope itemtype="http://schema.org/Blog">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
     <meta itemprop="name" content="Network-oriented programming" />
     <meta itemprop="description" content="description goes here" />
     <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
       
-      
-      
-        <article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
-          
-  <header class="page-header">
-    
-      <p class="meta text-muted text-uppercase">
-        
-
-
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-15T00:00:00-04:00"  data-updated="true" itemprop="datePublished dateCreated">15/06/2015</time>
-        
-           | <a href="/blog/2015/06/15/simple-tdd-framework/#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/">Comments</a>
-        
-      </p>
-    
-    
-      <h2 class="entry-title" itemprop="name headline"><a href="/blog/2015/06/15/simple-tdd-framework/" itemprop="url">Building a Simple Network TDD Framework</a></h2>
-    
-  </header>
-
-
-  <div class="entry-content clearfix" itemprop="articleBody description"><p>In the following series of posts I will show how to build a simple Test-Driven Development framework
-for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of <a href="[http://docs.ansible.com/list_of_files_modules.html]">Ansible</a> <em>modules</em> and <em>playbooks</em>. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. <abbr title="Software-Defined Network">SDN</abbr>. The reader is assumed to have only a basic networking and python programming skills.</p>
-
-</div>
-  
-  
-    <footer>
-      <a class="read-more btn btn-default" href="/blog/2015/06/15/simple-tdd-framework/">Read on &rarr;</a>
-    </footer>
-  
-
-
-        </article>
-      
-      
-        <article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
-          
   <header class="page-header">
     
       <p class="meta text-muted text-uppercase">
@@ -176,18 +126,21 @@ for Cisco devices. This framework will allow a network engineer to define traffi
 
 <span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-11T00:00:00-04:00"  data-updated="true" itemprop="datePublished dateCreated">11/06/2015</time>
         
-           | <a href="/blog/2015/06/11/ibgp-fallover-trick/#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/">Comments</a>
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
         
       </p>
     
     
-      <h2 class="entry-title" itemprop="name headline"><a href="/blog/2015/06/11/ibgp-fallover-trick/" itemprop="url">iBGP Fall-over Trick</a></h2>
+    <h1 class="entry-title" itemprop="name headline">
+        iBGP Fall-over Trick
+        
+    </h1>
     
   </header>
 
 
-  <div class="entry-content clearfix" itemprop="articleBody description"><p>BGP fall-over is a neat BGP convergence optimisation technique whereby BGP peering is brought down as soon as the route to neighbor disappears from a routing table.
+<div class="entry-content clearfix" itemprop="articleBody description"><p>BGP fall-over is a neat BGP convergence optimisation technique whereby BGP peering is brought down as soon as the route to neighbor disappears from a routing table.
 The difference between external and internal BGP is that the former usually peers over a directly-attached interface so that when the interface to neighbor is disconnected,
 route is withdrawn from the routing table which triggers eBGP fall-over to bring down the neighborship.
 iBGP, on the other hand, normally uses device loopbacks to establish peering sessions. What this means is if a summary or a default route is present in the routing table (either static or learned
@@ -195,143 +148,135 @@ via IGP), there is always a route to iBGP neighbor. In this case BGP has to wait
 To overcome that there&rsquo;s a route-map option for a <code>neighbor fall-over</code> command which allows user to specify the exact prefix for which to look in the routing table. In the example below, the router will
 look for specific host routes representing neighbor&rsquo;s loopbacks and will trigger reconvergence as soon as those routes disappear.</p>
 
+<!--more-->
+
+
+
+
+<div class="highlight"><pre><code class="language-text" data-lang="text">!
+router bgp 100
+ neighbor 1.1.1.1 remote-as 100
+ neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER-1
+ neighbor 2.2.2.2 remote-as 200
+ neighbor 2.2.2.2 fall-over route-map RM-BGP-FALLOVER-2
+!
+ip prefix-list PL-ROUTER-1 seq 5 permit 1.1.1.1/32
+!
+ip prefix-list PL-ROUTER-2 seq 5 permit 2.2.2.2/32
+!
+route-map RM-BGP-FALLOVER-1 permit 10
+ match ip address prefix-list PL-ROUTER-1
+!
+route-map RM-BGP-FALLOVER-2 permit 10
+ match ip address prefix-list PL-ROUTER-2
+!</code></pre></div>
+
+
+<p>It&rsquo;s obvious that this configuration is not very scalable as it requires a separate route-map and a separate prefix-list for each of the iBGP neighbors which,
+on a device like a route-reflector, can easily turn into dozens of lines of code.</p>
+
+<h2>Solution</h2>
+
+<p>There is a nice and short way of how to accomplish the same task which relies on a prefix-list property often overlooked. Cisco&rsquo;s ip prefix-list are often used in the
+most straight-forward way, e.g. to define a a link-local subnet we&rsquo;d use <code>169.254.0.0/16</code> or <code>0.0.0.0/0 le 32</code> for all possible prefixes. However, there&rsquo;s a way
+to define, for example, a list of prefixes that start with 10.0. and have a length from /24 to /25 with <code>10.0.0.0/16 ge 24 le 25</code>. In this case the first /16 defines
+the number of bits in the prefix to be matched and ge, le simple define the length boundaries. Using a similar logic it is possible to define all prefix-list that
+would match all possible host-routes - <code>ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32</code>. The first part <code>0.0.0.0/0</code> makes the router ignore the actual
+bits in the prefix effectively making it match ALL prefixes, while the second part <code>ge 32</code> tells the router to only match prefixes that are => 32 effectively matching
+only host-specific routes.<br/>
+With that in mind, it is possible to re-write the former
+config in a much more concise format so that all iBGP neighbors would use a single route-map with a single prefix-list.</p>
+
+<div class="highlight"><pre><code class="language-text" data-lang="text">!
+router bgp 100
+ neighbor 1.1.1.1 remote-as 100
+ neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER
+ neighbor 2.2.2.2 remote-as 200
+ neighbor 2.2.2.2 fall-over route-map RM-BGP-FALLOVER
+!
+ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32
+!
+route-map RM-BGP-FALLOVER permit 10
+ match ip address prefix-list PL-ALL-LOOPBACKS
+!</code></pre></div>
+
+
+<p>What happens now is that Cisco router, when bringing up the neighbor, scans it&rsquo;s own routing table looking for a /32 host-route that matches the ip address of that neighbor and
+attaches a listener to this route. If the neighbor goes down, the IGP will detect it a lot sooner than BGP and will withdraw that host-route; our router&rsquo;s bgp process will get notified
+and will re-scan it&rsquo;s routing table for any other matches and, having found none, will bring down the neighborship immediately. Effectively this makes iBGP rely totally on timers of underlying IGP, which,
+needless to say, dramatically speeds up convergence times for BGP.</p>
 </div>
-  
-  
-    <footer>
-      <a class="read-more btn btn-default" href="/blog/2015/06/11/ibgp-fallover-trick/">Read on &rarr;</a>
-    </footer>
-  
 
 
-        </article>
-      
-      
-        <article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      <footer>
+        <p class="meta text-muted">
           
-  <header class="page-header">
-    
-      <p class="meta text-muted text-uppercase">
-        
-
-
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-10T08:52:00-04:00"  data-updated="true" itemprop="datePublished dateCreated">10/06/2015</time>
-        
-           | <a href="/blog/2015/06/10/l3vpn-mpls-troubleshoot/#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io/blog/2015/06/10/l3vpn-mpls-troubleshoot/">Comments</a>
-        
-      </p>
-    
-    
-      <h2 class="entry-title" itemprop="name headline"><a href="/blog/2015/06/10/l3vpn-mpls-troubleshoot/" itemprop="url">Structured Approach to Troubleshooting of L3VPN Networks</a></h2>
-    
-  </header>
-
-
-  <div class="entry-content clearfix" itemprop="articleBody description"><p>With the amount of configuration involved in a typical L3VPN configuration, troubleshooting process can get pretty chaotic, especially
-in a time-constrained environments like CCIE lab. That&rsquo;s why it is extremely important to have a well-structured approach to quickly
-narrow down the potential problem area. I used the below algorithm while preparing for my lab exam.
-Like most of the networking problems, troubleshooting of L3VPNs can and must be split into two different phases - control plane and data plane.
-All steps must be done sequentially with each next step relying on the successful verification of all previous steps.</p>
-
-<p><img class="centre" src="/images/l3vpn.jpg" title="Test topology" ></p>
-
-<dl>
-<dt>Problem definition</dt>
-<dd>CE-1 (10.0.0.1) can not reach CE-2 (10.0.0.2)</dd>
-</dl>
-
-</div>
-  
-  
-    <footer>
-      <a class="read-more btn btn-default" href="/blog/2015/06/10/l3vpn-mpls-troubleshoot/">Read on &rarr;</a>
-    </footer>
   
 
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
 
-        </article>
-      
-      
-        <article class="post" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
           
-  <header class="page-header">
-    
-      <p class="meta text-muted text-uppercase">
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-11T00:00:00-04:00"  data-updated="true" itemprop="datePublished dateCreated">11/06/2015</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/bgp/'>bgp</a> <a class='category label label-primary' href='/blog/categories/trick/'>trick</a>
+  
+</span>
+
+
+        </p>
         
-
-
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-03T17:19:02-04:00"  data-updated="true" itemprop="datePublished dateCreated">03/06/2015</time>
-        
-           | <a href="/blog/2015/06/03/ent-ip-routing-bcp/#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io/blog/2015/06/03/ent-ip-routing-bcp/">Comments</a>
-        
-      </p>
-    
-    
-      <h2 class="entry-title" itemprop="name headline"><a href="/blog/2015/06/03/ent-ip-routing-bcp/" itemprop="url">Enterprise IP Routing Best Practices</a></h2>
-    
-  </header>
-
-
-  <div class="entry-content clearfix" itemprop="articleBody description"><p>What motivated me to write this post is a state of the IP routing of some of the enterprise networks I&rsquo;ve seen.
-A quick <code>show ip route</code> command reveals a non-disentanglable mixture of dynamic and static route with multiple points of redistribution and complex,
-rigid filtering rules, something you&rsquo;d only see in your bad dream or a CCIE-level lab. It certainly takes
-a good engineer to understand how it works and even that can take up to several hours. I think the reason for that
-is that people have generally been concentrated on learning about the routing protocol, how it works, all the knobs you can twist
-to influence a routing decision logic. However, one thing often overlooked is the routing protocols best practice design,
-i.e. <strong>when</strong> and <strong>how</strong> to use a particular protocol.
-And since the latter is often an acquired skill, a lot of not-so-lucky engineers end up with wrong ideas and concepts
-in the heads. Below I&rsquo;ll try to list what <em>I</em>{:.underline} consider a best practice design of today&rsquo;s enterprise networks.</p>
-
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/" data-via="" data-counturl="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
 </div>
-  
-  
-    <footer>
-      <a class="read-more btn btn-default" href="/blog/2015/06/03/ent-ip-routing-bcp/">Read on &rarr;</a>
-    </footer>
-  
 
-
-        </article>
-      
-    </div>
-
-    <ul class="pager">
-      
-        <li class="previous disabled"><a href="#">&larr;&nbsp;Older</a></li>
-      
-      <li><a href="/blog/archives">Blog Archives</a></li>
-      
-        <li class="next disabled"><a href="#">Newer&nbsp;&rarr;</a></li>
-      
-    </ul>
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2015/06/10/l3vpn-mpls-troubleshoot/" title="Previous Post: Structured approach to troubleshooting of L3VPN networks">&laquo; Structured approach to troubleshooting of L3VPN networks</a></li>
+            
+            
+            <li class="next"><a href="/blog/2015/06/15/simple-tdd-framework/" title="Next Post: Building a simple network TDD framework">Building a simple network TDD framework &raquo;</a></li>
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
   </div>
 
   
-    <aside class="sidebar col-md-3">
-      
-        <section class="panel panel-default">
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
   <div class="panel-heading">
     <h3 class="panel-title">Recent Posts</h3>
   </div>
@@ -340,7 +285,7 @@ in the heads. Below I&rsquo;ll try to list what <em>I</em>{:.underline} consider
     
     <a class="list-group-item " href="/blog/2015/06/15/simple-tdd-framework/">Building a Simple Network TDD Framework</a>
     
-    <a class="list-group-item " href="/blog/2015/06/11/ibgp-fallover-trick/">iBGP Fall-over Trick</a>
+    <a class="list-group-item active" href="/blog/2015/06/11/ibgp-fallover-trick/">iBGP Fall-over Trick</a>
     
     <a class="list-group-item " href="/blog/2015/06/10/l3vpn-mpls-troubleshoot/">Structured Approach to Troubleshooting of L3VPN Networks</a>
     
@@ -405,8 +350,8 @@ in the heads. Below I&rsquo;ll try to list what <em>I</em>{:.underline} consider
     
   </div>
 </section>
-      
-    </aside>
+    
+  </aside>
   
 </div>
 
@@ -430,7 +375,10 @@ in the heads. Below I&rsquo;ll try to list what <em>I</em>{:.underline} consider
       var disqus_shortname = 'networkop';
       
         
-        var disqus_script = 'count.js';
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/';
+        var disqus_url = 'http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/';
+        var disqus_script = 'embed.js';
       
     (function () {
       var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
