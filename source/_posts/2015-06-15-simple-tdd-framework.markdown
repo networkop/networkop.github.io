@@ -10,8 +10,6 @@ keywords: tdd, ansible, cisco, programming, sdn
 description: Building a test-driven development framework for Cisco devices on Ansible with Python.
 ---
 
-## Intro
-
 In the following series of posts I will show how to build a simple Test-Driven Development framework
 for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of [Ansible][ansible-website] _modules_ and _playbooks_. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. [SDN](abbr:Software-Defined Network). The reader is assumed to have only a basic networking and python programming skills.
 

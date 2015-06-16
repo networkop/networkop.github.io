@@ -3,14 +3,12 @@ layout: post
 title:  "My First Post"
 date:   2015-06-02 21:19:02
 modified: 2015-06-05
-categories: [sample, octopress, bgp]
+categories: [sample, octopress]
 keywords: sample, post, octopress, blog
 comments: true
-published: true
+published: false
 ---
 
-
-## Syntax highlighting
 Here's the first post written in kramdown markup. Example of `text` syntax highlighting
 
 {% codeblock lang:text %}

@@ -10,7 +10,7 @@ keywords: bgp, fall-over, trick, ibgp
 modified: 2015-06-11
 description: iBGP fall-over trick
 ---
-## What gives?
+
 BGP fall-over is a neat BGP convergence optimisation technique whereby BGP peering is brought down as soon as the route to neighbor disappears from a routing table.
 The difference between external and internal BGP is that the former usually peers over a directly-attached interface so that when the interface to neighbor is disconnected,
 route is withdrawn from the routing table which triggers eBGP fall-over to bring down the neighborship.

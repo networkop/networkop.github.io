@@ -11,7 +11,7 @@ modified: 2015-06-10
 published: true
 description: L3VPN troubleshooting algorithm.
 ---
-## What gives?
+
 With the amount of configuration involved in a typical L3VPN configuration, troubleshooting process can get pretty chaotic, especially
 in a time-constrained environments like CCIE lab. That's why it is extremely important to have a well-structured approach to quickly
 narrow down the potential problem area. I used the below algorithm while preparing for my lab exam.

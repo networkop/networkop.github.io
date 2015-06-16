@@ -11,7 +11,7 @@ modified: 2015-06-09
 published: true
 description: IGP/BGP best practices for enterprise network.
 ---
-## What gives?
+
 What motivated me to write this post is a state of the IP routing of some of the enterprise networks I've seen.
 A quick `show ip route` command reveals a non-disentanglable mixture of dynamic and static route with multiple points of redistribution and complex, 
 rigid filtering rules, something you'd only see in your bad dream or a CCIE-level lab. It certainly takes
