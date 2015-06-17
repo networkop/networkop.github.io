@@ -11,7 +11,7 @@ description: Building a test-driven development framework for Cisco devices on A
 ---
 
 In the following series of posts I will show how to build a simple Test-Driven Development framework
-for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of [Ansible][ansible-website] _modules_ and _playbooks_. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. [SDN](abbr:Software-Defined Network). The reader is assumed to have only a basic networking and python programming skills.
+for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of [Ansible][ansible-website] _modules_ and _playbooks_. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. [SDN](abbr:Software-Defined Network). The reader is assumed to have only a basic networking, linux and python programming skills.
 
 <!--more-->
 
@@ -25,14 +25,14 @@ before the code and will _drive_ code development. This seemingly unnatural appr
 
 Traffic flow patterns, a.k.a. traffic paths is one bit of information that even higher-level management is able to comprehend. With a nice network diagram it is easy to show how low-latency traffic from Network_A will flow to Network_B through private VPN link on Router_X, while an internet-bound traffic will traverse a low-cost, high-latency Internet link on Router_Y. The TDD framework will use the same idea but in a text format
 
-~~~
-1. Testing of BGP
+``` text
+1. Testing of Primary Link
   1. From Router1 to Router2 via Router4, Router5
   2. From Router2 to Router1 via Router5, Router4
-2. Test suite 2
+2. Testing of Backup Link
   1. From Router4 to Router1 via Router3
   2. From Router4 to Router2 via Router7
-~~~
+```
 
 This format can be understood by both network engineers and their clients and can be used as a basis for network acceptance and verification testing. At the same time it follows a strictly defined format which can be parsed, processed and actioned by a program. I'll show how to write an Ansible module that parses this text, runs a traceroute and checks if the test was successful.  
 These tests can also be used during regression testing of the network each time network configuration changes. This kind of verification offers a much more reliable result compared to visual examination of traceroute results and routing tables.
