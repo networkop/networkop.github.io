@@ -31,7 +31,7 @@ This is the topology I will be using for testing:
 
 Each device will have a Loopback interface in `10.0.0.0/24` subnet which I will statically point to `interface Eth0/2` of R1 on the host machine. Here's the example of R1's configuration:
 
-~~~
+``` text Sample Router Configuration - R1
 ! Configure hostname and domain to enable SSH
 hostname R1
 ip domain name tdd.lab
@@ -62,19 +62,19 @@ router eigrp 100
 !
 end
 write 
-~~~
+``` 
 
 All other devices will have similar configuration with the end goal of having connectivity between any pair of Loopback interfaces.
 
 In order to to have connectivity to devices from a host machine we need to add a static route for `10.0.0.0/24` network:
 
-``` bash
+``` bash Adding a static route to test topology
 $ route add -net 10.0.0.0 netmask 255.255.255.0 gw 192.168.247.25
 ``` 
 
 At this point host machine should be able to ping each one of those Loopbacks:
 
-``` bash
+``` bash Testing connectivity to test devices
 $ for i in {1..4}; do ping -c 1 10.0.0.$i; done | grep packets
 1 packets transmitted, 1 received, 0% packet loss, time 0ms
 1 packets transmitted, 1 received, 0% packet loss, time 0ms
@@ -88,12 +88,12 @@ Ansible is written in Python and therefore has better support for modules writte
 1. Install Python and git packages
 2. Install Ansible
 
-``` bash
+``` bash Ansible Installation
 $ sudo apt-get install software-properties-common
 $ sudo apt-add-repository ppa:ansible/ansible
 $ sudo apt-get update
 $ sudo apt-get install ansible
-``` 
+```
 
 3. Test connectivity from Ansible to a test network environment
 4. Create a project directory and initialise git repo 
