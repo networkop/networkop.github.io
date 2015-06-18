@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2015-06-15T22:13:14-04:00</updated>
+  <updated>2015-06-17T20:59:04-04:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -14,12 +14,170 @@
 
   
   <entry>
+    <title type="html"><![CDATA[Development Environment Setup]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/"/>
+    <updated>2015-06-17T00:00:00-04:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/17/dev-env-setup</id>
+    <content type="html"><![CDATA[<p>Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:</p>
+
+<ul>
+<li>Network Simulation Environment</li>
+<li>Ansible Development Environment</li>
+</ul>
+
+
+<p>To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use <a href="http://www.unetlab.com/">UnetLab</a>, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download <a href="http://www.unetlab.com/download/">the website</a>. To simulate network devices I will run <abbr title="IOS on Unix">IOU</abbr> which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.</p>
+
+<!--more-->
+
+
+<h2>UnetLab setup</h2>
+
+<p>UnetLab is a network simulation environment very similar to GNS3. The biggest advantage for me, personally, is that it runs as a single entity and doesn&rsquo;t require a separate front-end like GNS3. That being said, the only requirement for this project is for the test network to have remote connectivity to a machine running Ansible, so having UnetLab specifically is not required and any network simulator would do, including a real (non-virtual) lab. One of the side effects of choosing UnetLab is that all development will have to be done on Ubuntu which is the OS pre-installed in the OVA.<br/>
+Here are the steps required to get the network environment setup:</p>
+
+<ol>
+<li><a href="http://www.unetlab.com/download/">Download</a> and import OVA file into the hypervisor of your choice.</li>
+<li>Download and <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">import</a> Cisco L3 IOU file.</li>
+<li>Create a simple 4-device network (<a href="http://www.unetlab.com/2014/11/create-the-first-lab/">example</a>) and <a href="http://www.unetlab.com/2014/11/using-cloud-devices/">connect it to the network of host machine</a>.</li>
+<li><a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/">Configure</a> your favourite terminal program to work with UnetLab&rsquo;s web interface</li>
+</ol>
+
+
+<p>This is the topology I will be using for testing:
+<img class="center" src="http://networkop.github.io/images/lab-topo.png" title="'Test Topology'" ></p>
+
+<p>Each device will have a Loopback interface in <code>10.0.0.0/24</code> subnet which I will statically point to <code>interface Eth0/2</code> of R1 on the host machine. Here&rsquo;s the example of R1&rsquo;s configuration:</p>
+
+<figure class='code'><figcaption><span>Sample Router Configuration - R1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>! Configure hostname and domain to enable SSH
+</span><span class='line'>hostname R1
+</span><span class='line'>ip domain name tdd.lab
+</span><span class='line'>! Point AAA to local database
+</span><span class='line'>aaa new-model
+</span><span class='line'>aaa authentication login default local
+</span><span class='line'>aaa authorization exec default local
+</span><span class='line'>username cisco privilege 15 secret cisco
+</span><span class='line'>! Enable remote ssh connections
+</span><span class='line'>line vty 0 4
+</span><span class='line'> transport input ssh
+</span><span class='line'>! Configure interfaces
+</span><span class='line'>interface Loopback0
+</span><span class='line'> ip address 10.0.0.1 255.255.255.255
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/0
+</span><span class='line'> ip address 12.12.12.1 255.255.255.0
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/1
+</span><span class='line'> ip address 14.14.14.1 255.255.255.0
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/2
+</span><span class='line'> description connection to host machine
+</span><span class='line'> ip address 192.168.247.25 255.255.255.0
+</span><span class='line'>! Enable dynamic routing
+</span><span class='line'>router eigrp 100
+</span><span class='line'> network 0.0.0.0
+</span><span class='line'>!
+</span><span class='line'>end
+</span><span class='line'>write
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<p>All other devices will have similar configuration with the end goal of having connectivity between any pair of Loopback interfaces.</p>
+
+<p>In order to to have connectivity to devices from a host machine we need to add a static route for <code>10.0.0.0/24</code> network:</p>
+
+<figure class='code'><figcaption><span>Adding a static route to test topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>route add -net 10.0.0.0 netmask 255.255.255.0 gw 192.168.247.25
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<p>At this point host machine should be able to ping each one of those Loopbacks:</p>
+
+<figure class='code'><figcaption><span>Testing connectivity to test devices</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span><span class="k">for</span> i in <span class="o">{</span>1..4<span class="o">}</span><span class="p">;</span> <span class="k">do</span> ping -c <span class="m">1</span> 10.0.0.<span class="nv">$i</span><span class="p">;</span> <span class="k">done</span> <span class="p">|</span> grep packets
+</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
+</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
+</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
+</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Dev environment setup</h2>
+
+<p>Ansible is written in Python and therefore has better support for modules written in the same language.</p>
+
+<ol>
+<li>Install Python and git packages</li>
+<li>Install Ansible</li>
+</ol>
+
+
+<figure class='code'><figcaption><span>Ansible Installation</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo apt-get install software-properties-common
+</span><span class='line'><span class="nv">$ </span>sudo apt-add-repository ppa:ansible/ansible
+</span><span class='line'><span class="nv">$ </span>sudo apt-get update
+</span><span class='line'><span class="nv">$ </span>sudo apt-get install ansible
+</span></code></pre></td></tr></table></div></figure>
+
+
+<ol>
+<li>Test connectivity from Ansible to a test network environment</li>
+<li>Create a project directory and initialise git repo</li>
+</ol>
+
+
+<p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.</p>
+]]></content>
+  </entry>
+  
+  <entry>
     <title type="html"><![CDATA[Building a Simple Network TDD Framework]]></title>
     <link href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/"/>
     <updated>2015-06-15T00:00:00-04:00</updated>
     <id>http://networkop.github.io/blog/2015/06/15/simple-tdd-framework</id>
     <content type="html"><![CDATA[<p>In the following series of posts I will show how to build a simple Test-Driven Development framework
-for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of <a href="[http://docs.ansible.com/list_of_files_modules.html]">Ansible</a> <em>modules</em> and <em>playbooks</em>. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. <abbr title="Software-Defined Network">SDN</abbr>. The reader is assumed to have only a basic networking and python programming skills.</p>
+for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of <a href="http://docs.ansible.com/list_of_files_modules.html">Ansible</a> <em>modules</em> and <em>playbooks</em>. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. <abbr title="Software-Defined Network">SDN</abbr>. The reader is assumed to have only a basic networking, linux and python programming skills.</p>
 
 <!--more-->
 
@@ -28,19 +186,26 @@ for Cisco devices. This framework will allow a network engineer to define traffi
 
 <p>Before we go on, I&rsquo;d like to put a little disclaimer about terms being used in this post. <abbr title="Test-Driven Development">TDD</abbr>, and its counterpart <abbr title="Behaviour-Driven Development">BDD</abbr>,
 are well-known and accepted practices in development world. Both rely on the assumption that tests will be written
-before the code and will <em>drive</em> code development. This seemingly unnatural approach became extremely popular with the advent of <a href="[http://agilemanifesto.org/]">Agile</a> and is still being widely used, specifically in web development. What I will be developing will look more like a BDD rather than TDD, since it will be testing overall system behaviour rather than small self-contained portions of configuration. However, I still prefer to use the term TDD, firstly, because it&rsquo;s easier to understand for people from a non-dev background, secondly, because it&rsquo;s very hard/impossible to test small portions of network configuration (like routing protocol configuration), and lastly, since my tests will rely heavily on traceroutes, TDD may as well stand for Traceroute-Driven Development.</p>
+before the code and will <em>drive</em> code development. This seemingly unnatural approach became extremely popular with the advent of <a href="http://agilemanifesto.org/">Agile</a> and is still being widely used, specifically in web development. What I will be developing will look more like a BDD rather than TDD, since it will be testing overall system behaviour rather than small self-contained portions of configuration. However, I still prefer to use the term TDD, firstly, because it&rsquo;s easier to understand for people from a non-dev background, secondly, because it&rsquo;s very hard/impossible to test small portions of network configuration (like routing protocol configuration), and lastly, since my tests will rely heavily on traceroutes, TDD may as well stand for Traceroute-Driven Development.</p>
 
 <h2>How will it work?</h2>
 
 <p>Traffic flow patterns, a.k.a. traffic paths is one bit of information that even higher-level management is able to comprehend. With a nice network diagram it is easy to show how low-latency traffic from Network_A will flow to Network_B through private VPN link on Router_X, while an internet-bound traffic will traverse a low-cost, high-latency Internet link on Router_Y. The TDD framework will use the same idea but in a text format</p>
 
-<pre><code>1. Testing of BGP
-  1. From Router1 to Router2 via Router4, Router5
-  2. From Router2 to Router1 via Router5, Router4
-2. Test suite 2
-  1. From Router4 to Router1 via Router3
-  2. From Router4 to Router2 via Router7
-</code></pre>
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>1. Testing of Primary Link
+</span><span class='line'>  1. From Router1 to Router2 via Router4, Router5
+</span><span class='line'>  2. From Router2 to Router1 via Router5, Router4
+</span><span class='line'>2. Testing of Backup Link
+</span><span class='line'>  1. From Router4 to Router1 via Router3
+</span><span class='line'>  2. From Router4 to Router2 via Router7
+</span></code></pre></td></tr></table></div></figure>
+
 
 <p>This format can be understood by both network engineers and their clients and can be used as a basis for network acceptance and verification testing. At the same time it follows a strictly defined format which can be parsed, processed and actioned by a program. I&rsquo;ll show how to write an Ansible module that parses this text, runs a traceroute and checks if the test was successful.<br/>
 These tests can also be used during regression testing of the network each time network configuration changes. This kind of verification offers a much more reliable result compared to visual examination of traceroute results and routing tables.</p>
@@ -50,7 +215,7 @@ These tests can also be used during regression testing of the network each time 
 <p>This is how I see the whole development process now (before I started). Some section may get added/removed in the process.</p>
 
 <ol>
-<li>Development environment setup</li>
+<li><a href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">Development environment setup</a></li>
 <li>Ansible basics and inventory setup</li>
 <li>Developing Ansible library to run traceroutes</li>
 <li>Developing Ansible library to verify test scenarios</li>

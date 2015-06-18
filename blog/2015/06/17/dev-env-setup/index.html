@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Development Environment Setup - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="Setting up of development and testing environments">
+  <meta name="keywords" content="tdd, ansible, unetlab, setup, development">
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">
+  <meta property="og:title" content="Development Environment Setup - Network-oriented programming">
+  <meta property="og:description" content="Setting up of development and testing environments">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li >
+                    <a href="/blog/archives">Archives</a>
+                </li>
+								<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-17T00:00:00-04:00"  data-updated="true" itemprop="datePublished dateCreated">17/06/2015</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Development Environment Setup
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:</p>
+
+<ul>
+<li>Network Simulation Environment</li>
+<li>Ansible Development Environment</li>
+</ul>
+
+
+<p>To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use <a href="http://www.unetlab.com/">UnetLab</a>, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download <a href="http://www.unetlab.com/download/">the website</a>. To simulate network devices I will run <abbr title="IOS on Unix">IOU</abbr> which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.</p>
+
+<!--more-->
+
+
+<h2>UnetLab setup</h2>
+
+<p>UnetLab is a network simulation environment very similar to GNS3. The biggest advantage for me, personally, is that it runs as a single entity and doesn&rsquo;t require a separate front-end like GNS3. That being said, the only requirement for this project is for the test network to have remote connectivity to a machine running Ansible, so having UnetLab specifically is not required and any network simulator would do, including a real (non-virtual) lab. One of the side effects of choosing UnetLab is that all development will have to be done on Ubuntu which is the OS pre-installed in the OVA.<br/>
+Here are the steps required to get the network environment setup:</p>
+
+<ol>
+<li><a href="http://www.unetlab.com/download/">Download</a> and import OVA file into the hypervisor of your choice.</li>
+<li>Download and <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">import</a> Cisco L3 IOU file.</li>
+<li>Create a simple 4-device network (<a href="http://www.unetlab.com/2014/11/create-the-first-lab/">example</a>) and <a href="http://www.unetlab.com/2014/11/using-cloud-devices/">connect it to the network of host machine</a>.</li>
+<li><a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/">Configure</a> your favourite terminal program to work with UnetLab&rsquo;s web interface</li>
+</ol>
+
+
+<p>This is the topology I will be using for testing:
+<img class="center" src="/images/lab-topo.png" title="'Test Topology'" ></p>
+
+<p>Each device will have a Loopback interface in <code>10.0.0.0/24</code> subnet which I will statically point to <code>interface Eth0/2</code> of R1 on the host machine. Here&rsquo;s the example of R1&rsquo;s configuration:</p>
+
+<figure class='code'><figcaption><span>Sample Router Configuration - R1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>! Configure hostname and domain to enable SSH
+</span><span class='line'>hostname R1
+</span><span class='line'>ip domain name tdd.lab
+</span><span class='line'>! Point AAA to local database
+</span><span class='line'>aaa new-model
+</span><span class='line'>aaa authentication login default local
+</span><span class='line'>aaa authorization exec default local
+</span><span class='line'>username cisco privilege 15 secret cisco
+</span><span class='line'>! Enable remote ssh connections
+</span><span class='line'>line vty 0 4
+</span><span class='line'> transport input ssh
+</span><span class='line'>! Configure interfaces
+</span><span class='line'>interface Loopback0
+</span><span class='line'> ip address 10.0.0.1 255.255.255.255
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/0
+</span><span class='line'> ip address 12.12.12.1 255.255.255.0
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/1
+</span><span class='line'> ip address 14.14.14.1 255.255.255.0
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/2
+</span><span class='line'> description connection to host machine
+</span><span class='line'> ip address 192.168.247.25 255.255.255.0
+</span><span class='line'>! Enable dynamic routing
+</span><span class='line'>router eigrp 100
+</span><span class='line'> network 0.0.0.0
+</span><span class='line'>!
+</span><span class='line'>end
+</span><span class='line'>write
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<p>All other devices will have similar configuration with the end goal of having connectivity between any pair of Loopback interfaces.</p>
+
+<p>In order to to have connectivity to devices from a host machine we need to add a static route for <code>10.0.0.0/24</code> network:</p>
+
+<figure class='code'><figcaption><span>Adding a static route to test topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>route add -net 10.0.0.0 netmask 255.255.255.0 gw 192.168.247.25
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<p>At this point host machine should be able to ping each one of those Loopbacks:</p>
+
+<figure class='code'><figcaption><span>Testing connectivity to test devices</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span><span class="k">for</span> i in <span class="o">{</span>1..4<span class="o">}</span><span class="p">;</span> <span class="k">do</span> ping -c <span class="m">1</span> 10.0.0.<span class="nv">$i</span><span class="p">;</span> <span class="k">done</span> <span class="p">|</span> grep packets
+</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
+</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
+</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
+</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Dev environment setup</h2>
+
+<p>Ansible is written in Python and therefore has better support for modules written in the same language.</p>
+
+<ol>
+<li>Install Python and git packages</li>
+<li>Install Ansible</li>
+</ol>
+
+
+<figure class='code'><figcaption><span>Ansible Installation</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo apt-get install software-properties-common
+</span><span class='line'><span class="nv">$ </span>sudo apt-add-repository ppa:ansible/ansible
+</span><span class='line'><span class="nv">$ </span>sudo apt-get update
+</span><span class='line'><span class="nv">$ </span>sudo apt-get install ansible
+</span></code></pre></td></tr></table></div></figure>
+
+
+<ol>
+<li>Test connectivity from Ansible to a test network environment</li>
+<li>Create a project directory and initialise git repo</li>
+</ol>
+
+
+<p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.</p>
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-17T00:00:00-04:00"  data-updated="true" itemprop="datePublished dateCreated">17/06/2015</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/ansible/'>ansible</a> <a class='category label label-primary' href='/blog/categories/unetlab/'>unetlab</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/06/17/dev-env-setup/" data-via="" data-counturl="http://networkop.github.io/blog/2015/06/17/dev-env-setup/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2015/06/15/simple-tdd-framework/" title="Previous Post: Building a simple network TDD framework">&laquo; Building a simple network TDD framework</a></li>
+            
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item active" href="/blog/2015/06/17/dev-env-setup/">Development Environment Setup</a>
+    
+    <a class="list-group-item " href="/blog/2015/06/15/simple-tdd-framework/">Building a Simple Network TDD Framework</a>
+    
+    <a class="list-group-item " href="/blog/2015/06/11/ibgp-fallover-trick/">iBGP Fall-over Trick</a>
+    
+    <a class="list-group-item " href="/blog/2015/06/10/l3vpn-mpls-troubleshoot/">Structured Approach to Troubleshooting of L3VPN Networks</a>
+    
+    <a class="list-group-item " href="/blog/2015/06/03/ent-ip-routing-bcp/">Enterprise IP Routing Best Practices</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">2</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">1</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">1</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">1</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">1</span>
+        routing
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2015 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2015/06/17/dev-env-setup/';
+        var disqus_url = 'http://networkop.github.io/blog/2015/06/17/dev-env-setup/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>
