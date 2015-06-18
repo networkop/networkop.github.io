@@ -32,9 +32,10 @@ This is the topology I will be using for testing:
 Each device will have a Loopback interface in `10.0.0.0/24` subnet which I will statically point to `interface Eth0/2` of R1 on the host machine. Here's the example of R1's configuration:
 
 ``` text Sample Router Configuration - R1
-! Configure hostname and domain to enable SSH
+! Configure hostname, domain and RSA key to enable SSH
 hostname R1
 ip domain name tdd.lab
+crypto key generate rsa modulus 1024
 ! Point AAA to local database
 aaa new-model
 aaa authentication login default local
@@ -83,10 +84,27 @@ $ for i in {1..4}; do ping -c 1 10.0.0.$i; done | grep packets
 ```
 
 ## Dev environment setup
-Ansible is written in Python and therefore has better support for modules written in the same language. 
 
-1. Install Python and git packages
-2. Install Ansible
+Ansible is one of the most popular automation and orchestration tools in IT industry. Part of its popularity is due to the "clientless" architecture where
+the only requirement to managed system is to have ssh access and Python execution environment. The latter pretty much rules out the biggest part of common
+network infrastructure. However it is still possible to use Ansible in "raw" mode and write modules of our own. That's exactly what we're gonna do in this exercise. 
+Due to the fact that Ansible is written in Python, it has better support for modules written in the same language, therefore all modules will be written in Python.
+One important tool every developer uses is version control. It allows to track changes made to the code and enables collaboration between multiple 
+people working on the same project. For beginners it always makes sense to stick to the most popular tools, that's why I'll be using git and store all my code on Github.  
+This is what's needed to setup the development environment:
+
+1. Install Python and git packages.
+``` bash Install Python and git
+$ sudo apt-get update && sudo apt-get install python git-core
+```
+
+2. Initialise global git config.
+``` bash Setup global git settings
+$ git config --global user.name "Network-oriented programming"
+$ git config --global user.email "networkop@example.com"
+```
+
+3. Install Ansible. Refer to the [official website](http://docs.ansible.com/intro_installation.html) for up-to-date installation instructions.
 
 ``` bash Ansible Installation
 $ sudo apt-get install software-properties-common
@@ -95,8 +113,48 @@ $ sudo apt-get update
 $ sudo apt-get install ansible
 ```
 
-3. Test connectivity from Ansible to a test network environment
-4. Create a project directory and initialise git repo 
+4. Test connectivity from Ansible to a network environment.
+
+``` bash Test Ansible connectivity to a network topology
+$ echo "R1 ansible_ssh_host=10.0.0.1" >> /etc/ansible/hosts
+$ printf "[defaults]\nhost_key_checking=False\n" >> ansible.cfg
+$ ansible R3 -u cisco --ask-pass -m "raw" -a "show version | include IOS"
+SSH password:
+R3 | success | rc=0 >>
+Cisco IOS Software, Linux Software (I86BI_LINUX-ADVENTERPRISEK9-M), Version 15.4(1)T, DEVELOPMENT TEST SOFTWARE
+Connection to 10.0.0.1 closed by remote host.
+```
+
+The above script first populates Ansible `inventory` file with an ip address of R1, then disables ssh key checking,
+ and finally runs an `ad-hoc` command `show version | include IOS` which should prompt for a password and return a result of command execution on R1.
+ I will explain about inventory and configuration files in a bit more detail in the next post. At this stage all what's required is a meaningful response from a Cisco router.
+
+5. Create a free [Github account](https://github.com/join) and [setup a new repository](https://help.github.com/articles/create-a-repo/). For my blog I will be using `networkop` as a Github 
+username and `simple-cisco-tdd` as a repository name. Once setup, Github will provide instructions to setup repository on a local machine which will be done in the next step.
+ 
+6. Create a project directory and initialise git
+
+``` bash Setup project directory
+$ mkdir ~/tdd_ansible && cd ~/tdd_ansible
+$ eacho "simple-cisco-tdd" >> README.md
+$ git init
+$ git add README.md
+$ git commit -m "first commit"
+$ git remote add origin https://github.com/networkop/simple-cisco-tdd.git
+$ git push -u origin master
+Username for 'https://github.com': networkop
+Password for 'https://networkop@github.com':
+Counting objects: 3, done.
+Writing objects: 100% (3/3), 206 bytes | 0 bytes/s, done.
+Total 3 (delta 0), reused 0 (delta 0)
+To https://github.com/networkop/simple-cisco-tdd.git
+ * [new branch]      master -> master
+Branch master set up to track remote branch master from origin.
+```
+ 
+The above result indicates that `README.md` file has been pushed to Github successfully. Needless to say that all these files can be also viewed from Github's web page.  
+
+ * * *
 
 This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.
 
