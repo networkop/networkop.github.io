@@ -201,9 +201,11 @@ Here are the steps required to get the network environment setup:</p>
 <span class='line-number'>28</span>
 <span class='line-number'>29</span>
 <span class='line-number'>30</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>! Configure hostname and domain to enable SSH
+<span class='line-number'>31</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>! Configure hostname, domain and RSA key to enable SSH
 </span><span class='line'>hostname R1
 </span><span class='line'>ip domain name tdd.lab
+</span><span class='line'>crypto key generate rsa modulus 1024
 </span><span class='line'>! Point AAA to local database
 </span><span class='line'>aaa new-model
 </span><span class='line'>aaa authentication login default local
@@ -264,15 +266,32 @@ Here are the steps required to get the network environment setup:</p>
 
 <h2>Dev environment setup</h2>
 
-<p>Ansible is written in Python and therefore has better support for modules written in the same language.</p>
+<p>Ansible is one of the most popular automation and orchestration tools in IT industry. Part of its popularity is due to the &ldquo;clientless&rdquo; architecture where
+the only requirement to managed system is to have ssh access and Python execution environment. The latter pretty much rules out the biggest part of common
+networking infrastructure. However it is still possible to use Ansible in a &ldquo;raw&rdquo; mode and write modules of our own. That&rsquo;s exactly what we&rsquo;re gonna do in this exercise.
+Due to the fact that Ansible is written in Python, it has better support for modules written in the same language, therefore all modules will be written in Python.<br/>
+One important tool every developer uses is version control. It allows to track changes made to the code and enables collaboration between multiple
+people working on the same project. For beginners it always makes sense to stick to the most popular tools, that&rsquo;s why I&rsquo;ll be using git for version control and store all my code on Github.</p>
 
-<ol>
-<li>Install Python and git packages</li>
-<li>Install Ansible</li>
-</ol>
+<p>This is what&rsquo;s needed to setup the development environment:</p>
+
+<figure class='code'><figcaption><span>1. Install Python and git packages</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo apt-get update <span class="o">&amp;&amp;</span> sudo apt-get install python git-core
+</span></code></pre></td></tr></table></div></figure>
 
 
-<figure class='code'><figcaption><span>Ansible Installation</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<p></p>
+
+<figure class='code'><figcaption><span>2. Initialise global git settings</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>git config --global user.name <span class="s2">&quot;Network-oriented programming&quot;</span>
+</span><span class='line'><span class="nv">$ </span>git config --global user.email <span class="s2">&quot;networkop@example.com&quot;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<figure class='code'><figcaption><span>3. Install Ansible</span><a href='http://docs.ansible.com/intro_installation.html'>Ansible Installation</a></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
 <span class='line-number'>3</span>
 <span class='line-number'>4</span>
@@ -283,13 +302,74 @@ Here are the steps required to get the network environment setup:</p>
 </span></code></pre></td></tr></table></div></figure>
 
 
-<ol>
-<li>Test connectivity from Ansible to a test network environment</li>
-<li>Create a project directory and initialise git repo</li>
-</ol>
+<p></p>
+
+<figure class='code'><figcaption><span>4. Test Ansible connectivity to our network topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo <span class="nb">echo</span> <span class="s2">&quot;R1 ansible_ssh_host=10.0.0.1&quot;</span> &gt;&gt; /etc/ansible/hosts
+</span><span class='line'><span class="nv">$ </span><span class="nb">printf</span> <span class="s2">&quot;[defaults]\nhost_key_checking=False\n&quot;</span> &gt;&gt; ansible.cfg
+</span><span class='line'><span class="nv">$ </span>ansible R1 -u cisco --ask-pass -m <span class="s2">&quot;raw&quot;</span> -a <span class="s2">&quot;show version | include IOS&quot;</span>
+</span><span class='line'>SSH password:
+</span><span class='line'>R3 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
+</span><span class='line'>Cisco IOS Software, Linux Software <span class="o">(</span>I86BI_LINUX-ADVENTERPRISEK9-M<span class="o">)</span>, Version 15.4<span class="o">(</span>1<span class="o">)</span>T, DEVELOPMENT TEST SOFTWARE
+</span><span class='line'>Connection to 10.0.0.1 closed by remote host.
+</span></code></pre></td></tr></table></div></figure>
 
 
-<p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.</p>
+<p>The above script first populates Ansible <code>inventory</code> file with an ip address of R1, then disables ssh key checking,
+ and finally runs an <code>ad-hoc</code> command <code>show version | include IOS</code> which should prompt for a password and return a result of command execution on R1.
+ I will explain about inventory and configuration files in a bit more detail in the next post. At this stage all what&rsquo;s required is a meaningful response from a Cisco router.</p>
+
+<p><figure class='code'><figcaption><span>
+5. Create a free Github account and setup a new repository
+</span><a href='https://github.com/join'>Join Github</a></figcaption><div class="highlight">
+</figure>
+For my blog I will be using <code>networkop</code> as a Github username and <code>simple-cisco-tdd</code> as a repository name.
+Once respository is created, Github will provide instructions to setup repository on a local machine which will be done in the next step.</p>
+
+<p><figure class='code'><figcaption><span>6. Setup a project directory and initialise git</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>mkdir ~/tdd_ansible <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/tdd_ansible
+</span><span class='line'><span class="nv">$ </span>eacho <span class="s2">&quot;simple-cisco-tdd&quot;</span> &gt;&gt; README.md
+</span><span class='line'><span class="nv">$ </span>git init
+</span><span class='line'><span class="nv">$ </span>git add README.md
+</span><span class='line'><span class="nv">$ </span>git commit -m <span class="s2">&quot;first commit&quot;</span>
+</span><span class='line'><span class="nv">$ </span>git remote add origin <a href="https://github.com/networkop/simple-cisco-tdd.git">https://github.com/networkop/simple-cisco-tdd.git</a>
+</span><span class='line'><span class="nv">$ </span>git push -u origin master
+</span><span class='line'>Username <span class="k">for</span> <span class="s1">&#39;<a href="https://github.com&amp;#39;">https://github.com&amp;#39;</a></span>: networkop
+</span><span class='line'>Password <span class="k">for</span> <span class="s1">&#39;<a href="https://networkop@github.com&amp;#39;">https://networkop@github.com&amp;#39;</a></span>:
+</span><span class='line'>Counting objects: 3, <span class="k">done</span>.
+</span><span class='line'>Writing objects: 100% <span class="o">(</span>3/3<span class="o">)</span>, <span class="m">206</span> bytes <span class="p">|</span> <span class="m">0</span> bytes/s, <span class="k">done</span>.
+</span><span class='line'>Total <span class="m">3</span> <span class="o">(</span>delta 0<span class="o">)</span>, reused <span class="m">0</span> <span class="o">(</span>delta 0<span class="o">)</span>
+</span><span class='line'>To <a href="https://github.com/networkop/simple-cisco-tdd.git">https://github.com/networkop/simple-cisco-tdd.git</a>
+</span><span class='line'> * <span class="o">[</span>new branch<span class="o">]</span>      master -&gt; master
+</span><span class='line'>Branch master <span class="nb">set </span>up to track remote branch master from origin.
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The above result indicates that <code>README.md</code> file has been pushed to Github successfully. Needless to say that all pushed local files can be also viewed from Github&rsquo;s web page.</p>
+
+<hr />
+
+<p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.
+In the next post I will show how to setup Ansible to work with Cisco devices.</p>
 </div>
 
 

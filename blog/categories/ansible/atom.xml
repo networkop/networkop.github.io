@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Ansible | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/ansible/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2015-06-17T20:59:04-04:00</updated>
+  <updated>2015-06-18T20:25:04-04:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -49,9 +49,10 @@ Here are the steps required to get the network environment setup:</p>
 
 <p>Each device will have a Loopback interface in <code>10.0.0.0/24</code> subnet which I will statically point to <code>interface Eth0/2</code> of R1 on the host machine. Here&rsquo;s the example of R1&rsquo;s configuration:</p>
 
-<pre><code class="text Sample Router Configuration - R1">! Configure hostname and domain to enable SSH
+<pre><code class="text Sample Router Configuration - R1">! Configure hostname, domain and RSA key to enable SSH
 hostname R1
 ip domain name tdd.lab
+crypto key generate rsa modulus 1024
 ! Point AAA to local database
 aaa new-model
 aaa authentication login default local
@@ -99,27 +100,71 @@ write
 
 <h2>Dev environment setup</h2>
 
-<p>Ansible is written in Python and therefore has better support for modules written in the same language.</p>
+<p>Ansible is one of the most popular automation and orchestration tools in IT industry. Part of its popularity is due to the &ldquo;clientless&rdquo; architecture where
+the only requirement to managed system is to have ssh access and Python execution environment. The latter pretty much rules out the biggest part of common
+networking infrastructure. However it is still possible to use Ansible in a &ldquo;raw&rdquo; mode and write modules of our own. That&rsquo;s exactly what we&rsquo;re gonna do in this exercise.
+Due to the fact that Ansible is written in Python, it has better support for modules written in the same language, therefore all modules will be written in Python.<br/>
+One important tool every developer uses is version control. It allows to track changes made to the code and enables collaboration between multiple
+people working on the same project. For beginners it always makes sense to stick to the most popular tools, that&rsquo;s why I&rsquo;ll be using git for version control and store all my code on Github.</p>
 
-<ol>
-<li>Install Python and git packages</li>
-<li>Install Ansible</li>
-</ol>
+<p>This is what&rsquo;s needed to setup the development environment:</p>
 
+<pre><code class="bash 1. Install Python and git packages">$ sudo apt-get update &amp;&amp; sudo apt-get install python git-core
+</code></pre>
 
-<pre><code class="bash Ansible Installation">$ sudo apt-get install software-properties-common
+<pre><code class="bash 2. Initialise global git settings">$ git config --global user.name "Network-oriented programming"
+$ git config --global user.email "networkop@example.com"
+</code></pre>
+
+<pre><code class="bash 3. Install Ansible http://docs.ansible.com/intro_installation.html Ansible Installation">$ sudo apt-get install software-properties-common
 $ sudo apt-add-repository ppa:ansible/ansible
 $ sudo apt-get update
 $ sudo apt-get install ansible
 </code></pre>
 
-<ol>
-<li>Test connectivity from Ansible to a test network environment</li>
-<li>Create a project directory and initialise git repo</li>
-</ol>
+<pre><code class="bash 4. Test Ansible connectivity to our network topology">$ sudo echo "R1 ansible_ssh_host=10.0.0.1" &gt;&gt; /etc/ansible/hosts
+$ printf "[defaults]\nhost_key_checking=False\n" &gt;&gt; ansible.cfg
+$ ansible R1 -u cisco --ask-pass -m "raw" -a "show version | include IOS"
+SSH password:
+R3 | success | rc=0 &gt;&gt;
+Cisco IOS Software, Linux Software (I86BI_LINUX-ADVENTERPRISEK9-M), Version 15.4(1)T, DEVELOPMENT TEST SOFTWARE
+Connection to 10.0.0.1 closed by remote host.
+</code></pre>
 
+<p>The above script first populates Ansible <code>inventory</code> file with an ip address of R1, then disables ssh key checking,
+ and finally runs an <code>ad-hoc</code> command <code>show version | include IOS</code> which should prompt for a password and return a result of command execution on R1.
+ I will explain about inventory and configuration files in a bit more detail in the next post. At this stage all what&rsquo;s required is a meaningful response from a Cisco router.</p>
 
-<p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.</p>
+<p><figure class='code'><figcaption><span>
+5. Create a free Github account and setup a new repository
+</span><a href='https://github.com/join'>Join Github</a></figcaption><div class="highlight">
+</figure>
+For my blog I will be using <code>networkop</code> as a Github username and <code>simple-cisco-tdd</code> as a repository name.
+Once respository is created, Github will provide instructions to setup repository on a local machine which will be done in the next step.</p>
+
+<pre><code class="bash 6. Setup a project directory and initialise git">$ mkdir ~/tdd_ansible &amp;&amp; cd ~/tdd_ansible
+$ eacho "simple-cisco-tdd" &gt;&gt; README.md
+$ git init
+$ git add README.md
+$ git commit -m "first commit"
+$ git remote add origin https://github.com/networkop/simple-cisco-tdd.git
+$ git push -u origin master
+Username for 'https://github.com': networkop
+Password for 'https://networkop@github.com':
+Counting objects: 3, done.
+Writing objects: 100% (3/3), 206 bytes | 0 bytes/s, done.
+Total 3 (delta 0), reused 0 (delta 0)
+To https://github.com/networkop/simple-cisco-tdd.git
+ * [new branch]      master -&gt; master
+Branch master set up to track remote branch master from origin.
+</code></pre>
+
+<p>The above result indicates that <code>README.md</code> file has been pushed to Github successfully. Needless to say that all pushed local files can be also viewed from Github&rsquo;s web page.</p>
+
+<hr />
+
+<p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.
+In the next post I will show how to setup Ansible to work with Cisco devices.</p>
 ]]></content>
   </entry>
   
@@ -144,7 +189,7 @@ before the code and will <em>drive</em> code development. This seemingly unnatur
 
 <p>Traffic flow patterns, a.k.a. traffic paths is one bit of information that even higher-level management is able to comprehend. With a nice network diagram it is easy to show how low-latency traffic from Network_A will flow to Network_B through private VPN link on Router_X, while an internet-bound traffic will traverse a low-cost, high-latency Internet link on Router_Y. The TDD framework will use the same idea but in a text format</p>
 
-<pre><code class="text">1. Testing of Primary Link
+<pre><code class="text TDD scenario file example">1. Testing of Primary Link
   1. From Router1 to Router2 via Router4, Router5
   2. From Router2 to Router1 via Router5, Router4
 2. Testing of Backup Link
@@ -157,7 +202,7 @@ These tests can also be used during regression testing of the network each time 
 
 <h2>Step-by-step procedure</h2>
 
-<p>This is how I see the whole development process now (before I started). Some section may get added/removed in the process.</p>
+<p>This is how I see the whole development process now (before I started). Some section may get added/removed in the process. I&rsquo;ll try to write at least one post a week aiming to complete the series in under a month.</p>
 
 <ol>
 <li><a href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">Development environment setup</a></li>
