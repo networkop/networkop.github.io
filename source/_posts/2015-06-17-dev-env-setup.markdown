@@ -14,7 +14,7 @@ Before we proceed with TDD framework build it is important to have the developme
 * Network Simulation Environment
 * Ansible Development Environment
 
-To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use [UnetLab](http://www.unetlab.com/), a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download [the website](http://www.unetlab.com/download/). To simulate network devices I will run [IOU](abbr:IOS on Unix) which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.
+To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use [UnetLab](http://www.unetlab.com/), a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on [the website](http://www.unetlab.com/download/). To simulate network devices I will run [IOU](abbr:IOS on Unix) which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.
 <!--more-->
 
 ## UnetLab setup
