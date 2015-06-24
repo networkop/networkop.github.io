@@ -42,10 +42,11 @@ These tests can also be used during regression testing of the network each time 
 This is how I see the whole development process now (before I started). Some section may get added/removed in the process. I'll try to write at least one post a week aiming to complete the series in under one month.
 
 1. [Development environment setup][dev-env-setup-link]
-2. Ansible basics and inventory setup
-3. Developing Ansible library to run traceroutes
+2. [Getting started with Ansible for Cisco IOS][ansible-intro-link]
+3. Developing Ansible library to gather facts from Cisco devices
 4. Developing Ansible library to verify test scenarios
 
 [agile-manifesto]: http://agilemanifesto.org/
 [ansible-website]: http://docs.ansible.com/list_of_files_modules.html
 [dev-env-setup-link]: http://networkop.github.io/blog/2015/06/17/dev-env-setup/
+[ansible-intro-link]: http://networkop.github.io/blog/2015/06/24/ansible-intro/

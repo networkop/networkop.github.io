@@ -65,11 +65,11 @@ exec /usr/bin/syncthing" >> /etc/init/syncthing.conf
 
 # Do the same for inotify
 $ echo "start on starting syncthing
-stop on stopping syncthingn
+stop on stopping syncthing
 env STNORESTART=yes
 respawn
 env HOME=/root
-exec /usr/bin/syncthing-inotify" >> /etc/init/syncthing.conf
+exec /usr/bin/syncthing-inotify" >> /etc/init/syncthing-inotify.conf
 
 # start both services 
 $ service syncthing start && service syncthing-inotify start
@@ -80,7 +80,7 @@ $ service syncthing start && service syncthing-inotify start
 # using the correct device IDs
 $ head -n 10 ~/.config/syncthing/config.xml
 <configuration version="10">
-    <folder id="ansible-blog" path="/root/tdd-ansible" ro="false" rescanIntervalS="60" ignorePerms="false" autoNormalize="false">
+    <folder id="ansible-blog" path="/root/tdd_ansible" ro="false" rescanIntervalS="60" ignorePerms="false" autoNormalize="false">
         <device id="MY-DEVICE-ID"></device>
         <device id="PEER-DEVICE-ID"></device>
         <versioning></versioning>
@@ -104,10 +104,10 @@ $ service syncthing restart && service syncthing-inotify restart
 
 Finally, Windows service can be configured similarly via Syncthing Tray. End result is that files are replicated between the two folders with a delay of just a few seconds
 ``` bash Verification
-$ touch /root/tdd-ansible/testfile
+$ touch /root/tdd_ansible/testfile
 $ tail -n 3 /var/log/upstart/syncthing*
 ==> /var/log/upstart/syncthing-inotify.log <==
-[OK] 01:45:04 Watching ansible-blog: /root/tdd-ansible
+[OK] 01:45:04 Watching ansible-blog: /root/tdd_ansible
 [OK] 01:45:04 Syncthing is indexing change in ansible-blog: [.stfolder]
 [OK] 01:46:16 Syncthing is indexing change in ansible-blog: [testfile]
 

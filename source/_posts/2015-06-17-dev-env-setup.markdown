@@ -139,8 +139,8 @@ $ git add README.md
 $ git commit -m "first commit"
 $ git remote add origin https://github.com/networkop/simple-cisco-tdd.git
 $ git push -u origin master
-Username for 'https://github.com': networkop
-Password for 'https://networkop@github.com':
+Username for https://github.com: networkop
+Password for https://networkop@github.com:
 Counting objects: 3, done.
 Writing objects: 100% (3/3), 206 bytes | 0 bytes/s, done.
 Total 3 (delta 0), reused 0 (delta 0)
