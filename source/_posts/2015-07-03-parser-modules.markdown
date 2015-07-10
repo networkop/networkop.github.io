@@ -39,7 +39,8 @@ Our Ansible playbook will need to accomplish the following tasks:
 
 All these tasks will need to be run sequentially on every host from `cisco-devices` group. To get the output from a Cisco device we'll use the `raw` module again. The other two tasks don't require connection to remote device and will be run on a localhost by the virtue of a `delegate_to: 127.0.0.1` option.
 
-{% codeblock lang:yaml ~/tdd_ansible/cisco-ip-collect.yml %}
+{% raw %}
+``` yaml ~/tdd_ansible/cisco-ip-collect.yml
 ---
 - name: Collect IP address data
   hosts: cisco-devices
@@ -65,7 +66,8 @@ All these tasks will need to be run sequentially on every host from `cisco-devic
 
   tags:
     - collect
-{% endcodeblock  %}
+```
+{% endraw %}
 
 ## Writing a custom Ansible module
 
@@ -181,7 +183,8 @@ This module only performs actions on local file and does not provide any output 
 
 Finally, since we're modifying Ansible global variable file, it would make sense to also update it with testing scenarios information. Technically, this steps doesn't need to be done in Ansible and could be done simply using Python or Bash scripts, but I'll still show it here to demonstrate two additional Ansible features. The first one is `local_action: module_name` which is a shorthand for specifying `module` with `delegate_to` option (see above). Second feature is `tags`, it allows to specify which play to run in playbook containing many of them. In our case one file `cisco-ip-collect.yml` will have two plays defined and will run both of them by default unless `--tag=scenario` or `--tag=collect` specifies the exact play.
 
-{% codeblock lang:yaml ~/tdd_ansible/cisco-ip-collect.yml %}
+{% raw %}
+``` yaml ~/tdd_ansible/cisco-ip-collect.yml
 - name: Parse and save scenarios
   hosts: localhost
   gather_facts: false
@@ -193,7 +196,8 @@ Finally, since we're modifying Ansible global variable file, it would make sense
 
   tags:
     - scenario
-{% endcodeblock  %}
+```
+{% endraw  %}
 
 This play has a single task which runs a single custom module. Before we proceed to the module let's see how a typical testing scenario file looks like.
 
@@ -233,26 +237,29 @@ class ScenarioParser(object):
         scenario_step   = 0
         scenario_name   = ''
         name_pattern = re.compile(r'^(\d+)\.?\s+(.*)')
-        step_pattern = re.compile(r'.*from\s+([\d\w]+)\s+to\s+([\d\w]+)\s+via\s+([\d\w]+,*\s*[\d\w]+)*')
+        step_pattern = re.compile(r'.*[Ff][Rr][Oo][Mm]\s+([\d\w]+)\s+[Tt][Oo]\s+([\d\w]+)\s+[Vv][Ii][Aa]\s+([\d\w]+,*\s*[\d\w]+)*')
         with open(SCENARIO_FILE, 'r') as fileObj:
             for line in fileObj:
-                # ignore commented and empty lines
                 if not line.startswith('#') and len(line) > 3:
-                    line = line.lower()
                     name_match = name_pattern.match(line)
                     step_match = step_pattern.match(line)
                     if name_match:
                         scenario_number = name_match.group(1)
                         scenario_name   = name_match.group(2)
-                        scenario_steps  = [scenario_name, []]
-                        self.storage[scenario_number] = scenario_steps
+                        scenario_steps  = [scenario_name, {}]
+                        if not scenario_number in self.storage:
+                            self.storage[scenario_number] = scenario_steps
+                        else:
+                            scenario_steps = self.storage[scenario_number]
                     elif step_match:
                         from_device = step_match.group(1)
                         to_device = step_match.group(2)
                         via = step_match.group(3)
                         via_devices = [device_name.strip() for device_name in via.split(',')]
-                        if not scenario_number == 0 or scenario_name:
-                            scenario_steps[1].append([from_device, to_device, via_devices])
+                        if not scenario_number == 0 or not scenario_name:
+                            if not from_device in scenario_steps[1]:
+                                scenario_steps[1][from_device] = dict()
+                            scenario_steps[1][from_device][to_device] = via_devices
                     else:
                         self.rc = 1
 
@@ -273,7 +280,6 @@ def main():
     else:
         module.exit_json(changed=False)
 
-# import module snippets
 from ansible.module_utils.basic import *
 main()
 {% endcodeblock  %}
@@ -282,11 +288,12 @@ The biggest portion of code is the read() method of the parser which does the fo
 
 * scans text file line by line ignoring lines starting with `#` and whose length is not enough to contain either a scenario name or scenario step
 * matches each line against pre-compiled regular expressions for scenario name or for scenario step ([a very helpful tool for regex testing](https://regex101.com/))
-* attempts to save the data in a Python dictionary whose keys are scenario numbers and whose values is a list consisting of a scenario name (1st element) and a list of scenario steps (2nd element)
+* attempts to save the data in a Python dictionary whose keys are scenario numbers and whose values is a list consisting of a scenario name (1st element) and a dictionary with scenario steps (2nd element)
 
 The end result of running both ip address collection and scenarios conversion plays is Ansible group variable file that looks like this:
 
-{% codeblock lang:yaml  ~/tdd_ansible/library/group_vars/all.yml %}
+{% raw %}
+``` yaml  ~/tdd_ansible/library/group_vars/all.yml
 ---
 ip2host:
    10.0.0.1: [R1, Loopback0]
@@ -303,22 +310,22 @@ ip2host:
    34.34.34.4: [R4, Ethernet0/0]
 scenarios:
    '1':
-   - testing of primary link
-   -  -  - r1
-         - r3
-         - [r2]
-      -  - r1
-         - r4
-         - [r2, r3]
+   - Testing of Primary Link
+   -  R1:
+         R2: [R2]
+         R3: [R2]
+         R4: [R2, R3]
+      R2:
+         R4: [R3]
    '2':
-   - testing of backup link
-   -  -  - r1
-         - r3
-         - [r4]
-      -  - r1
-         - r2
-         - [r4, r3]
-{% endcodeblock  %}
+   - Testing of Backup Link
+   -  R1:
+         R2: [R4, R3]
+         R3: [R4]
+      R3:
+         R1: [R4]
+```
+{% endraw  %}
 
 ***
 
