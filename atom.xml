@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2015-06-18T20:25:04-04:00</updated>
+  <updated>2015-07-09T21:00:46-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -14,9 +14,1563 @@
 
   
   <entry>
+    <title type="html"><![CDATA[Verifying Test Scenarios]]></title>
+    <link href="http://networkop.github.io/blog/2015/07/10/test-verification/"/>
+    <updated>2015-07-10T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/07/10/test-verification</id>
+    <content type="html"><![CDATA[<p>Now that Ansible has done all the information gathering for us it&rsquo;s time to finally make use of it. In this post I will show how to use Ansible to run traceroutes from and to the hosts defined in a test scenario and perform verification of the results of those tests. Should any of those tests fail, Ansible will provide a meaningful description of what exactly failed and why. While doing all this I&rsquo;ll introduce a couple of new Ansible features like conditional looping and interactive prompts.</p>
+
+<!--more-->
+
+
+<h2>TDD Playbook</h2>
+
+<p>In order to run and verify tests I will create a separate playbook. It makes sense to separate it from the <a href="http://networkop.github.io/blog/2015/07/03/parser-modules/">previous playbook</a> simply because this time it will be used multiple times, while the information gathering playbook can only be run once. The new playbook will have to accomplish the following tasks:</p>
+
+<ol>
+<li>Select which scenario to test</li>
+<li>Run tests as specified in that scenario</li>
+<li>Parse test results</li>
+<li>Verify that test results conform to the specification</li>
+</ol>
+
+
+<h2>Selecting test scenario</h2>
+
+<p>Our <code>scenarios/all.txt</code> file contains multiple test scenarios each defined by a name. Each test scenario represent a certain state in the network, e.g. scenario #1 tests how the network behaves in a normal state with no outages or link failures, scenario #2 tests how traffic should be rerouted in the event of primary link failure. Inside each scenario there are one or more test steps each testing a behaviour of a particular traffic flow, e.g. traffic from router R1 to router R4 should traverse R2 followed by R3. Each steps contains keywords <code>From</code>, <code>To</code> and <code>Via</code> which identify  source, destination and transit routers. This is how a typical scenario file looks like.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/scenarios/all.txt </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>1. Testing of Primary Link
+</span><span class='line'>1.1 From R1 to R3 via R2
+</span><span class='line'>1.2 From R1 to R4 via R2, R3
+</span><span class='line'>1.3 From R2 to R4 via R3
+</span><span class='line'>1.4 From R1 to R2 via R2
+</span><span class='line'>2. Testing of Backup Link
+</span><span class='line'>2.1 From R1 to R3 via R4
+</span><span class='line'>2.2 From R1 to R2 via R4,R3
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<p>In the <a href="http://networkop.github.io/blog/2015/07/03/parser-modules/">previous post</a> I showed how to parse and store these scenarios in YAML dictionary in <code>group_vars/all.yml</code> file, which makes this information automatically available to any future playbooks. So in the new playbook all we need to do is let the user decide which scenario to test:</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/cisco_tdd.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Run traceroute commands</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco-devices</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">remote_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="l-Scalar-Plain">vars_prompt</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_num</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">prompt</span><span class="p-Indicator">:</span> <span class="s">&quot;Enter</span><span class="nv"> </span><span class="s">scenario</span><span class="nv"> </span><span class="s">number&quot;</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">default</span><span class="p-Indicator">:</span> <span class="s">&quot;1&quot;</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">private</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">no</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">extracting scenario name and steps</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">set_fact</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">scenario_steps</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">scenarios[scenario_num][1]</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">scenario_name</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">scenarios[scenario_num][0]</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This playbook contains a standard header followed by a <code>vars_prompt</code> section which prompts user to select a particular scenario number and stores the selection in <code>scenario_num</code> variable. The first task in the playbook extracts scenario name and steps from <code>scenarios</code> dictionary stored in <code>group_vars/all.yml</code> file and stores them in respective variables. Of course this task is optional and it&rsquo;s possible to reference the same data using full notation, however I prefer things to be more readable even if it leads to some inefficient memory use.</p>
+
+<h2>Run test specified in scenario steps</h2>
+
+<p>Now it&rsquo;s time to run traceroutes to see how the packets flow in the network. As we did in one of the <a href="http://networkop.github.io/blog/2015/06/24/ansible-intro/">previous posts</a> we&rsquo;ll use the <code>raw</code> module to run traceroutes. However this time, instead of running a full-mesh any-to-any traceroutes we&rsquo;ll only run them if they were defined in one of the test steps. Indeed, why would we run a traceroute between devices if we&rsquo;re not going to verify it? Ansible&rsquo;s conditionals will help us with that. For each of the hosts in <code>cisco-devices</code> group we&rsquo;ll look into scenario_steps dictionary and see if there were any tests defined and if there were, we&rsquo;ll run a traceroute to each of the destination hosts.</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/cisco_tdd.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">run traceroutes as per the defined scenario steps</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">raw</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">traceroute {{ hostvars[item.key][&#39;ansible_ssh_host&#39;] }} source Loopback0 probe 1 numeric</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_steps[inventory_hostname] is defined</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">with_dict</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_steps[inventory_hostname]|default({})</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">register</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">trace_result</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>When both a loop (<code>with_dict</code>) and a conditional (<code>when</code>) are defined in a task, Ansible does the looping first. That&rsquo;s why if a test scenario is not defined for a particular host (e.g. <code>R3</code>) the conditional check will fail and stop execution of the playbook. To overcome that we can use Ansible (Jinja) templates inside the <code>with_dict</code> loop. Appending <code>|default({})</code> will instruct Ansible create an empty dictionary in case <code>scenario_steps[inventory_hostname]</code> does not exist which will make conditional return <code>False</code> and skip this host altogether.</p>
+
+<h2>Parse test results</h2>
+
+<p>There&rsquo;s no silver bullet when it comes to parsing of the outcome of traceroute command. We&rsquo;ll have to use Python to traverse the textual output line by line looking for <code>msec</code> and storing all found IPs in a list.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_trace_parse.py </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">TraceParse</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">std_out</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;std_out&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;dest_host&#39;</span><span class="p">]</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>        <span class="n">result</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+</span><span class='line'>        <span class="n">path</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+</span><span class='line'>        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">std_out</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">):</span>
+</span><span class='line'>            <span class="k">if</span> <span class="s">&#39;msec&#39;</span> <span class="ow">in</span> <span class="n">line</span><span class="p">:</span>
+</span><span class='line'>                <span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()[</span><span class="mi">1</span><span class="p">])</span>
+</span><span class='line'>        <span class="n">result</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span><span class="p">]</span> <span class="o">=</span> <span class="n">path</span>
+</span><span class='line'>        <span class="k">return</span> <span class="n">result</span>
+</span><span class='line'>
+</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span>
+</span><span class='line'>        <span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+</span><span class='line'>            <span class="n">std_out</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">),</span>
+</span><span class='line'>            <span class="n">dest_host</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">)</span>
+</span><span class='line'>        <span class="p">)</span>
+</span><span class='line'>    <span class="p">)</span>
+</span><span class='line'>    <span class="n">traceParser</span> <span class="o">=</span> <span class="n">TraceParse</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+</span><span class='line'>    <span class="n">result</span> <span class="o">=</span> <span class="n">traceParser</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
+</span><span class='line'>    <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">ansible_facts</span><span class="o">=</span><span class="n">result</span><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="c"># import module snippets</span>
+</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
+</span><span class='line'><span class="n">main</span><span class="p">()</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The playbook task will run through each hosts' trace_results variable and pass it to the trace parse module.</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/cisco_tdd.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">parse traceroute ouput</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">cisco_trace_parse</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">dest_host</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">item.item.key</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">std_out</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">item.stdout</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">item.stdout is defined</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">with_items</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">trace_result.results</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Test verification</h2>
+
+<p>Finally we need to compare the captured output with the scenario steps. This time all the information collected by Ansible in the previous tasks needs to be passed to a module.</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/cisco_tdd.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">verify traceroutes against pre-defined scenarios</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">cisco_tdd_verify</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">dest_host</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">item.key</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">src_host</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">inventory_hostname</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">scenario</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">scenario_steps</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">ip2host</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">ip2host</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">path</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">hostvars[inventory_hostname][item.key]</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">scenario_name</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">scenario_name</span><span class="nv"> </span><span class="s">}}&quot;</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_steps[inventory_hostname] is defined</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">with_dict</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_steps[inventory_hostname]|default({})</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Ansible module contains a class with a single public method <code>compare</code>. The first thing it does is converts the list of IP addresses of transit devices into a list of hostnames. That&rsquo;s where the IP-to-Hostname dictionary created in the <a href="http://networkop.github.io/blog/2015/07/03/parser-modules/">previous playbook</a> is first used. IP address is used as a lookup key and the Hostname is extracted from the first element of the returned list (second element, the interface name, is currently unused). The private method <code>__validatepath</code> is used to confirm that devices listed after <code>Via</code> in a test scenario are present in the traceroute path in the specified order. If this verification fails, the whole module fails and the error message is passed back to Ansible playbook.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_tdd_verify.py </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+<span class='line-number'>56</span>
+<span class='line-number'>57</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'>
+</span><span class='line'><span class="k">class</span> <span class="nc">ResultCompare</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;dest_host&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">src_host</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;src_host&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">trace_path</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;path&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;scenario&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">ip2host</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;ip2host&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">scenario_name</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;scenario_name&#39;</span><span class="p">]</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">compare</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>        <span class="n">trace_path_new</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
+</span><span class='line'>        <span class="k">for</span> <span class="n">dev</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trace_path</span><span class="p">:</span>
+</span><span class='line'>            <span class="k">if</span> <span class="n">dev</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ip2host</span><span class="p">:</span>
+</span><span class='line'>                <span class="n">trace_path_new</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ip2host</span><span class="p">[</span><span class="n">dev</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
+</span><span class='line'>            <span class="k">else</span><span class="p">:</span>
+</span><span class='line'>                <span class="n">trace_path_new</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dev</span><span class="p">)</span>
+</span><span class='line'>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">src_host</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">:</span>
+</span><span class='line'>            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">]:</span>
+</span><span class='line'>                <span class="n">ref_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span><span class="p">]</span>
+</span><span class='line'>                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span> <span class="n">__validatepath</span><span class="p">(</span><span class="n">trace_path_new</span><span class="p">):</span>
+</span><span class='line'>                    <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;Failed scenario &quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">scenario_name</span> <span class="o">+</span>  <span class="s">&quot;.</span><span class="se">\r\n</span><span class="s">Traceroute from &quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">src_host</span> <span class="o">+</span> <span class="s">&quot; to &quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span> <span class="o">+</span> <span class="s">&quot; has not traversed &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">ref_path</span><span class="p">)</span>
+</span><span class='line'>                    <span class="n">msg</span> <span class="o">+=</span> <span class="s">&quot;</span><span class="se">\r\n</span><span class="s"> Actual path taken: &quot;</span> <span class="o">+</span> <span class="s">&#39; -&gt; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">]</span> <span class="o">+</span> <span class="n">trace_path_new</span><span class="p">)</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\r\n</span><span class="s">&quot;</span>
+</span><span class='line'>                    <span class="k">return</span> <span class="mi">1</span><span class="p">,</span> <span class="n">msg</span>
+</span><span class='line'>        <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="s">&#39;no error&#39;</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">__validatepath</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">):</span>
+</span><span class='line'>        <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span class='line'>        <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">path</span><span class="p">:</span>
+</span><span class='line'>            <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span><span class="p">][</span><span class="n">index</span><span class="p">]:</span>
+</span><span class='line'>                <span class="n">index</span> <span class="o">+=</span> <span class="mi">1</span>
+</span><span class='line'>                <span class="k">if</span> <span class="n">index</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span><span class="p">]):</span>
+</span><span class='line'>                    <span class="k">return</span> <span class="bp">True</span>
+</span><span class='line'>        <span class="k">return</span> <span class="bp">False</span>
+</span><span class='line'>
+</span><span class='line'>
+</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span>
+</span><span class='line'>        <span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+</span><span class='line'>            <span class="n">dest_host</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">),</span>
+</span><span class='line'>            <span class="n">src_host</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">),</span>
+</span><span class='line'>            <span class="n">scenario</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;dict&#39;</span><span class="p">),</span>
+</span><span class='line'>            <span class="n">ip2host</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;dict&#39;</span><span class="p">),</span>
+</span><span class='line'>            <span class="n">path</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;list&#39;</span><span class="p">),</span>
+</span><span class='line'>            <span class="n">scenario_name</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">)</span>
+</span><span class='line'>        <span class="p">)</span>
+</span><span class='line'>    <span class="p">)</span>
+</span><span class='line'>    <span class="n">comparator</span> <span class="o">=</span> <span class="n">ResultCompare</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+</span><span class='line'>    <span class="n">rc</span><span class="p">,</span> <span class="n">error</span> <span class="o">=</span> <span class="n">comparator</span><span class="o">.</span><span class="n">compare</span><span class="p">()</span>
+</span><span class='line'>    <span class="k">if</span> <span class="n">rc</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">fail_json</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="n">error</span><span class="p">)</span>
+</span><span class='line'>    <span class="k">else</span><span class="p">:</span>
+</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
+</span><span class='line'><span class="n">main</span><span class="p">()</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>TDD in action</h2>
+
+<p>So let&rsquo;s finally see the whole thing action. First let&rsquo;s modify a <a href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">4-router topology</a> so that traffic from R1 to R4 is routed via R2 and R3 (a simple <code>delay 9999</code> on Ethernet0/1 will do). Now let&rsquo;s run the first scenario and verify that no errors are displayed.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>Scenario 1 successful </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>
+</span><span class='line'>~/tdd_ansible# ansible-playbook cisco_tdd.yml
+</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>:
+</span><span class='line'>
+</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
+</span><span class='line'>...
+</span><span class='line'>PLAY RECAP ********************************************************************
+</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">4</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">4</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Nothing much really, which is good, that means all scenarios were verified successfully. Now let&rsquo;s see how it fails. The easiest way is to run the tests from a second scenario, the one that assumes that the link between R1 and R2 failed and all the traffic is routed via R4.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>Scenario 2 failed </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>~/tdd_ansible# ansible-playbook cisco_tdd.yml
+</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 2
+</span><span class='line'>
+</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
+</span><span class='line'>...
+</span><span class='line'>TASK: <span class="o">[</span>verify traceroutes against pre-defined scenarios<span class="o">]</span> **********************
+</span><span class='line'>skipping: <span class="o">[</span>R2<span class="o">]</span>
+</span><span class='line'>skipping: <span class="o">[</span>R4<span class="o">]</span>
+</span><span class='line'>failed: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;R3&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;R2&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;R4&quot;</span>, <span class="s2">&quot;R3&quot;</span><span class="o">]}}</span>
+</span><span class='line'>msg: Failed scenario Testing of Backup Link.
+</span><span class='line'>Traceroute from R1 to R2 has not traversed <span class="o">[</span><span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;R3&#39;</span><span class="o">]</span>
+</span><span class='line'> Actual path taken: R1 -&gt; R2
+</span><span class='line'>
+</span><span class='line'>failed: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;R4&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;R1&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;R4&quot;</span><span class="o">]}}</span>
+</span><span class='line'>msg: Failed scenario Testing of Backup Link.
+</span><span class='line'>Traceroute from R3 to R1 has not traversed <span class="o">[</span><span class="s1">&#39;R4&#39;</span><span class="o">]</span>
+</span><span class='line'> Actual path taken: R3 -&gt; R2 -&gt; R1
+</span><span class='line'>
+</span><span class='line'>failed: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;R4&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;R3&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;R4&quot;</span><span class="o">]}}</span>
+</span><span class='line'>msg: Failed scenario Testing of Backup Link.
+</span><span class='line'>Traceroute from R1 to R3 has not traversed <span class="o">[</span><span class="s1">&#39;R4&#39;</span><span class="o">]</span>
+</span><span class='line'> Actual path taken: R1 -&gt; R2 -&gt; R3
+</span><span class='line'>
+</span><span class='line'>
+</span><span class='line'>PLAY RECAP ********************************************************************
+</span><span class='line'>           to retry, use: --limit @/root/cisco_tdd.retry
+</span><span class='line'>
+</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">3</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>1
+</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">3</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>1
+</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Here all 3 test steps within a scenario failed. Ansible displayed error messages passed down by our module, specifying the expected and the actual path.<br/>
+Now if we simply shutdown Ethernet0/0 of R1 to simulate a link failure and re-run the same scenario all tests will succeed again.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>Scenario 2 successful </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>~/tdd_ansible# ansible-playbook cisco_tdd.yml
+</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 2
+</span><span class='line'>
+</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
+</span><span class='line'>...
+</span><span class='line'>PLAY RECAP ********************************************************************
+</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">4</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">4</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>So there it is, a working network TDD framework in action. I still haven&rsquo;t covered a lot of corner cases (e.g. when traceroute times out) and deployment scenarios (device with VRFs) but it should still work for a lot of scenarios and can be easily extended to cover those corner cases.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[IP Address Information Collection With Custom Ansible Modules]]></title>
+    <link href="http://networkop.github.io/blog/2015/07/03/parser-modules/"/>
+    <updated>2015-07-03T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/07/03/parser-modules</id>
+    <content type="html"><![CDATA[<p>Ansible has a very neat feature called &ldquo;fact gathering&rdquo;, which collects useful information from hosts prior to executing any of the tasks and makes this information available for use within those tasks. Unfortunately, this also relies on Python being available on the remote machine which doesn&rsquo;t work for Cisco IOS. In this post I&rsquo;ll show how to write a simple module which will collect IP address information from remote devices and store it in global variable for future use. I&rsquo;ll also show how to write a module which will convert our human-readable TDD scenarios into YAML structures. As always, full code repository is available on <a href="https://github.com/networkop/simple-cisco-tdd">Github</a></p>
+
+<!--more-->
+
+
+<h2>Cisco IOS IP fact gathering</h2>
+
+<p>In order to recognise that a traceroute has traversed a certain device, without relying on DNS, we need to populate a local database mapping IP addresses to their respective devices. The resulting database (or YAML dictionary) needs to be stored in a file so that it can be read and used again by Ansible tasks doing the traceroute verification. In order to make it happen, we need to answer the following questions:</p>
+
+<ul>
+<li>How to get IP address information from each device?</li>
+</ul>
+
+
+<blockquote><p>The most straight-forward way is to capture the result of running something like <code>show ip interface brief</code> and parse the output. The assumption is that all devices are living in a non-overlapping IP address space (however it is possible to modify the examples to be vrf-aware).</p></blockquote>
+
+<ul>
+<li>Where to store the information?</li>
+</ul>
+
+
+<blockquote><p>Ideally, we would need a hash-like data structure (e.g. python dictionary) which will return a hostname when given a certain IP address. This data structure needs to be available to all hosts, however most of the variables in Ansible are host-specific. The only way to simulate a global variable in Ansible is to store all data in <code>group_vars/all.yml</code> file which is exactly what our module will do.</p></blockquote>
+
+<ul>
+<li>How will multiple processes write into a single file at the same time?</li>
+</ul>
+
+
+<blockquote><p>That&rsquo;s where Ansible&rsquo;s concurrency feature bites back. This is a well known computer science problem and the solution to this is to use <code>mutex</code>, however that&rsquo;s beyond what Ansible can do. In order to overcome that, I&rsquo;ll make Ansible do the tasks sequentially, which will dramatically slow things down for bigger environments. However, this task only needs to be run once, to collect the data, while all the other tasks can be run in parallel, in separate playbooks.</p></blockquote>
+
+<h2>Developing Ansible playbook</h2>
+
+<p>Our Ansible playbook will need to accomplish the following tasks:</p>
+
+<ol>
+<li>Capture the output <code>show ip interface brief</code> command</li>
+<li>Parse the output capture in the previous step</li>
+<li>Save the output in a <code>group_vars/all.yml</code> file</li>
+</ol>
+
+
+<p>All these tasks will need to be run sequentially on every host from <code>cisco-devices</code> group. To get the output from a Cisco device we&rsquo;ll use the <code>raw</code> module again. The other two tasks don&rsquo;t require connection to remote device and will be run on a localhost by the virtue of a <code>delegate_to: 127.0.0.1</code> option.</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/cisco-ip-collect.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Collect IP address data</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco-devices</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">remote_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">serial</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">capture show ip interface brief</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">raw</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">show ip interface brief | exclude unassigned</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">register</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">siib_text</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">parse the output of &quot;show ip interface brief&quot;</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">cisco_ip_intf_facts_collect</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">output_text=&quot;{{ siib_text.stdout }}&quot;</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">delegate_to</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">127.0.0.1</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">combine ip address facts and save as a global variable</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">cisco_ip_intf_facts_combine</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">ipTable=&quot;{{ IPs }}&quot;</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">hostname=&quot;{{ inventory_hostname }}&quot;</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">delegate_to</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">127.0.0.1</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="l-Scalar-Plain">tags</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">collect</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Writing a custom Ansible module</h2>
+
+<p>Ansible has an <a href="http://docs.ansible.com/developing_modules.html">official guide</a> on module development. A typical module will contain a header with license information along with module documentation and usage examples, a <code>main()</code> function processing the arguments passed to this module from Ansible and, of course, the actual code that implements module&rsquo;s logic. For the sake of brevity I will omit the header and some of the less important details in the code.</p>
+
+<h2>Ansible module to parse command output</h2>
+
+<p>This ansible module needs to extract IP address and, optionally, interface name from the output of <code>show ip interface brief</code> and store it in a python dictionary. The right way to examine the module code is from <code>main()</code> function. This function will contain a <code>module</code> variable (instance of AnsibleModule) which specifies all the arguments expected by this module and their type (the type will be converted to the appropriate python type). Text parser is implemented with a <code>SIIBparse</code> class whose only public method <code>parse()</code> will traverse the text line by line looking for interfaces with Line Protocol in <code>up</code> state, extract IP address (1st column), interface name (2nd column) and store the result in a python dictionary with IP address as the key and interface name as it&rsquo;s value.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_ip_intf_facts_collect.py </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">SIIBparse</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">output_text</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;output_text&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_text</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">):</span>
+</span><span class='line'>            <span class="n">row</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
+</span><span class='line'>            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">row</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">row</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;up&#39;</span><span class="p">:</span>
+</span><span class='line'>                <span class="n">ipAddress</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
+</span><span class='line'>                <span class="n">intfName</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</span><span class='line'>                <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span><span class="p">[</span><span class="n">ipAddress</span><span class="p">]</span> <span class="o">=</span> <span class="n">intfName</span>
+</span><span class='line'>        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span>
+</span><span class='line'>            <span class="s">&quot;IPs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span>
+</span><span class='line'>        <span class="p">}</span>
+</span><span class='line'>        <span class="n">rc</span> <span class="o">=</span> <span class="mi">0</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">1</span>
+</span><span class='line'>        <span class="k">return</span> <span class="n">rc</span><span class="p">,</span> <span class="n">result</span>
+</span><span class='line'>
+</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span>
+</span><span class='line'>        <span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+</span><span class='line'>            <span class="n">output_text</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">)</span>
+</span><span class='line'>        <span class="p">)</span>
+</span><span class='line'>    <span class="p">)</span>
+</span><span class='line'>    <span class="n">siib</span> <span class="o">=</span> <span class="n">SIIBparse</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+</span><span class='line'>    <span class="n">rc</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">siib</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
+</span><span class='line'>    <span class="k">if</span> <span class="n">rc</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">fail_json</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s">&quot;Failed to parse. Incorrect input.&quot;</span><span class="p">)</span>
+</span><span class='line'>    <span class="k">else</span><span class="p">:</span>
+</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">ansible_facts</span><span class="o">=</span><span class="n">result</span><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="c"># import module snippets</span>
+</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
+</span><span class='line'><span class="n">main</span><span class="p">()</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>If information passed to the module in the argument was invalid, the module must fail with a meaningful message passed inside a <code>fail_json</code> method call. When parsing is complete, our module exits and the resulting data structure is passed back to Ansible variables with <code>ansible_facts</code> argument. Now all hosts can access it through variable called <code>IPs</code>.</p>
+
+<h2>Ansible module to save IP address information</h2>
+
+<p>The task of this module is to get all the information collected inside each hosts' <code>IPs</code> variables, combine it with devices' hostnames and save it in the <code>group_vars/all.yml</code> file. This module makes use of <a href="http://pyyaml.org/wiki/PyYAMLDocumentation">Python&rsquo;s yaml library</a>. Built-in class <code>FactUpdater</code> can read(), update() the contents and write() the global variable file defined in a <code>FILENAME</code> variable.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_ip_intf_facts_combine.py </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">yaml</span>
+</span><span class='line'><span class="n">FILENAME</span><span class="o">=</span><span class="s">&quot;group_vars/all.yml&quot;</span>
+</span><span class='line'>
+</span><span class='line'><span class="k">class</span> <span class="nc">FactUpdater</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;ipTable&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">hostname</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;hostname&#39;</span><span class="p">]</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;ip2host&#39;</span><span class="p">:{}}</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>        <span class="k">try</span><span class="p">:</span>
+</span><span class='line'>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">FILENAME</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
+</span><span class='line'>                <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">fileObj</span><span class="p">)</span>
+</span><span class='line'>        <span class="k">except</span><span class="p">:</span>
+</span><span class='line'>            <span class="c"># in case there is no file - create it</span>
+</span><span class='line'>            <span class="nb">open</span><span class="p">(</span><span class="n">FILENAME</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">FILENAME</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
+</span><span class='line'>            <span class="n">yaml</span><span class="o">.</span><span class="n">safe_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">,</span> <span class="n">fileObj</span><span class="p">,</span> <span class="n">explicit_start</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">allow_unicode</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>        <span class="k">if</span> <span class="ow">not</span> <span class="s">&#39;ip2host&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">:</span>
+</span><span class='line'>            <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">[</span><span class="s">&#39;ip2host&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+</span><span class='line'>        <span class="k">for</span> <span class="n">ip</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span><span class="p">:</span>
+</span><span class='line'>            <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">[</span><span class="s">&#39;ip2host&#39;</span><span class="p">][</span><span class="n">ip</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">hostname</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span><span class="p">[</span><span class="n">ip</span><span class="p">]]</span>
+</span><span class='line'>
+</span><span class='line'>
+</span><span class='line'>
+</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span>
+</span><span class='line'>        <span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
+</span><span class='line'>            <span class="n">ipTable</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;dict&#39;</span><span class="p">),</span>
+</span><span class='line'>            <span class="n">hostname</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">),</span>
+</span><span class='line'>        <span class="p">)</span>
+</span><span class='line'>    <span class="p">)</span>
+</span><span class='line'>    <span class="n">result</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
+</span><span class='line'>    <span class="n">factUpdater</span> <span class="o">=</span> <span class="n">FactUpdater</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
+</span><span class='line'>    <span class="k">try</span><span class="p">:</span>
+</span><span class='line'>        <span class="n">factUpdater</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+</span><span class='line'>        <span class="n">factUpdater</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
+</span><span class='line'>        <span class="n">factUpdater</span><span class="o">.</span><span class="n">write</span><span class="p">()</span>
+</span><span class='line'>    <span class="k">except</span> <span class="ne">IOError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">fail_json</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s">&quot;Unexpected error: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="c"># import module snippets</span>
+</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
+</span><span class='line'><span class="n">main</span><span class="p">()</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This module only performs actions on local file and does not provide any output back to Ansible.</p>
+
+<h2>Read and parse TDD scenarios</h2>
+
+<p>Finally, since we&rsquo;re modifying Ansible global variable file, it would make sense to also update it with testing scenarios information. Technically, this steps doesn&rsquo;t need to be done in Ansible and could be done simply using Python or Bash scripts, but I&rsquo;ll still show it here to demonstrate two additional Ansible features. The first one is <code>local_action: module_name</code> which is a shorthand for specifying <code>module</code> with <code>delegate_to</code> option (see above). Second feature is <code>tags</code>, it allows to specify which play to run in playbook containing many of them. In our case one file <code>cisco-ip-collect.yml</code> will have two plays defined and will run both of them by default unless <code>--tag=scenario</code> or <code>--tag=collect</code> specifies the exact play.</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/cisco-ip-collect.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Parse and save scenarios</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">localhost</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">parse scenario file and save it in group_vars/all.yml</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">local_action</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco_scenarios_convert</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="l-Scalar-Plain">tags</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">scenario</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This play has a single task which runs a single custom module. Before we proceed to the module let&rsquo;s see how a typical testing scenario file looks like.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/scenarios/all.txt </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>1. Testing of Primary Link
+</span><span class='line'>1.1 From R1 to R3 via R2
+</span><span class='line'>1.2 From R1 to R4 via R2, R3
+</span><span class='line'>2. Testing of Backup Link
+</span><span class='line'>2.1 From R1 to R3 via R4
+</span><span class='line'>2.2 From R1 to R2 via R4,R3
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The file should be stored in a <code>scenarios/</code> directory and should have a name <code>all.txt</code>. This file contains a list of scenarios, each with its own name, and a list of test steps that need to be performed to validate a particular scenario. The parser for this file is a custom Python module which opens and reads the contents of <code>group_vars/all.yml</code> file, parses the scenarios file with the help of some ugly-looking regular expressions, and, finally, updates and saves the contents of Ansible group variable back to file.</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_scenarios_convert.py </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+<span class='line-number'>56</span>
+<span class='line-number'>57</span>
+<span class='line-number'>58</span>
+<span class='line-number'>59</span>
+<span class='line-number'>60</span>
+<span class='line-number'>61</span>
+<span class='line-number'>62</span>
+<span class='line-number'>63</span>
+<span class='line-number'>64</span>
+<span class='line-number'>65</span>
+<span class='line-number'>66</span>
+<span class='line-number'>67</span>
+<span class='line-number'>68</span>
+<span class='line-number'>69</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">yaml</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">re</span>
+</span><span class='line'><span class="n">SCENARIO_FILE</span> <span class="o">=</span> <span class="s">&quot;scenarios/all.txt&quot;</span>
+</span><span class='line'><span class="n">GROUP_VAR_FILE</span> <span class="o">=</span> <span class="s">&quot;group_vars/all.yml&quot;</span>
+</span><span class='line'>
+</span><span class='line'><span class="k">class</span> <span class="nc">ScenarioParser</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">rc</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">storage</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">open</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>       <span class="k">try</span><span class="p">:</span>
+</span><span class='line'>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">GROUP_VAR_FILE</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
+</span><span class='line'>                <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">fileObj</span><span class="p">)</span>
+</span><span class='line'>       <span class="k">except</span><span class="p">:</span>
+</span><span class='line'>           <span class="nb">open</span><span class="p">(</span><span class="n">GROUP_VAR_FILE</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>        <span class="n">scenario_number</span> <span class="o">=</span> <span class="mi">0</span>
+</span><span class='line'>        <span class="n">scenario_step</span>   <span class="o">=</span> <span class="mi">0</span>
+</span><span class='line'>        <span class="n">scenario_name</span>   <span class="o">=</span> <span class="s">&#39;&#39;</span>
+</span><span class='line'>        <span class="n">name_pattern</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^(\d+)\.?\s+(.*)&#39;</span><span class="p">)</span>
+</span><span class='line'>        <span class="n">step_pattern</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;.*[Ff][Rr][Oo][Mm]\s+([\d\w]+)\s+[Tt][Oo]\s+([\d\w]+)\s+[Vv][Ii][Aa]\s+([\d\w]+,*\s*[\d\w]+)*&#39;</span><span class="p">)</span>
+</span><span class='line'>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">SCENARIO_FILE</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
+</span><span class='line'>            <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">fileObj</span><span class="p">:</span>
+</span><span class='line'>                <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;#&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">:</span>
+</span><span class='line'>                    <span class="n">name_match</span> <span class="o">=</span> <span class="n">name_pattern</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+</span><span class='line'>                    <span class="n">step_match</span> <span class="o">=</span> <span class="n">step_pattern</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
+</span><span class='line'>                    <span class="k">if</span> <span class="n">name_match</span><span class="p">:</span>
+</span><span class='line'>                        <span class="n">scenario_number</span> <span class="o">=</span> <span class="n">name_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span class='line'>                        <span class="n">scenario_name</span>   <span class="o">=</span> <span class="n">name_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+</span><span class='line'>                        <span class="n">scenario_steps</span>  <span class="o">=</span> <span class="p">[</span><span class="n">scenario_name</span><span class="p">,</span> <span class="p">{}]</span>
+</span><span class='line'>                        <span class="k">if</span> <span class="ow">not</span> <span class="n">scenario_number</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">storage</span><span class="p">:</span>
+</span><span class='line'>                            <span class="bp">self</span><span class="o">.</span><span class="n">storage</span><span class="p">[</span><span class="n">scenario_number</span><span class="p">]</span> <span class="o">=</span> <span class="n">scenario_steps</span>
+</span><span class='line'>                        <span class="k">else</span><span class="p">:</span>
+</span><span class='line'>                            <span class="n">scenario_steps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">storage</span><span class="p">[</span><span class="n">scenario_number</span><span class="p">]</span>
+</span><span class='line'>                    <span class="k">elif</span> <span class="n">step_match</span><span class="p">:</span>
+</span><span class='line'>                        <span class="n">from_device</span> <span class="o">=</span> <span class="n">step_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+</span><span class='line'>                        <span class="n">to_device</span> <span class="o">=</span> <span class="n">step_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
+</span><span class='line'>                        <span class="n">via</span> <span class="o">=</span> <span class="n">step_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
+</span><span class='line'>                        <span class="n">via_devices</span> <span class="o">=</span> <span class="p">[</span><span class="n">device_name</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">device_name</span> <span class="ow">in</span> <span class="n">via</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)]</span>
+</span><span class='line'>                        <span class="k">if</span> <span class="ow">not</span> <span class="n">scenario_number</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">scenario_name</span><span class="p">:</span>
+</span><span class='line'>                            <span class="k">if</span> <span class="ow">not</span> <span class="n">from_device</span> <span class="ow">in</span> <span class="n">scenario_steps</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+</span><span class='line'>                                <span class="n">scenario_steps</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="n">from_device</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
+</span><span class='line'>                            <span class="n">scenario_steps</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="n">from_device</span><span class="p">][</span><span class="n">to_device</span><span class="p">]</span> <span class="o">=</span> <span class="n">via_devices</span>
+</span><span class='line'>                    <span class="k">else</span><span class="p">:</span>
+</span><span class='line'>                        <span class="bp">self</span><span class="o">.</span><span class="n">rc</span> <span class="o">=</span> <span class="mi">1</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+</span><span class='line'>       <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">[</span><span class="s">&#39;scenarios&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">storage</span>
+</span><span class='line'>       <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">rc</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+</span><span class='line'>           <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">GROUP_VAR_FILE</span><span class="p">,</span> <span class="s">&#39;w+&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
+</span><span class='line'>               <span class="n">yaml</span><span class="o">.</span><span class="n">safe_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">,</span> <span class="n">fileObj</span><span class="p">,</span> <span class="n">explicit_start</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">allow_unicode</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
+</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span><span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">())</span>
+</span><span class='line'>    <span class="n">parser</span> <span class="o">=</span> <span class="n">ScenarioParser</span><span class="p">()</span>
+</span><span class='line'>    <span class="n">parser</span><span class="o">.</span><span class="n">open</span><span class="p">()</span>
+</span><span class='line'>    <span class="n">parser</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
+</span><span class='line'>    <span class="n">parser</span><span class="o">.</span><span class="n">write</span><span class="p">()</span>
+</span><span class='line'>    <span class="k">if</span> <span class="ow">not</span> <span class="n">parser</span><span class="o">.</span><span class="n">rc</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">fail_json</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s">&quot;Failed to parse. Incorrect input.&quot;</span><span class="p">)</span>
+</span><span class='line'>    <span class="k">else</span><span class="p">:</span>
+</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
+</span><span class='line'><span class="n">main</span><span class="p">()</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The biggest portion of code is the read() method of the parser which does the following:</p>
+
+<ul>
+<li>scans text file line by line ignoring lines starting with <code>#</code> and whose length is not enough to contain either a scenario name or scenario step</li>
+<li>matches each line against pre-compiled regular expressions for scenario name or for scenario step (<a href="https://regex101.com/">a very helpful tool for regex testing</a>)</li>
+<li>attempts to save the data in a Python dictionary whose keys are scenario numbers and whose values is a list consisting of a scenario name (1st element) and a dictionary with scenario steps (2nd element)</li>
+</ul>
+
+
+<p>The end result of running both ip address collection and scenarios conversion plays is Ansible group variable file that looks like this:</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/library/group_vars/all.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="l-Scalar-Plain">ip2host</span><span class="p-Indicator">:</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">10.0.0.1</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R1</span><span class="p-Indicator">,</span> <span class="nv">Loopback0</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">10.0.0.2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">,</span> <span class="nv">Loopback0</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">10.0.0.3</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R3</span><span class="p-Indicator">,</span> <span class="nv">Loopback0</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">10.0.0.4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">,</span> <span class="nv">Loopback0</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">12.12.12.1</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R1</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/0</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">12.12.12.2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/0</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">14.14.14.1</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R1</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/1</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">14.14.14.4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/1</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">192.168.247.25</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R1</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/2</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">23.23.23.2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R3</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/0</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">34.34.34.3</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R3</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/1</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="l-Scalar-Plain">34.34.34.4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/0</span><span class="p-Indicator">]</span>
+</span><span class='line'><span class="l-Scalar-Plain">scenarios</span><span class="p-Indicator">:</span>
+</span><span class='line'>   <span class="s">&#39;1&#39;</span><span class="p-Indicator">:</span>
+</span><span class='line'>   <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Testing of Primary Link</span>
+</span><span class='line'>   <span class="p-Indicator">-</span>  <span class="l-Scalar-Plain">R1</span><span class="p-Indicator">:</span>
+</span><span class='line'>         <span class="l-Scalar-Plain">R2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">]</span>
+</span><span class='line'>         <span class="l-Scalar-Plain">R3</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">]</span>
+</span><span class='line'>         <span class="l-Scalar-Plain">R4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">,</span> <span class="nv">R3</span><span class="p-Indicator">]</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">R2</span><span class="p-Indicator">:</span>
+</span><span class='line'>         <span class="l-Scalar-Plain">R4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R3</span><span class="p-Indicator">]</span>
+</span><span class='line'>   <span class="s">&#39;2&#39;</span><span class="p-Indicator">:</span>
+</span><span class='line'>   <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Testing of Backup Link</span>
+</span><span class='line'>   <span class="p-Indicator">-</span>  <span class="l-Scalar-Plain">R1</span><span class="p-Indicator">:</span>
+</span><span class='line'>         <span class="l-Scalar-Plain">R2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">,</span> <span class="nv">R3</span><span class="p-Indicator">]</span>
+</span><span class='line'>         <span class="l-Scalar-Plain">R3</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">]</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">R3</span><span class="p-Indicator">:</span>
+</span><span class='line'>         <span class="l-Scalar-Plain">R1</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<hr />
+
+<p>The next post, final in a series, will show how to write an Ansible play to validate TDD scenarios and produce a meaningful error message in case it fails.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Getting Started With Ansible for Cisco IOS]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/24/ansible-intro/"/>
+    <updated>2015-06-24T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/24/ansible-intro</id>
+    <content type="html"><![CDATA[<p>Ansible is well-known for it&rsquo;s low entry threshold. All what&rsquo;s required to get started is just one inventory file. However Cisco IOS devices require special considerations.
+Passwordless SSH RSA-based authentication is still a novelty and in most cases users are authenticated based on their passwords. Another problem is the lack of Python execution
+environment on IOS devices, which seriously limits the choice of Ansible modules that can be used. In this post I will show how to setup Ansible
+environment to control Cisco IOS devices</p>
+
+<!--more-->
+
+
+<h2>Ansible overview</h2>
+
+<p>There&rsquo;s been a lot written about what Ansible is and what it was built to accomplish. I will just provide a brief summary of its features focusing on what we&rsquo;re gonna be using it for, leaving an in-depth explanation to the official <a href="http://docs.ansible.com/">Ansible documentation</a>.</p>
+
+<ul>
+<li>What is it?</li>
+</ul>
+
+
+<blockquote><p>Ansible is an IT automation and orchestration framework</p></blockquote>
+
+<ul>
+<li>What was it built to accomplish?</li>
+</ul>
+
+
+<blockquote><p>Ansible was designed to automate routine tasks like server/application deployment and configuration</p></blockquote>
+
+<ul>
+<li>How does it work?</li>
+</ul>
+
+
+<blockquote><p>It connects to several hosts at the same time and executes small programs called &ldquo;modules&rdquo; in the order specified in a file called &ldquo;playbook&rdquo;</p></blockquote>
+
+<p>To build what we&rsquo;ve set out to accomplish I&rsquo;m gonna be using the latter feature. I am not gonna be using Ansible for system provisioning or service orchestration. Instead, I will be exploiting Ansible&rsquo;s ability to run multiple parallel connections to remote hosts, execute commands on them and return their result. Due to that, I will diverge from some of the <a href="https://docs.ansible.com/playbooks_best_practices.html">Ansible&rsquo;s best practices</a> of splitting functions into roles and I will use one flat playbook file segregating different functions with tags.</p>
+
+<h2>Ansible configuration file</h2>
+
+<p>Ansible configuration file <code>ansible.cfg</code> contains <a href="http://docs.ansible.com/intro_configuration.html">application-wide settings</a> like default timeouts, port numbers and other flags. The default Ansible configuration file is located in <code>/etc/ansible/</code> directory. However, instead of overwriting the defaults it is possible to create a configuration file in a local directory with only the settings that need to be overridden. To better work with Cisco devices the following settings will need to be modified:</p>
+
+<ul>
+<li>Default SSH library (transport) needs to be set to <code>paramiko</code> which is more stable than its alternative, OpenSSH, when working with Cisco IOS.</li>
+<li>For a small project it is easier to maintain a local copy of inventory file which is configured with <code>hostfile</code> setting.</li>
+<li>Strict SSH key checking is a MUST in every production environment, however, for development environment an exception can be made.</li>
+<li>Default SSH timeout is decreased to 5 seconds reflecting a small size of the testing environment.</li>
+</ul>
+
+
+<figure class='code'><figcaption><span>~/tdd_ansible/ansible.cfg</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>defaults<span class="o">]</span>
+</span><span class='line'><span class="nv">transport</span><span class="o">=</span>paramiko
+</span><span class='line'><span class="nv">hostfile</span> <span class="o">=</span> ./myhosts
+</span><span class='line'><span class="nv">host_key_checking</span><span class="o">=</span>False
+</span><span class='line'><span class="nv">timeout</span> <span class="o">=</span> 5
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Inventory file</h2>
+
+<p>Inventory contains the list of hosts to be managed by Ansible. Hosts are normally combined into groups (<code>cisco-devices</code> in our case) and Ansible performs actions on all hosts in the group in parallel.</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/myhosts</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>cisco-devices<span class="o">]</span>
+</span><span class='line'>R1
+</span><span class='line'>R2
+</span><span class='line'>R3
+</span><span class='line'>R4
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>It is considered a <a href="https://docs.ansible.com/playbooks_best_practices.html#group-and-host-variables">best practice</a> to keep all variables in separate folders and files. We need to define additional host variables to let Ansible know which IP address to use to connect to a remote device. I will also add SSH password to a host variable file which is a VERY bad practice, however this will prevent me from typing password every time I run a playbook. If I ever did this in production, I&rsquo;d add host variables directory to <code>.gitignore</code> file so that it doesn&rsquo;t get uploaded to Github. Host variables files must follow YAML formatting, must be stored in a <code>./host_var</code> directory and must match the name of the host they are being assigned to.</p>
+
+<figure class='code'><figcaption><span>~/tdd_ansible/host_var/R1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_host</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">10.0.0.1</span>
+</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_pass</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Similar files need to be created for R2, R3 and R4.</p>
+
+<h2>Run a test traceroute commands</h2>
+
+<p>Now it is time to finally see Ansible in action. Let&rsquo;s first see if we can run a standalone traceroute command. I will manually define SSH username with <code>-u</code> flag and use a module called <code>raw</code> passing traceroute command as an argument with <code>-a</code> option.</p>
+
+<figure class='code'><figcaption><span>Ad-hoc traceroute command</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ansible cisco-devices -u cisco -m raw -a <span class="s2">&quot;traceroute 10.0.0.4 source Loopback0 probe 1 numeric&quot;</span>
+</span><span class='line'>SSH password:
+</span><span class='line'>R1 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
+</span><span class='line'>
+</span><span class='line'>Type escape sequence to abort.
+</span><span class='line'>Tracing the route to 10.0.0.4
+</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
+</span><span class='line'>  <span class="m">1</span> 14.14.14.4 <span class="m">0</span> msec *  <span class="m">0</span> msec
+</span><span class='line'>
+</span><span class='line'>R2 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
+</span><span class='line'>
+</span><span class='line'>Type escape sequence to abort.
+</span><span class='line'>Tracing the route to 10.0.0.4
+</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
+</span><span class='line'>  <span class="m">1</span> 12.12.12.1 <span class="m">0</span> msec <span class="m">0</span> msec <span class="m">0</span> msec
+</span><span class='line'>  <span class="m">2</span>  *  *
+</span><span class='line'>    14.14.14.4 <span class="m">0</span> msec
+</span><span class='line'>
+</span><span class='line'>R3 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
+</span><span class='line'>
+</span><span class='line'>Type escape sequence to abort.
+</span><span class='line'>Tracing the route to 10.0.0.4
+</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
+</span><span class='line'>  <span class="m">1</span> 34.34.34.4 <span class="m">0</span> msec <span class="m">0</span> msec *
+</span><span class='line'>
+</span><span class='line'>R4 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
+</span><span class='line'>
+</span><span class='line'>Type escape sequence to abort.
+</span><span class='line'>Tracing the route to 10.0.0.4
+</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
+</span><span class='line'>  <span class="m">1</span> 10.0.0.4 <span class="m">0</span> msec <span class="m">0</span> msec *
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<p>Ansible ad-hoc commands are a good way to quickly test something out and learn how things work. Next step would be to create a playbook file which will contain several of those commands in a more structured way. Playbooks use YAML syntax and follow strict formatting rules. At the top of the file there&rsquo;s a name of the play along with the target hosts group. Following that are a list of tasks, each of which calls its own module and passes arguments to it. In this example playbook does the following:</p>
+
+<ol>
+<li>Defines a <code>loopbacks</code> variable which stores in a hash a list of devices along with their loopback IP addresses.</li>
+<li>Uses <code>raw</code> module to run traceroute commands. This is the only module that doesn&rsquo;t require Python to be installed on a target machine.</li>
+<li>For each host in <code>cisco-devices</code> group runs traceroute to every other hosts' loopback IP</li>
+<li>Stores the result in a <code>trace_result</code> variable</li>
+</ol>
+
+
+<figure class='code'><figcaption><span>~/tdd_ansible/cisco-trace-run.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Run traceroute commands</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco-devices</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">remote_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="l-Scalar-Plain">vars</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">loopbacks</span><span class="p-Indicator">:</span> <span class="p-Indicator">{</span>
+</span><span class='line'>    <span class="s">&quot;R1&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.1&quot;</span><span class="p-Indicator">,</span>
+</span><span class='line'>    <span class="s">&quot;R2&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.2&quot;</span><span class="p-Indicator">,</span>
+</span><span class='line'>    <span class="s">&quot;R3&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.3&quot;</span><span class="p-Indicator">,</span>
+</span><span class='line'>    <span class="s">&quot;R4&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.4&quot;</span><span class="p-Indicator">,</span>
+</span><span class='line'>    <span class="p-Indicator">}</span>
+</span><span class='line'>
+</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
+</span><span class='line'>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">run traceroute to every other host</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">raw</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">traceroute {{ item.value }} source Loopback0 probe 1 numeric</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">item.key != inventory_hostname</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">with_dict</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">loopbacks</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">register</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">trace_result</span>
+</span><span class='line'>
+</span><span class='line'><span class="c1">#    - name: Debug registered variables</span>
+</span><span class='line'><span class="c1">#      debug: var=trace_result</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>In this Playbook I use several useful Ansible features:</p>
+
+<ul>
+<li><a href="https://docs.ansible.com/playbooks_variables.html#variables-defined-in-a-playbook">Variables defined in playbooks</a></li>
+<li><a href="https://docs.ansible.com/playbooks_loops.html#looping-over-hashes">Looping over hashes</a></li>
+<li><a href="https://docs.ansible.com/playbooks_conditionals.html">Conditionals</a></li>
+<li><a href="https://docs.ansible.com/playbooks_variables.html#registered-variables">Registered variables</a></li>
+</ul>
+
+
+<p>The end result of this task is that traceroute is run 12 times - one time from each of the hosts to each other host except for when source and destination are equal.</p>
+
+<figure class='code'><figcaption><span>Running the playbook</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ansible-playbook cisco-trace-run.yml
+</span><span class='line'>
+</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
+</span><span class='line'>
+</span><span class='line'>TASK: <span class="o">[</span>run traceroute to every other host<span class="o">]</span> ************************************
+</span><span class='line'>skipping: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
+</span><span class='line'>skipping: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
+</span><span class='line'>skipping: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
+</span><span class='line'>skipping: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
+</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
+</span><span class='line'>
+</span><span class='line'>PLAY RECAP ********************************************************************
+</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The above shows that all 12 tasks were completed successfully, meaning the command was executed and result was stored in a registered variable. To view the actual output of <code>traceroute</code> commands uncomment the two debug lines at the end of the playbook and rerun it.</p>
+
+<hr />
+
+<p>Now that the goal of running commands on multiple devices in parallel is achieved, the next step would be to decide how to make use of the received output. In the next posts I will attempt to tackle the following problems:</p>
+
+<ul>
+<li>Parse textual output of traceroute command and extract transit IP addresses.</li>
+<li>Find a way to convert these transit IP addresses into hostnames without relying on DNS.</li>
+<li>Verify TDD scenarios against traceroute outputs and produce an intelligible result of this verification.</li>
+</ul>
+
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Windows-Linux File Synchronisation]]></title>
+    <link href="http://networkop.github.io/blog/2015/06/22/dev-file-sync/"/>
+    <updated>2015-06-22T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/06/22/dev-file-sync</id>
+    <content type="html"><![CDATA[<p>My development environment usually consists of a host machine running Windows and a development Linux &ldquo;headless&rdquo; virtual machine. I create and edit
+files in a <a href="https://notepad-plus-plus.org/">Notepad++</a> text editor and then transfer them over to the Linux VM. Until recently I&rsquo;ve been using a hypervisor-enabled &ldquo;shared&rdquo; folder. However, Windows file system emulators in Linux do not support symbolic links
+and therefore breaks a lot of applications that rely on them. This prompted me to start looking for a new way to sync my files. That&rsquo;s how I came across this new amazing
+file syncing app called <a href="https://syncthing.net/">Syncthing</a>. Why is it amazing?</p>
+
+<ul>
+<li>It uses peer-to-peer architecture. User traffic is not uploaded to a centralised server and is transferred directly between peers.</li>
+<li>It is open-source. It doesn&rsquo;t use any proprietary syncing protocols like BTSync.</li>
+<li>As the result of open-source nature it has big community support with clients, wrappers and extension available for any major platform.</li>
+<li>It is secure. All transfers are TLS-encrypted.</li>
+<li>It&rsquo;s simple to use. Windows version installs like any other Windows app, Linux version, like any other Linux app, will take a little tinkering.</li>
+<li>It&rsquo;s written in Golang, an extremely popular language amongst professional programmers and surely these guys can&rsquo;t be mistaken.</li>
+</ul>
+
+
+<!--more-->
+
+
+<h2>Windows installation</h2>
+
+<p>Windows installation is extremely easy. I use a package called <a href="https://github.com/canton7/SyncTrayzor/releases">SyncTrayzor</a> which contains the application itself, serves as a tray utility wrapper and also implements &ldquo;inotify&rdquo; which allows for file on-change synchronisation (BGP ip next-hop tracking anyone?)</p>
+
+<h2>Ubuntu installation</h2>
+
+<p>Ubuntu package installation is an easy 4-step process:</p>
+
+<figure class='code'><figcaption><span>1.Syncthing Ubuntu installation</span><a href='http://apt.syncthing.net/'>Instructions</a></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="c"># Add the release PGP keys:</span>
+</span><span class='line'><span class="nv">$ </span>curl -s https://syncthing.net/release-key.txt <span class="p">|</span> sudo apt-key add -
+</span><span class='line'>
+</span><span class='line'><span class="c"># Add the &quot;release&quot; channel to your APT sources:</span>
+</span><span class='line'><span class="nv">$ </span><span class="nb">echo </span>deb http://apt.syncthing.net/ Syncthing release <span class="p">|</span> sudo tee /etc/apt/sources.list.d/syncthing-release.list
+</span><span class='line'>
+</span><span class='line'><span class="c"># Update and install syncthing:</span>
+</span><span class='line'><span class="nv">$ </span>sudo apt-get update
+</span><span class='line'><span class="nv">$ </span>sudo apt-get install syncthing
+</span></code></pre></td></tr></table></div></figure>
+
+
+
+
+<figure class='code'><figcaption><span>2.Inotify installation</span><a href='https://github.com/syncthing/syncthing-inotify/releases'>Release</a></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="c"># Choose the latest release for your platform</span>
+</span><span class='line'><span class="nv">$ </span>wget https://github.com/syncthing/syncthing-inotify/releases/download/v0.6.5/syncthing-inotify-linux-amd64-v0.6.5.tar.gz
+</span><span class='line'>
+</span><span class='line'><span class="c"># Unpack and copy inotify to the same directory as the main app</span>
+</span><span class='line'><span class="nv">$ </span>tar xvf syncthing-inotify-linux-amd64-v0.6.5.tar.gz
+</span><span class='line'><span class="nv">$ </span>which syncthing
+</span><span class='line'>/usr/bin/syncthing
+</span><span class='line'><span class="nv">$ </span>mv syncthing-inotify /usr/bin/
+</span></code></pre></td></tr></table></div></figure>
+
+
+
+
+<figure class='code'><figcaption><span>3. Configure upstart script to control Syncthing</span><a href='https://egustafson.github.io/syncthing-ubuntu.html'>Upstart setup</a></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="c"># Create a file for main service</span>
+</span><span class='line'><span class="nv">$ </span><span class="nb">echo</span> <span class="s2">&quot;start on starting network-services</span>
+</span><span class='line'><span class="s2">stop on stopping network-services</span>
+</span><span class='line'><span class="s2">env STNORESTART=yes</span>
+</span><span class='line'><span class="s2">respawn</span>
+</span><span class='line'><span class="s2">env HOME=/root</span>
+</span><span class='line'><span class="s2">exec /usr/bin/syncthing&quot;</span> &gt;&gt; /etc/init/syncthing.conf
+</span><span class='line'>
+</span><span class='line'><span class="c"># Do the same for inotify</span>
+</span><span class='line'><span class="nv">$ </span><span class="nb">echo</span> <span class="s2">&quot;start on starting syncthing</span>
+</span><span class='line'><span class="s2">stop on stopping syncthing</span>
+</span><span class='line'><span class="s2">env STNORESTART=yes</span>
+</span><span class='line'><span class="s2">respawn</span>
+</span><span class='line'><span class="s2">env HOME=/root</span>
+</span><span class='line'><span class="s2">exec /usr/bin/syncthing-inotify&quot;</span> &gt;&gt; /etc/init/syncthing-inotify.conf
+</span><span class='line'>
+</span><span class='line'><span class="c"># start both services </span>
+</span><span class='line'><span class="nv">$ </span>service syncthing start <span class="o">&amp;&amp;</span> service syncthing-inotify start
+</span></code></pre></td></tr></table></div></figure>
+
+
+
+
+<figure class='code'><figcaption><span>4. Update Syncthing configuration file </span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="c"># Update the default Sync directory to match your dev environment</span>
+</span><span class='line'><span class="c"># using the correct device IDs</span>
+</span><span class='line'><span class="nv">$ </span>head -n <span class="m">10</span> ~/.config/syncthing/config.xml
+</span><span class='line'>&lt;configuration <span class="nv">version</span><span class="o">=</span><span class="s2">&quot;10&quot;</span>&gt;
+</span><span class='line'>    &lt;folder <span class="nv">id</span><span class="o">=</span><span class="s2">&quot;ansible-blog&quot;</span> <span class="nv">path</span><span class="o">=</span><span class="s2">&quot;/root/tdd_ansible&quot;</span> <span class="nv">ro</span><span class="o">=</span><span class="s2">&quot;false&quot;</span> <span class="nv">rescanIntervalS</span><span class="o">=</span><span class="s2">&quot;60&quot;</span> <span class="nv">ignorePerms</span><span class="o">=</span><span class="s2">&quot;false&quot;</span> <span class="nv">autoNormalize</span><span class="o">=</span><span class="s2">&quot;false&quot;</span>&gt;
+</span><span class='line'>        &lt;device <span class="nv">id</span><span class="o">=</span><span class="s2">&quot;MY-DEVICE-ID&quot;</span>&gt;&lt;/device&gt;
+</span><span class='line'>        &lt;device <span class="nv">id</span><span class="o">=</span><span class="s2">&quot;PEER-DEVICE-ID&quot;</span>&gt;&lt;/device&gt;
+</span><span class='line'>        &lt;versioning&gt;&lt;/versioning&gt;
+</span><span class='line'>        &lt;copiers&gt;0&lt;/copiers&gt;
+</span><span class='line'>        &lt;pullers&gt;0&lt;/pullers&gt;
+</span><span class='line'>        &lt;hashers&gt;0&lt;/hashers&gt;
+</span><span class='line'>        &lt;order&gt;random&lt;/order&gt;
+</span><span class='line'>    &lt;/folder&gt;
+</span><span class='line'>
+</span><span class='line'><span class="c"># Add peer device&#39;s ID to the same file</span>
+</span><span class='line'><span class="nv">$ </span>cat ~/.config/syncthing/config.xml
+</span><span class='line'>...
+</span><span class='line'>    &lt;device <span class="nv">id</span><span class="o">=</span><span class="s2">&quot;PEER-DEVICE-ID&quot;</span> <span class="nv">name</span><span class="o">=</span><span class="s2">&quot;NETOP-DESKTOP&quot;</span> <span class="nv">compression</span><span class="o">=</span><span class="s2">&quot;metadata&quot;</span> <span class="nv">introducer</span><span class="o">=</span><span class="s2">&quot;false&quot;</span>&gt;
+</span><span class='line'>        &lt;address&gt;dynamic&lt;/address&gt;
+</span><span class='line'>    &lt;/device&gt;
+</span><span class='line'>...
+</span><span class='line'>
+</span><span class='line'><span class="c"># restart both syncthing services</span>
+</span><span class='line'><span class="nv">$ </span>service syncthing restart <span class="o">&amp;&amp;</span> service syncthing-inotify restart
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Finally, Windows service can be configured similarly via Syncthing Tray. End result is that files are replicated between the two folders with a delay of just a few seconds</p>
+
+<figure class='code'><figcaption><span>Verification</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>touch /root/tdd_ansible/testfile
+</span><span class='line'><span class="nv">$ </span>tail -n <span class="m">3</span> /var/log/upstart/syncthing*
+</span><span class='line'><span class="o">==</span>&gt; /var/log/upstart/syncthing-inotify.log &lt;<span class="o">==</span>
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:45:04 Watching ansible-blog: /root/tdd_ansible
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:45:04 Syncthing is indexing change in ansible-blog: <span class="o">[</span>.stfolder<span class="o">]</span>
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:46:16 Syncthing is indexing change in ansible-blog: <span class="o">[</span>testfile<span class="o">]</span>
+</span><span class='line'>
+</span><span class='line'><span class="o">==</span>&gt; /var/log/upstart/syncthing.log &lt;<span class="o">==</span>
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Established secure connection to DEVICE-ID at 192.168.X.Y:22000-192.168.X.Z:53007
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Device DEVICE-ID client is <span class="s2">&quot;syncthing v0.11.10&quot;</span>
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Device DEVICE-ID name is <span class="s2">&quot;NETOP-DESKTOP&quot;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<hr />
+
+<p>How can you not love open-source after that?</p>
+]]></content>
+  </entry>
+  
+  <entry>
     <title type="html"><![CDATA[Development Environment Setup]]></title>
     <link href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/"/>
-    <updated>2015-06-17T00:00:00-04:00</updated>
+    <updated>2015-06-17T00:00:00-07:00</updated>
     <id>http://networkop.github.io/blog/2015/06/17/dev-env-setup</id>
     <content type="html"><![CDATA[<p>Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:</p>
 
@@ -26,7 +1580,7 @@
 </ul>
 
 
-<p>To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use <a href="http://www.unetlab.com/">UnetLab</a>, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download <a href="http://www.unetlab.com/download/">the website</a>. To simulate network devices I will run <abbr title="IOS on Unix">IOU</abbr> which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.</p>
+<p>To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use <a href="http://www.unetlab.com/">UnetLab</a>, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on <a href="http://www.unetlab.com/download/">the website</a>. To simulate network devices I will run <abbr title="IOS on Unix">IOU</abbr> which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.</p>
 
 <!--more-->
 
@@ -145,7 +1699,7 @@ Here are the steps required to get the network environment setup:</p>
 <h2>Dev environment setup</h2>
 
 <p>Ansible is one of the most popular automation and orchestration tools in IT industry. Part of its popularity is due to the &ldquo;clientless&rdquo; architecture where
-the only requirement to managed system is to have ssh access and Python execution environment. The latter pretty much rules out the biggest part of common
+the only requirement to a managed system is to have ssh access and Python execution environment. The latter pretty much rules out the biggest part of common
 networking infrastructure. However it is still possible to use Ansible in a &ldquo;raw&rdquo; mode and write modules of our own. That&rsquo;s exactly what we&rsquo;re gonna do in this exercise.
 Due to the fact that Ansible is written in Python, it has better support for modules written in the same language, therefore all modules will be written in Python.<br/>
 One important tool every developer uses is version control. It allows to track changes made to the code and enables collaboration between multiple
@@ -232,8 +1786,8 @@ Once respository is created, Github will provide instructions to setup repositor
 </span><span class='line'><span class="nv">$ </span>git commit -m <span class="s2">&quot;first commit&quot;</span>
 </span><span class='line'><span class="nv">$ </span>git remote add origin <a href="https://github.com/networkop/simple-cisco-tdd.git">https://github.com/networkop/simple-cisco-tdd.git</a>
 </span><span class='line'><span class="nv">$ </span>git push -u origin master
-</span><span class='line'>Username <span class="k">for</span> <span class="s1">&#39;<a href="https://github.com&amp;#39;">https://github.com&amp;#39;</a></span>: networkop
-</span><span class='line'>Password <span class="k">for</span> <span class="s1">&#39;<a href="https://networkop@github.com&amp;#39;">https://networkop@github.com&amp;#39;</a></span>:
+</span><span class='line'>Username <span class="k">for</span> <a href="https://github.com:">https://github.com:</a> networkop
+</span><span class='line'>Password <span class="k">for</span> <a href="https://networkop@github.com:">https://networkop@github.com:</a>
 </span><span class='line'>Counting objects: 3, <span class="k">done</span>.
 </span><span class='line'>Writing objects: 100% <span class="o">(</span>3/3<span class="o">)</span>, <span class="m">206</span> bytes <span class="p">|</span> <span class="m">0</span> bytes/s, <span class="k">done</span>.
 </span><span class='line'>Total <span class="m">3</span> <span class="o">(</span>delta 0<span class="o">)</span>, reused <span class="m">0</span> <span class="o">(</span>delta 0<span class="o">)</span>
@@ -254,7 +1808,7 @@ In the next post I will show how to setup Ansible to work with Cisco devices.</p
   <entry>
     <title type="html"><![CDATA[Building a Simple Network TDD Framework]]></title>
     <link href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/"/>
-    <updated>2015-06-15T00:00:00-04:00</updated>
+    <updated>2015-06-15T00:00:00-07:00</updated>
     <id>http://networkop.github.io/blog/2015/06/15/simple-tdd-framework</id>
     <content type="html"><![CDATA[<p>In the following series of posts I will show how to build a simple Test-Driven Development framework
 for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of <a href="http://docs.ansible.com/list_of_files_modules.html">Ansible</a> <em>modules</em> and <em>playbooks</em>. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. <abbr title="Software-Defined Network">SDN</abbr>. The reader is assumed to have only a basic networking, linux and python programming skills.</p>
@@ -292,12 +1846,12 @@ These tests can also be used during regression testing of the network each time 
 
 <h2>Step-by-step procedure</h2>
 
-<p>This is how I see the whole development process now (before I started). Some section may get added/removed in the process. I&rsquo;ll try to write at least one post a week aiming to complete the series in under a month.</p>
+<p>This is how I see the whole development process now (before I started). Some section may get added/removed in the process. I&rsquo;ll try to write at least one post a week aiming to complete the series in under one month.</p>
 
 <ol>
 <li><a href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">Development environment setup</a></li>
-<li>Ansible basics and inventory setup</li>
-<li>Developing Ansible library to run traceroutes</li>
+<li><a href="http://networkop.github.io/blog/2015/06/24/ansible-intro/">Getting started with Ansible for Cisco IOS</a></li>
+<li>Developing Ansible library to gather facts from Cisco devices</li>
 <li>Developing Ansible library to verify test scenarios</li>
 </ol>
 
@@ -307,7 +1861,7 @@ These tests can also be used during regression testing of the network each time 
   <entry>
     <title type="html"><![CDATA[iBGP Fall-over Trick]]></title>
     <link href="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/"/>
-    <updated>2015-06-11T00:00:00-04:00</updated>
+    <updated>2015-06-11T00:00:00-07:00</updated>
     <id>http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick</id>
     <content type="html"><![CDATA[<p>BGP fall-over is a neat BGP convergence optimisation technique whereby BGP peering is brought down as soon as the route to neighbor disappears from a routing table.
 The difference between external and internal BGP is that the former usually peers over a directly-attached interface so that when the interface to neighbor is disconnected,
@@ -380,7 +1934,7 @@ needless to say, dramatically speeds up convergence times for BGP.</p>
   <entry>
     <title type="html"><![CDATA[Structured Approach to Troubleshooting of L3VPN Networks]]></title>
     <link href="http://networkop.github.io/blog/2015/06/10/l3vpn-mpls-troubleshoot/"/>
-    <updated>2015-06-10T08:52:00-04:00</updated>
+    <updated>2015-06-10T05:52:00-07:00</updated>
     <id>http://networkop.github.io/blog/2015/06/10/l3vpn-mpls-troubleshoot</id>
     <content type="html"><![CDATA[<p>With the amount of configuration involved in a typical L3VPN configuration, troubleshooting process can get pretty chaotic, especially
 in a time-constrained environments like CCIE lab. That&rsquo;s why it is extremely important to have a well-structured approach to quickly
@@ -435,7 +1989,7 @@ is running with all its neighbors with <code>show mpls ldp neighbor</code></li>
   <entry>
     <title type="html"><![CDATA[Enterprise IP Routing Best Practices]]></title>
     <link href="http://networkop.github.io/blog/2015/06/03/ent-ip-routing-bcp/"/>
-    <updated>2015-06-03T17:19:02-04:00</updated>
+    <updated>2015-06-03T14:19:02-07:00</updated>
     <id>http://networkop.github.io/blog/2015/06/03/ent-ip-routing-bcp</id>
     <content type="html"><![CDATA[<p>What motivated me to write this post is a state of the IP routing of some of the enterprise networks I&rsquo;ve seen.
 A quick <code>show ip route</code> command reveals a non-disentanglable mixture of dynamic and static route with multiple points of redistribution and complex,
