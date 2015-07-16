@@ -112,7 +112,7 @@ git clone https://github.com/networkop/simple-cisco-tdd.git tdd-acme-inc
 cd tdd-acme-int
 ```
 
-``` INI ./myhosts
+``` text ./myhosts
 [dc-devices]
 DC-CORE ansible_ssh_host=10.0.1.1
 DC-WAN1 ansible_ssh_host=10.0.1.2
@@ -194,6 +194,7 @@ Traceroute from BR2-CORE to DC-CORE has not traversed ['BR1-CORE', 'BR1-WAN1']
 ok: [BR2-WAN2] => (item={'key': 'BR1-WAN2', 'value': ['BR2-CORE', 'BR1-CORE']})
 ```
 
+
 ``` text BR2-WAN1
 route-map RM-BGP-PREPEND-IN permit 10
  set as-path prepend last-as 4
@@ -206,13 +207,15 @@ neighbor 2.2.3.2 route-map RM-BGP-PREPEND-OUT out
 !
 ```
 
+
 ``` bash
-root@netops:~/quickstart# ansible-playbook cisco_tdd.yml
+ansible-playbook cisco_tdd.yml
 Enter scenario number [1]: 2
 ok: [DC-CORE] => (item={'key': 'BR2-CORE', 'value': ['DC-WAN1', 'BR1-WAN1']})
 ok: [BR1-WAN2] => (item={'key': 'BR2-WAN2', 'value': ['BR1-CORE', 'BR2-CORE']})
 ok: [BR2-CORE] => (item={'key': 'DC-CORE', 'value': ['BR1-CORE', 'BR1-WAN1']})
 ok: [BR2-WAN2] => (item={'key': 'BR1-WAN2', 'value': ['BR2-CORE', 'BR1-CORE']})
+```
 
 
 ## Testing the Backdoor link failure
@@ -231,12 +234,14 @@ BR2-CORE(config)#int eth 0/2
 BR2-CORE(config-if)#no shut
 ```
 
+
 ``` bash
 root@netops:~/quickstart# ansible-playbook cisco_tdd.yml
 Enter scenario number [1]: 3
 ok: [BR1-WAN2] => (item={'key': 'BR2-WAN2', 'value': ['BR1-WAN1', 'BR2-WAN1']})
 ok: [BR2-WAN2] => (item={'key': 'BR1-WAN2', 'value': ['BR2-WAN1', 'BR1-WAN1']})
 ```
+
 
 ## Testing of backup WAN
 
@@ -247,6 +252,7 @@ BR2-WAN1(config)#int eth 0/0
 BR2-WAN1(config-if)#shut
 ```
 
+
 ``` bash
 ansible-playbook cisco_tdd.yml
 Enter scenario number [1]: 4
@@ -255,5 +261,6 @@ ok: [BR1-CORE] => (item={'key': 'BR2-CORE', 'value': ['BR1-WAN2', 'BR2-WAN2']})
 ok: [BR2-CORE] => (item={'key': 'DC-CORE', 'value': ['BR2-WAN2', 'DC-WAN2']})
 ok: [BR2-CORE] => (item={'key': 'BR1-CORE', 'value': ['BR2-WAN2', 'BR1-WAN2']})
 ```
+
 
 ## Conclusion
