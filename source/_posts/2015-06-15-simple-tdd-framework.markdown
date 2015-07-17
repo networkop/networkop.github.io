@@ -43,10 +43,16 @@ This is how I see the whole development process now (before I started). Some sec
 
 1. [Development environment setup][dev-env-setup-link]
 2. [Getting started with Ansible for Cisco IOS][ansible-intro-link]
-3. Developing Ansible library to gather facts from Cisco devices
-4. Developing Ansible library to verify test scenarios
+3. [Developing Ansible library to gather facts from Cisco devices][ansible-parse-link]
+4. [Developing Ansible library to verify test scenarios][ansible-tdd-link]
+
+A [quickstart guide][quickstart-link] for those interested to see the final product in action.
 
 [agile-manifesto]: http://agilemanifesto.org/
 [ansible-website]: http://docs.ansible.com/list_of_files_modules.html
 [dev-env-setup-link]: http://networkop.github.io/blog/2015/06/17/dev-env-setup/
 [ansible-intro-link]: http://networkop.github.io/blog/2015/06/24/ansible-intro/
+[ansible-parse-link]: http://networkop.github.io/blog/2015/07/03/parser-modules/
+[ansible-tdd-link]: http://networkop.github.io/blog/2015/07/10/test-verification/
+[quickstart-link]: http://networkop.github.io/blog/2015/07/17/tdd-quickstart/
+ 
