@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Network TDD Quickstart Guide - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="Network TDD quickstart">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">
+  <meta property="og:title" content="Network TDD Quickstart Guide - Network-oriented programming">
+  <meta property="og:description" content="Network TDD quickstart">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li >
+                    <a href="/blog/archives">Archives</a>
+                </li>
+								<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-07-17T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">17/07/2015</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Network TDD Quickstart Guide
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>This post gives a quick overview of how to use network Test Driven Development framework. As an example I&rsquo;ll use a simplified version of a typical enterprise network with a Data Centre/HQ and a Branch office. A new branch is being added and the task is to configure routing for that branch using a TDD approach. First we&rsquo;ll devise a set of TDD scenarios to be tested and then, going through each one of them, modify routing to make sure those scenarios don&rsquo;t fail (a so-called red-green-refactor approach)</p>
+
+<!--more-->
+
+
+<h2>Network overview</h2>
+
+<p>Let&rsquo;s assume you&rsquo;re working in a proverbial Acme Inc. It has a Data Centre hosting all centralised services and a single office branch (Branch #1). Sites are interconnected using active/backup WAN links. The company decides to expand and adds a new office in a city nearby. In additional to standard dual WAN links it&rsquo;s possible to buy a cheap and high throughput backdoor link between the two branches.</p>
+
+<p><img class="centre" src="/images/tdd-big-topo.png" title="Acme Inc. Topology" ></p>
+
+<h2>Network configuration</h2>
+
+<p>Acme Inc. uses OSPF for intra-site routing and BGP for WAN routing. A standard configuration assumes that the core router at each site is the route reflector for the two WAN routers.</p>
+
+<figure class='code'><figcaption><span>CORE ROUTER CONFIG</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>interface Loopback0
+</span><span class='line'> ip address 10.0.X.1 255.255.255.255
+</span><span class='line'>!
+</span><span class='line'>router ospf 100
+</span><span class='line'> network 0.0.0.0 255.255.255.255 area 0
+</span><span class='line'>!
+</span><span class='line'>router bgp X
+</span><span class='line'> bgp log-neighbor-changes
+</span><span class='line'> timers bgp 1 5
+</span><span class='line'> neighbor RR-CLIENTS peer-group
+</span><span class='line'> neighbor RR-CLIENTS remote-as 1
+</span><span class='line'> neighbor RR-CLIENTS update-source Loopback0
+</span><span class='line'> neighbor RR-CLIENTS route-reflector-client
+</span><span class='line'> neighbor 10.0.X.2 peer-group RR-CLIENTS
+</span><span class='line'> neighbor 10.0.X.3 peer-group RR-CLIENTS
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>WAN routers originate site summary by first injecting their own Loopback IP address into BGP RIB and then aggregating it to site summary boundary (/24).</p>
+
+<figure class='code'><figcaption><span>WAN ROUTER 1 CONFIG</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>router ospf 100
+</span><span class='line'> network 0.0.0.0 255.255.255.255 area 0
+</span><span class='line'>!
+</span><span class='line'>router bgp X
+</span><span class='line'> bgp log-neighbor-changes
+</span><span class='line'> network 10.0.X.2 mask 255.255.255.255
+</span><span class='line'> aggregate-address 10.0.X.0 255.255.255.0
+</span><span class='line'> neighbor &lt;PRIMARY_PE_IP&gt; remote-as &lt;PRIMARY_WAN_AS&gt;
+</span><span class='line'> neighbor 10.0.X.1 remote-as 1
+</span><span class='line'> neighbor 10.0.X.1 update-source Loopback0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>No special path manipulation is done on either WAN routers by default.</p>
+
+<figure class='code'><figcaption><span>WAN ROUTER 2 CONFIG</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>router ospf 100
+</span><span class='line'> network 0.0.0.0 255.255.255.255 area 0
+</span><span class='line'>!
+</span><span class='line'>router bgp X
+</span><span class='line'> bgp log-neighbor-changes
+</span><span class='line'> network 10.0.X.2 mask 255.255.255.255
+</span><span class='line'> aggregate-address 10.0.X.0 255.255.255.0
+</span><span class='line'> neighbor &lt;BACKUP_PE_IP&gt; remote-as &lt;BACKUP_WAN_AS&gt;
+</span><span class='line'> neighbor 10.0.X.1 remote-as 1
+</span><span class='line'> neighbor 10.0.X.1 update-source Loopback0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The same pattern is repeated on all sites with the exception of an additional backdoor link between the branch sites over which the two cores run eBGP. Inter-device transit subnets can be anything within the site-allocated range.</p>
+
+<h2>Devising TDD scenarios</h2>
+
+<p>After careful consideration of all links' bandwidths you devise a set of TDD scenarios and along with the high-level network topology present them to your management for endorsement. The idea is to always try to use the primary WAN link if possible. However for the inter-branch communication, backdoor link should be the preferred option. When the primary link fails at the new branch, all traffic to and from the DC should traverse the backdoor link only falling back to the secondary WAN link in case both primary and backdoor link fail. This corresponds to the 4 TDD scenarios (shown with coloured arrows on the above diagram):</p>
+
+<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>./scenarios/all.txt </h3></figcaption>
+<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>1. Testing of Primary Link (default scenario)
+</span><span class='line'>
+</span><span class='line'>1.1 From DC-CORE to BR2-CORE via DC-WAN1,BR2-WAN1
+</span><span class='line'>1.2 From BR2-CORE to DC-CORE via BR2-WAN1, DC-WAN1
+</span><span class='line'>1.3 From BR2-WAN1 to BR1-WAN1 via BR2-CORE,BR1-CORE
+</span><span class='line'>1.4 From BR1-WAN1 to BR2-WAN1 via BR1-CORE, BR2-CORE
+</span><span class='line'>
+</span><span class='line'>2. Primary WAN failed at Branch #2
+</span><span class='line'>
+</span><span class='line'>2.1 From DC-CORE to BR2-CORE via DC-WAN1,BR1-WAN1,BR1-CORE
+</span><span class='line'>2.2 From BR2-CORE to DC-CORE via BR1-CORE, BR1-WAN1, DC-WAN1
+</span><span class='line'>2.3 From BR2-WAN2 to BR1-WAN2 via BR2-CORE, BR1-CORE
+</span><span class='line'>2.4 From BR1-WAN2 to BR2-WAN2 via BR1-CORE, BR2-CORE
+</span><span class='line'>
+</span><span class='line'>3. Backdoor link failed
+</span><span class='line'>
+</span><span class='line'>3.1 From BR2-WAN2 to BR1-WAN2 via BR2-WAN1, BR1-WAN1
+</span><span class='line'>3.2 FROM BR1-WAN2 to BR2-WAN2 via BR1-WAN1, BR2-WAN1
+</span><span class='line'>
+</span><span class='line'>4. Both Primary and Backdoor links failed at Branch #2
+</span><span class='line'>
+</span><span class='line'>4.1 From DC-CORE to BR2-CORE via DC-WAN2, BR2-WAN2
+</span><span class='line'>4.2 From BR2-CORE to DC-CORE via BR2-WAN2, DC-WAN2
+</span><span class='line'>4.3 From BR2-CORE to BR1-CORE via BR2-WAN2, BR1-WAN2
+</span><span class='line'>4.4 From BR1-CORE to BR2-CORE via BR1-WAN2, BR2-WAN2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<h2>Preparing the test environment</h2>
+
+<p>First, you need to get a Linux machine connected to internet and to your network. A simply VM inside a VirtualBox would do. Now clone the git repository:</p>
+
+<figure class='code'><figcaption><span>Cloning git repository</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/simple-cisco-tdd.git tdd-acme-inc
+</span><span class='line'><span class="nb">cd </span>tdd-acme-int
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Populate Ansible hosts inventory. In this case hosts are assigned to the group corresponding to their site and all the site groups are assigned to a parent group.</p>
+
+<figure class='code'><figcaption><span>./myhosts</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>[dc-devices]
+</span><span class='line'>DC-CORE ansible_ssh_host=10.0.1.1
+</span><span class='line'>DC-WAN1 ansible_ssh_host=10.0.1.2
+</span><span class='line'>DC-WAN2 ansible_ssh_host=10.0.1.3
+</span><span class='line'>
+</span><span class='line'>[br1-devices]
+</span><span class='line'>BR1-CORE ansible_ssh_host=10.0.2.1
+</span><span class='line'>BR1-WAN1 ansible_ssh_host=10.0.2.2
+</span><span class='line'>BR1-WAN2 ansible_ssh_host=10.0.2.3
+</span><span class='line'>
+</span><span class='line'>[br2-devices]
+</span><span class='line'>BR2-CORE ansible_ssh_host=10.0.3.1
+</span><span class='line'>BR2-WAN1 ansible_ssh_host=10.0.3.2
+</span><span class='line'>BR2-WAN2 ansible_ssh_host=10.0.3.3
+</span><span class='line'>
+</span><span class='line'>[cisco-devices:children]
+</span><span class='line'>dc-devices
+</span><span class='line'>br1-devices
+</span><span class='line'>br2-devices
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Optionally, you can define your username/password credentials.</p>
+
+<figure class='code'><figcaption><span>./group_vars/cisco-devices.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
+</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_pass</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Do the IP address information gathering and scenario processing first.</p>
+
+<figure class='code'><figcaption><span>Run the fact gathering</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./ansible-playbook cisco-ip-collect.yml
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Verify that IP addresses and scenarios are now recorded in a global group variable file.</p>
+
+<figure class='code'><figcaption><span>Verify the content of all.yml file</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat ./group_vars/all.yml
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Test the default scenario</h2>
+
+<p>Now it&rsquo;s time to test. First, the default scenario:</p>
+
+<figure class='code'><figcaption><span>Testing scenario #1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook cisco_tdd.yml
+</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 1
+</span><span class='line'>...
+</span><span class='line'>skipping: <span class="o">[</span>DC-WAN1<span class="o">]</span>
+</span><span class='line'>skipping: <span class="o">[</span>BR1-CORE<span class="o">]</span>
+</span><span class='line'>skipping: <span class="o">[</span>DC-WAN2<span class="o">]</span>
+</span><span class='line'>skipping: <span class="o">[</span>BR1-WAN2<span class="o">]</span>
+</span><span class='line'>skipping: <span class="o">[</span>BR2-WAN2<span class="o">]</span>
+</span><span class='line'>ok: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;DC-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-WAN1&#39;</span>, <span class="s1">&#39;DC-WAN1&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR2-WAN1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-WAN1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;BR1-CORE&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR1-WAN1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-WAN1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR2-CORE&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>DC-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;DC-WAN1&#39;</span>, <span class="s1">&#39;BR2-WAN1&#39;</span><span class="o">]})</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>All tests succeeded.</p>
+
+<h2>Testing the primary link failure</h2>
+
+<p>Now, let&rsquo;s simulate the failure of a primary WAN link by shutting down the uplink on the WAN router:</p>
+
+<figure class='code'><figcaption><span>BR2-WAN1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>BR2-WAN1#conf t
+</span><span class='line'>Enter configuration commands, one per line.  End with CNTL/Z.
+</span><span class='line'>BR2-WAN1(config)#int eth 0/0
+</span><span class='line'>BR2-WAN1(config-if)#shut
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>And now run the second scenario:</p>
+
+<figure class='code'><figcaption><span>Testing scenario #2 - failed</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook cisco_tdd.yml
+</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 2
+</span><span class='line'>...
+</span><span class='line'>failed: <span class="o">[</span>DC-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;DC-WAN1&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;BR2-CORE&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;DC-WAN1&quot;</span>, <span class="s2">&quot;BR1-WAN1&quot;</span><span class="o">]}}</span>
+</span><span class='line'>msg: Failed scenario Primary WAN failed at Branch <span class="c">#2.</span>
+</span><span class='line'>Traceroute from DC-CORE to BR2-CORE has not traversed <span class="o">[</span><span class="s1">&#39;DC-WAN1&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]</span>
+</span><span class='line'> Actual path taken: DC-CORE -&gt; DC-WAN2 -&gt; 2.2.2.2 -&gt; BR2-WAN2 -&gt; BR2-CORE
+</span><span class='line'>ok: <span class="o">[</span>BR1-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR2-CORE&#39;</span><span class="o">]})</span>
+</span><span class='line'>failed: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;DC-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;DC-CORE&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;BR1-CORE&quot;</span>, <span class="s2">&quot;BR1-WAN1&quot;</span><span class="o">]}}</span>
+</span><span class='line'>msg: Failed scenario Primary WAN failed at Branch <span class="c">#2.</span>
+</span><span class='line'>Traceroute from BR2-CORE to DC-CORE has not traversed <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]</span>
+</span><span class='line'> Actual path taken: BR2-CORE -&gt; BR2-WAN2 -&gt; 2.2.3.2 -&gt; DC-WAN2 -&gt; DC-CORE
+</span><span class='line'>ok: <span class="o">[</span>BR2-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;BR1-CORE&#39;</span><span class="o">]})</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Right, here is where it gets interesting. You see that the two scenarios have failed. Specifically traffic between the new branch and the DC has not traversed the backdoor link preferring the backup WAN instead. So we need to make the backup WAN less preferred. The easiest way is to use <code>as-path prepend</code> feature. Let&rsquo;s modify the configuration of our backup WAN router:</p>
+
+<figure class='code'><figcaption><span>BR2-WAN1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>route-map RM-BGP-PREPEND-IN permit 10
+</span><span class='line'> set as-path prepend last-as 4
+</span><span class='line'>route-map RM-BGP-PREPEND-OUT permit 10
+</span><span class='line'> set as-path prepend 3 3 3 3
+</span><span class='line'>!
+</span><span class='line'>router bgp 3
+</span><span class='line'>neighbor 2.2.3.2 route-map RM-BGP-PREPEND-IN in
+</span><span class='line'>neighbor 2.2.3.2 route-map RM-BGP-PREPEND-OUT out
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now let&rsquo;s run the same test again:</p>
+
+<figure class='code'><figcaption><span>Testing scenario #2 - success</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook cisco_tdd.yml
+</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 2
+</span><span class='line'>ok: <span class="o">[</span>DC-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;DC-WAN1&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR1-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR2-CORE&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;DC-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR2-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;BR1-CORE&#39;</span><span class="o">]})</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Looks better now. Let&rsquo;s move on.</p>
+
+<h2>Testing the Backdoor link failure</h2>
+
+<p>Next in order, backdoor link failure. First let&rsquo;s restore our primary WAN link first:</p>
+
+<figure class='code'><figcaption><span>BR2-WAN1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>BR2-WAN1#conf t
+</span><span class='line'>Enter configuration commands, one per line.  End with CNTL/Z.
+</span><span class='line'>BR2-WAN1(config)#int eth 0/0
+</span><span class='line'>BR2-WAN1(config-if)#no shut
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>And bring down the link between the two branches:</p>
+
+<figure class='code'><figcaption><span>BR2-CORE</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>BR2-CORE#conf t
+</span><span class='line'>Enter configuration commands, one per line.  End with CNTL/Z.
+</span><span class='line'>BR2-CORE(config)#int eth 0/2
+</span><span class='line'>BR2-CORE(config-if)#shut
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Run the third scenario:</p>
+
+<figure class='code'><figcaption><span>Testing scenario #3</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@netops:~/quickstart# ansible-playbook cisco_tdd.yml
+</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 3
+</span><span class='line'>ok: <span class="o">[</span>BR1-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-WAN1&#39;</span>, <span class="s1">&#39;BR2-WAN1&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR2-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-WAN1&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Looking good. Now even the backup WAN routers traverse the primary WAN to talk to each other. Just as we expected.</p>
+
+<h2>Testing of backup WAN</h2>
+
+<p>Finally, let&rsquo;s see what would happen when both primary WAN and backdoor links go down. First, bring down the primary WAN link again:</p>
+
+<figure class='code'><figcaption><span>BR2-WAN1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>BR2-WAN1#conf t
+</span><span class='line'>Enter configuration commands, one per line.  End with CNTL/Z.
+</span><span class='line'>BR2-WAN1(config)#int eth 0/0
+</span><span class='line'>BR2-WAN1(config-if)#shut
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Run the last scenario:</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook cisco_tdd.yml
+</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 4
+</span><span class='line'>ok: <span class="o">[</span>DC-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;DC-WAN2&#39;</span>, <span class="s1">&#39;BR2-WAN2&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR1-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-WAN2&#39;</span>, <span class="s1">&#39;BR2-WAN2&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;DC-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;DC-WAN2&#39;</span><span class="o">]})</span>
+</span><span class='line'>ok: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;BR1-WAN2&#39;</span><span class="o">]})</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>All tests passed. Now the network at the new branch is behaving exactly as we expect it to.</p>
+
+<h2>Conclusion</h2>
+
+<p>The above scenario, of course, is a gross simplification of a real life, however the demonstrated approach can be applied to varied network topologies. The desired state may be achieved through not one but several red-green-refactor cycles. The benefit of using this approach is not only confidence that you haven&rsquo;t broken anything by fixing one particular failure condition scenario, but also for future growth and development, when new devices are added or traffic flows are modified, these same tests can be re-run to ensure that the agreed assumptions still hold.</p>
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-07-17T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">17/07/2015</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/cisco/'>cisco</a> <a class='category label label-primary' href='/blog/categories/tdd/'>tdd</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/" data-via="" data-counturl="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+	
+	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/" data-counter="right"></script>
+	
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2015/07/10/test-verification/" title="Previous Post: Verifying TDD scenarios">&laquo; Verifying TDD scenarios</a></li>
+            
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item active" href="/blog/2015/07/17/tdd-quickstart/">Network TDD Quickstart Guide</a>
+    
+    <a class="list-group-item " href="/blog/2015/07/10/test-verification/">Verifying TDD Scenarios</a>
+    
+    <a class="list-group-item " href="/blog/2015/07/03/parser-modules/">IP Address Information Collection With Custom Ansible Modules</a>
+    
+    <a class="list-group-item " href="/blog/2015/06/24/ansible-intro/">Getting Started With Ansible for Cisco IOS</a>
+    
+    <a class="list-group-item " href="/blog/2015/06/22/dev-file-sync/">Windows-Linux File Synchronisation</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">5</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/cisco/index.html">
+        <span class="badge">4</span>
+        cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">3</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">1</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/howto/index.html">
+        <span class="badge">1</span>
+        howto
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
+        <span class="badge">1</span>
+        syncthing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">1</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">1</span>
+        routing
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2015 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2015/07/17/tdd-quickstart/';
+        var disqus_url = 'http://networkop.github.io/blog/2015/07/17/tdd-quickstart/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>
