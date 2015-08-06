@@ -1,12 +1,13 @@
 ---
 layout: page
-comments: false
+comments: true
 sharing: false
 footer: true
 title: Who is this guy?
 navbar: About
 
 ---
-Got no time to write a complete about page.
+
+All information on this blog is my personal opinion only and does not reflect the views of my current, past of future employers. Please use all provided code at your own peril. The goal of this blog is to share knowledge and not to provide copy-paste how-to tutorials.
 More info about me on [LinkedIn](https://www.linkedin.com/pub/michael-kashin/9/a35/228)  
 Contact: mailto:mmkashin@gmail.com
