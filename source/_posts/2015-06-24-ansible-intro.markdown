@@ -62,8 +62,8 @@ R2
 R3
 R4
 ```
-It is considered a [best practice](https://docs.ansible.com/playbooks_best_practices.html#group-and-host-variables) to keep all variables in separate folders and files. We need to define additional host variables to let Ansible know which IP address to use to connect to a remote device. I will also add SSH password to a host variable file which is a VERY bad practice, however this will prevent me from typing password every time I run a playbook. If I ever did this in production, I'd add host variables directory to `.gitignore` file so that it doesn't get uploaded to Github. Host variables files must follow YAML formatting, must be stored in a `./host_var` directory and must match the name of the host they are being assigned to.
-``` yaml ~/tdd_ansible/host_var/R1
+It is considered a [best practice](https://docs.ansible.com/playbooks_best_practices.html#group-and-host-variables) to keep all variables in separate folders and files. We need to define additional host variables to let Ansible know which IP address to use to connect to a remote device. I will also add SSH password to a host variable file which is a VERY bad practice, however this will prevent me from typing password every time I run a playbook. If I ever did this in production, I'd add host variables directory to `.gitignore` file so that it doesn't get uploaded to Github. Host variables files must follow YAML formatting, must be stored in a `./host_vars` directory and must match the name of the host they are being assigned to.
+``` yaml ~/tdd_ansible/host_vars/R1
 ---
 ansible_ssh_host: 10.0.0.1
 ansible_ssh_pass: cisco
