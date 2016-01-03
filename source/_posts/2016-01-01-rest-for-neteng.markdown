@@ -81,7 +81,7 @@ As you can see, we can use all capabilities of a programming language to write a
 ## UNetLab REST SDK
 In the upcoming posts I'll show how to develop a REST SDK to control UnetLab. My final goal would be to be able to create and fully configure an arbitrary network topology. The whole series will be broken up into several posts going over:
 
-1. UnetLab SDK development environment setup. 
+1. [UnetLab SDK development environment setup][rest-post-1].
 I'll show how to setup PyCharm to work with UNL running in a hypervisor on a Windows machine.
 2. First steps with REST API for UNetLab. 
 In this post I'll show how to work with HTTP and perform basic operations like login/logoff and object creation in UNL.
@@ -94,3 +94,4 @@ The final post will demonstrate how to push configuration to devices inside UNL.
 [rest-req]: http://www.restapitutorial.com/lessons/whatisrest.html
 [postman]: https://www.getpostman.com/
 [restclient]: https://addons.mozilla.org/en-us/firefox/addon/restclient/
+[rest-post-1]: http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest/
