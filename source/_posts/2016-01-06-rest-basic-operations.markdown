@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "REST for Network Engineers Part 2 - Basic Operations with UnetLab"
-date: 2016-01-07
+date: 2016-01-06
 comments: true
 sharing: true
 footer: true
@@ -28,7 +28,7 @@ All these objects and their relationships are depicted on the following simplifi
 
 {% img centre /images/rest-oop-design.png REST SDK UML Diagram %} 
 
-Here I've used inheritance to *extend* RestServer functionality to make a UnlServer. This makes sense because UnlServer object will re-use a lot of the methods from the RestServer. I could have combined them all in one object but I've decided to split the vendor-agnostic bit into a separate component to allow it to be re-used by other RESTful clients.  
+Here I've used inheritance to *extend* RestServer functionality to make a UnlServer. This makes sense because UnlServer object will re-use a lot of the methods from the RestServer. I could have combined them in a single object but I've decided to split the application-agnostic bit into a separate component to allow it to be re-used by other RESTful clients in the future.  
 
 The other objects are aggregated and interact through code composition, where Lab holds a pointer to the UnlServer where it was created, Nodes and Nets point to the Lab in which they live. Composition creates loose coupling between objects, while still allowing method delegation and code re-use.  
 
@@ -77,7 +77,7 @@ class RestServer(object):
 At this stage RestServer does very simple exception and no HTTP response error handling. I'll show how to extend it to do authentication error handling in the future posts.
 
 ### UnlServer implementation
-At the very top of the `unetlab.py` file we have a `REST_SCHEMA` global variable proving mapping between actions and their respective [API calls][unl-api]. This improves code readability (at least to me) and makes future upgrades to API easier to implement.  
+At the very top of the `unetlab.py` file we have a `REST_SCHEMA` global variable providing mapping between actions and their respective [API calls][unl-api]. This improves code readability (at least to me) and makes future upgrades to API easier to implement.  
 UnlServer class is extending the functionality of a RestServer by implementing UNetLab-specific methods. For example, `login()` sends username and password using the `add_object()` method of the parent class and sets the cookies extracted from the response to allow all subsequent methods to be authenticated.
 
 ``` python /rest-blog-unl-client/restunl/unetlab.py
@@ -119,25 +119,26 @@ class UnlServer(RestServer):
         return resp
 ```
 
-As you can see the pattern of most of the methods is the same:
+As you can see all methods follow the same pattern:
 
-1. Extract an API url from `REST_SCHEMA` variable
+1. Extract an API url from `REST_SCHEMA` global variable
 2. Send a request using one of the 4 CRUD methods of the parent RestServer class
 3. Return the response
 
-Now let's see how to use TDD approach to build out the rest of the code.
+Now let's see how we can use TDD approach to build out the rest of the code.
 
 ## Test-driven development
 
-The easiest way to test RESTful application is by observing the status code of the returned HTTP response. If it is 200 or 201 then it can be considered successful. The biggest challenge is to make sure each test case is independent from one another. One option is to include all the code required by a test case inside the function that implements it, however this may lead to big and unwieldy spagetti-code and breaks the [DRY](abbr:Do Not Repeat Yourself) principle. To help avoid that, TDD frameworks often have `fixtures` - functions that are run before and after every test case, designed to setup and cleanup the test environment. In our case we can use fixtures to login before each test case is run and logoff after it's finished. Let's see how we can use Python's built-in [unittest][unittest-link] framework to drive the REST SDK development process.  
-First let's define our base class `UnlTests` who's sole purpose will be to implement authentication fixtures. All the other test cases will go into child classes that can either reuse and extend these fixtures. Let see how the test cases for the already existing code will look like:
+The easiest way to test RESTful application is by observing the status code of the returned HTTP response. If it is 200 or 201 then it can be considered successful. The biggest challenge is to make sure each test case is independent from one another. One option is to include all the code required by a test case inside the function that implements it. This, however, may lead to long and unwieldy spaghetti-code and breaks the [DRY](abbr:Do Not Repeat Yourself) principle.  
+To help avoid that, TDD frameworks often have `fixtures` - functions that are run before and after every test case, designed to setup and cleanup the test environment. In our case we can use fixtures to login before each test case is run and logoff after it's finished. Let's see how we can use Python's built-in [unittest][unittest-link] framework to drive the REST SDK development process.  
+First let's define our base class `UnlTests` who's sole purpose will be to implement authentication fixtures. All the test cases will go into child classes that can either reuse and extend these fixtures. This is how test cases for the already existing code look like:
 
 ``` python /rest-blog-unl-client/tests/test_unl.py
 
 class UnlTests(unittest.TestCase):
 
     def setUp(self):
-        self.unl = UnetLab(UNETLAB_ADDRESS)
+        self.unl = UnlServer(UNETLAB_ADDRESS)
         resp = self.unl.login(USERNAME, PASSWORD)
         self.assertEqual(200, resp.status_code)
 
@@ -185,11 +186,12 @@ class UnetLab(RestServer):
         return resp
 ```
 
-Rerun now and watch all tests succeed again.
+Rerun the `test_unl.py` now and watch all tests succeed again. The same iterative approach can be used to add any number of new methods at the same time making sure none of the existing functionality is affected.  
+Note that these are very simple tests and they only verify the response code and not its contents. The better approach would be to look inside the payload and verify, for example, that username is `admin`.
 
 ### UnlLab and UnlNode implementation
 
-Now let's revert back to normal coding style for a second and create classes for Labs and Nodes. As per the design, these should be separate objects but they should contain a pointer to the context in which they exist. Therefore, it makes sense to instantiate Lab inside a UnlServer class instance and Node inside a Lab class instance and pass in the `self` as an argument. For example, here is how a lab will be created:
+Now let's revert back to normal coding style for a second and create classes for Labs and Nodes. As per the design, these should be separate objects but they should contain a pointer to the context in which they exist. Therefore, it makes sense to instantiate a Lab inside a UnlServer, a Node inside a Lab and pass in the `self` (UnlServer or Lab) as an argument. For example, here is how a lab will be created:
 
 
 ``` python /rest-blog-unl-client/restunl/unetlab.py
@@ -252,9 +254,11 @@ class UnlNode(object):
         self.resp = self.unl.add_object(api_url, data=payload)
 ```
 
+Take a quick look at how the `api_url` is created. We're using `.format()` method (built-into `string` module) to substitute a named variable `{format}` with the actual name of the lab (`self.lab.name`). That labname gets appended with an extension by a helper function `append_unl`. That helper function, along with the others we'll define in the future, can also be found on [Github][github-helper.py].
+
 ## Back to TDD
 
-Now let's use TDD again to add two more actions 
+Let's use TDD again to add the last two actions we'll cover in this post.
 
 * Get list of all Nodes
 * Delete a lab
@@ -263,6 +267,7 @@ Now let's use TDD again to add two more actions
 class BasicUnlLabTest(UnlTests):
 
     def test_create_lab(self):     
+        self.unl.delete_lab(LAB_NAME)
         resp = self.unl.create_lab(LAB_NAME).resp
         self.unl.delete_lab(LAB_NAME)
         self.assertEqual(200, resp.status_code)
@@ -273,15 +278,17 @@ class BasicUnlLabTest(UnlTests):
         self.assertEqual(200, resp.status_code)
 
     def test_get_nodes(self):
-        self.unl.create_lab(LAB_NAME)
-        resp = self.unl.get_nodes(LAB_NAME)
+        lab = self.unl.create_lab(LAB_NAME)
+        resp = lab.get_nodes()
         self.unl.delete_lab(LAB_NAME)
-        self.assertEqual(200, resp.status_code)    
+        self.assertEqual(200, resp.status_code)   
 ```
+
+As a challenge, try implementing the SDK logic for the last two failing methods yourself using [UNL API][unl-api] as a reference. You can always refer the the link at the end of the post if you run into any problems.
 
 ## Simple App
 
-So far we've created and deleted objects with REST API but haven't seen the actual result. 
+So far we've created and deleted objects with REST API but haven't seen the actual result. Let's start writing an app that we'll continue to expand in the next post. In this post we'll simply login and create a lab containing a single node.
 
 ``` python  /rest-blog-unl-client/samples/app-1.py
 from restunl.unetlab import UnlServer
@@ -302,7 +309,7 @@ if __name__ == '__main__':
     app_1()
 ```
 
-Run this once, then login and navigate to `test_1` lab and you'll see a single node called R1.
+Run this once, then login the UNL web GUI and navigate to `test_1` lab. Examine how node **R1** is configured and compare it to the defaults set in a [Device module][github-device.py].
 
 ## Source code
 All code from this post can be found in my [public repository on Github][post-github-commit]
@@ -319,7 +326,8 @@ All code from this post can be found in my [public repository on Github][post-gi
 [api-create-lab]: http://www.unetlab.com/2015/09/using-unetlab-apis/#toc30
 [api-create-node]: http://www.unetlab.com/2015/09/using-unetlab-apis/#toc34
 [blog-flexvpn-auto]: http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/
-[github-device.py]: 
-[post-github-commit]: 
+[github-device.py]: https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/device.py
+[github-helper.py]: https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/helper.py
+[post-github-commit]: https://github.com/networkop/rest-blog-unl-client/tree/c72f7bdc11427ac5efe9ec18401f0d63c57221ba
 
 
