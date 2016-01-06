@@ -83,7 +83,7 @@ In the upcoming posts I'll show how to develop a REST SDK to control UnetLab. My
 
 1. [UnetLab SDK development environment setup][rest-post-1].
 I'll show how to setup PyCharm to work with UNL running in a hypervisor on a Windows machine.
-2. First steps with REST API for UNetLab. 
+2. [First steps with REST API for UNetLab][rest-post-2]. 
 In this post I'll show how to work with HTTP and perform basic operations like login/logoff and object creation in UNL.
 3. Advanced actions with UNetLab SDK. 
 The final post will demonstrate how to push configuration to devices inside UNL. To wrap up I'll write a sample app to spin up and provision a two-node topology without making a single GUI click.
@@ -95,3 +95,4 @@ The final post will demonstrate how to push configuration to devices inside UNL.
 [postman]: https://www.getpostman.com/
 [restclient]: https://addons.mozilla.org/en-us/firefox/addon/restclient/
 [rest-post-1]: http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest/
+[rest-post-2]: http://networkop.github.io/blog/2016/01/06/rest-basic-operations/
