@@ -233,9 +233,9 @@ We'll assume that all configs will be stored as text files under the `./config` 
 
 ``` python
 
-TOPOLOGY = {('R1', 'Ethernet0/0'):('R2', 'Ethernet0/0'),
-            ('R2', 'Ethernet0/1'):('R3', 'Ethernet0/1'),
-            ('R1', 'Ethernet0/1'):('R2', 'Ethernet0/0')}
+TOPOLOGY = {('R1', 'Ethernet0/0'): ('R2', 'Ethernet0/0'),
+            ('R2', 'Ethernet0/1'): ('R3', 'Ethernet0/0'),
+            ('R1', 'Ethernet0/1'): ('R3', 'Ethernet0/1')}
 
 def app_1():
     ...
