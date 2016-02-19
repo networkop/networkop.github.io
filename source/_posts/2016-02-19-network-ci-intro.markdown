@@ -9,15 +9,15 @@ categories: [network, automation, devops]
 description: Application of CI/CD methodologies to traditional networks
 ---
 
-In this series of posts I'll introduce the tools I've been using for continuous network development and how they can be used with  automation servers like Jenkins for network continuous integration and delivery.
+In this series of posts I'll introduce the tools I've been using for continuous network development and how they can be used with automation servers like Jenkins for network continuous integration and delivery.
 
 <!--more-->
 
 ## CI/CD vs ITIL
 
-How do you implement changes in your network? In today's world there's 95% chance that you have to write up an [RFC](abbr: Request For Change), submit it at least a week before the planned implementation date, go through at least one [CAB](abbr: Change Admission Board) meeting and only then, assuming it got approved, can you implement it. But the most important question is 'how do you test'? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to 'please have a look at the network perfomance issues'?  
+How do you implement changes in your network? In today's world there's 95% chance that you have to write up an [RFC](abbr: Request For Change), submit it at least a week before the planned implementation date, go through at least one [CAB](abbr: Change Admission Board) meeting and only then, assuming it got approved, can you implement it. But the most important question is 'how do you test'? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to 'please have a look at the network performance issues'?  
 
-Software developers have solved most of the these problems for themselves. DevOps movement has brought forth ideas of Continuous Intergration and Delivery (CI/CD) to streamline the change process and 'embrace' the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.
+Software developers have solved most of these problems for themselves. DevOps movement has brought forth ideas of Continuous Integration and Delivery (CI/CD) to streamline the change process and 'embrace' the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.
 
 ## Problem #1 - How to test
 
