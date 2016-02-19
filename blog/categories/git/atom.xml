@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Category: Git | Network-oriented programming]]></title>
+  <link href="http://networkop.github.io/blog/categories/git/atom.xml" rel="self"/>
+  <link href="http://networkop.github.io/"/>
+  <updated>2016-02-18T20:24:34-08:00</updated>
+  <id>http://networkop.github.io/</id>
+  <author>
+    <name><![CDATA[Michael Kashin]]></name>
+    <email><![CDATA[mmkashin@gmail.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[REST for Network Engineers Part 1 - Development Environment Setup]]></title>
+    <link href="http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest/"/>
+    <updated>2016-01-03T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to setup environment for <a href="http://www.unetlab.com/">UnetLab</a> REST SDK development on Windows. I&rsquo;ll be running UNL inside a VM and using PyCharm as Python IDE on the host OS.</p>
+
+<!--more-->
+
+
+<h2>UnetLab Installation</h2>
+
+<p>Since UNL is a separate project with its own evolving documentation I won&rsquo;t try to reproduce it in my blog and I&rsquo;ll simply refer all my readers to <a href="http://www.unetlab.com/download/index.html">UNL download page</a>, <a href="http://www.unetlab.com/documentation/index.html">UNL installation instructions</a> and <a href="http://www.unetlab.com/2014/11/first-unetlab-boot-configuration/">UNL first boot configuration</a>.<br/>
+At the time of writing UNL is distributed as an image packaged in Open Virtualization Format. I&rsquo;m using VMWare Workstation as a type-2 hypervisor to import and run this image. Check with the <a href="http://www.unetlab.com/documentation/index.html">UNL how-to page</a> for the list of currently supported hypervisors.<br/>
+I&rsquo;ll be using Cisco IOU as a network device emulator in my topologies. Similarly, you can find IOU installation instructions on <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">UNL website</a>. The rest of this post assumes you&rsquo;ve got UNL up and running and you can successfully create, start and connect to an IOU device by navigating through native GUI interface.</p>
+
+<h2>Installing Python and Dependencies</h2>
+
+<p>For development purposes I&rsquo;ll be using <a href="https://www.python.org/downloads/release/python-2711/">Python 2.7</a>. You&rsquo;ll need to install a package management system <a href="https://pip.pypa.io/en/latest/installing/">pip</a> to gain access to <a href="http://docs.python-requests.org/en/latest/user/install/">requests</a> library that we&rsquo;ll be using to talk HTTP to our REST server. To install <strong>requests</strong> or any other package using <strong>pip</strong> on a Windows machine, you can use the following command:
+<code>powershell Installing Python HTTP library
+python -m pip install requests
+</code></p>
+
+<h2>PyCharm and Github integration</h2>
+
+<p>There&rsquo;s a plethora of <abbr title="Intergrated Development Environment">IDE</abbr>s <a href="https://wiki.python.org/moin/IntegratedDevelopmentEnvironments">available for Python</a>. My personal choice is <a href="https://www.jetbrains.com/pycharm/">PyCharm</a> - an open-source IDE with built-in debugger, syntax checker, code completion and GIT integration. Here is how you setup PyCharm to work with Github:</p>
+
+<ol>
+<li><strong>Create</strong> a new repository on <a href="https://github.com">Github</a>.</li>
+<li>In PyCharm navigate to <code>VCS -&gt; Checkout from Version Control -&gt; Github</code>, paste in the link to a newly created repository and click <code>Clone</code>. This will <strong>create a clone</strong> of an empty code repository on your local machine. From now on you&rsquo;ll see two VCS buttons in PyCharm toolbar to pull and push code to Github.</li>
+<li><strong>Add</strong> newly created files and directories to git by right-clicking on them and selecting <code>Git -&gt; Add</code></li>
+<li>At the end of your work <strong>push</strong> the code to Github by clicking the green VCS button, write your comment in <code>Commit message</code> window, enter your Github username in <code>Author</code> field and select <code>Commit and Push</code>.</li>
+<li>To get the latest version of code from Github click the blue VCS button to <strong>pull</strong> changes to local directory.</li>
+</ol>
+
+
+<p>Just remember that your Github repository is your source of truth and you need to push changes to it every time you finish work and pull code from it every time you restart it. It makes sense even if you work alone since it creates a good habit which may come very useful in the future.  <br/>
+For additional information about git workflow and working with Github you can check out (no pun intended) <a href="https://help.github.com/categories/bootcamp/">Github help</a> and <a href="https://guides.github.com/">Github guides</a>.</p>
+
+<h2>Project Skeleton</h2>
+
+<p>Now that we&rsquo;ve fully integrated with Github we can setup our basic directory structure. In project Navigation Bar under the project&rsquo;s main directory create 3 subdirectories:</p>
+
+<ul>
+<li><code>restunl</code> - to store all code implementing REST SDK logic</li>
+<li><code>samples</code> - to store sample applications</li>
+<li><code>tests</code> - to store test cases for REST SDK</li>
+</ul>
+
+
+<p>Next we need to tell git which files we DON&rsquo;T want to track. To do that add filename patterns to <code>.gitignore</code> file and put this file into every directory. Rule of thumb is to only track your code and not your auxiliary files like compiled python code (.pyc), PyCharm settings (.idea) or local git files (.git).</p>
+
+<pre><code class="bash /rest-blog-unl-client/.gitignore">.idea
+.git
+*.pyc
+</code></pre>
+
+<p>Finally, in order to be able to import code between different directories within the project, we need to add an empty <code>__init__.py</code> file to each non-root directory which tells Python to treat that directory as <a href="https://docs.python.org/2/tutorial/modules.html#packages">a package</a>. The final version of skeleton will look like this:</p>
+
+<p><img class="centre" src="/images/restunl-skeleton.png" title="Project Skeleton" ></p>
+
+<h2>Before you REST</h2>
+
+<p>Here are a few things you need to know about the REST server before you start working with it:</p>
+
+<ol>
+<li>IP address and Port - the same IP address you use to access UNL from your web browser (in my case it&rsquo;s 192.168.247.20:80)</li>
+<li>Username and password for authentication - default UNL credentials (admin/unl)</li>
+<li>REST API documentation - in our case it&rsquo;ll be <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">UnetLab API documentation</a></li>
+</ol>
+
+
+<h2>Using REST for the first time</h2>
+
+<p>Let&rsquo;s try to query the status of our UnetLab server. According <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">UNL documentation</a> the correct request should look like this:</p>
+
+<pre><code class="bash UNL status API call">curl -s -c /tmp/cookie -b /tmp/cookie -X GET -H 'Content-type: application/json' http://127.0.0.1/api/status
+</code></pre>
+
+<p>Take note of the HTTP method (GET) and URL (<a href="http://ip_address/api/status">http://ip_address/api/status</a>), we&rsquo;ll use these values in our test program. Disregard the cookies and Content-type headers for now, we&rsquo;ll get back to them in the future posts. In our project&rsquo;s root directory create a <code>test.py</code> file with the following code:</p>
+
+<pre><code class="python /rest-blog-unl-client/test.py">import requests
+import json
+
+url = 'http://192.168.247.20/api/status'
+method = 'GET'
+response = requests.request(method, url)
+payload = json.loads(response.content)
+print payload['code']
+</code></pre>
+
+<p>This code calls <code>.request</code> method of requests library and passes in an HTTP method type and the URL. The value returned by this call would be an HTTP response. Since payload is encoded as JSON we need to parse the content of the HTTP response (<code>response.content</code>) by calling a <code>.loads</code> method of json library. Once parsed, we can work with any part of JSON payload same way we would with a Python dictionary. If you&rsquo;ve done everything right, the result of the last print statement should be <code>200</code>. Feel free to experiment and print, for example, the current version of UNL. Refer to <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">API documentation</a> for the exact structure of the payload.</p>
+
+<h2>Conclusion</h2>
+
+<p>Now that we&rsquo;ve setup our development environment we&rsquo;ll move on to the actual REST SDK development in the next post. Don&rsquo;t forget to add all your newly created files and directories to git and push them to Github.</p>
+
+<p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/63d8d13e48e61e896185eb7afee3759c1f2cd5a9">public repository on Github</a></p>
+]]></content>
+  </entry>
+  
+</feed>

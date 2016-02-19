@@ -1,0 +1,632 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Category: Automation | Network-oriented programming]]></title>
+  <link href="http://networkop.github.io/blog/categories/automation/atom.xml" rel="self"/>
+  <link href="http://networkop.github.io/"/>
+  <updated>2016-02-18T20:24:34-08:00</updated>
+  <id>http://networkop.github.io/</id>
+  <author>
+    <name><![CDATA[Michael Kashin]]></name>
+    <email><![CDATA[mmkashin@gmail.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[Network Continuous Integration and Delivery]]></title>
+    <link href="http://networkop.github.io/blog/2016/02/19/network-ci-intro/"/>
+    <updated>2016-02-19T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/02/19/network-ci-intro</id>
+    <content type="html"><![CDATA[<p>In this series of posts I&rsquo;ll introduce the tools I&rsquo;ve been using for continuous network development and how they can be used with  automation servers like Jenkins for network continuous integration and delivery.</p>
+
+<!--more-->
+
+
+<h2>CI/CD vs ITIL</h2>
+
+<p>How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an <abbr title=" Request For Change">RFC</abbr>, submit it at least a week before the planned implementation date, go through at least one <abbr title=" Change Admission Board">CAB</abbr> meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to &lsquo;please have a look at the network perfomance issues&rsquo;?</p>
+
+<p>Software developers have solved most of the these problems for themselves. DevOps movement has brought forth ideas of Continuous Intergration and Delivery (CI/CD) to streamline the change process and &lsquo;embrace&rsquo; the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.</p>
+
+<h2>Problem #1 - How to test</h2>
+
+<p>Ever since the dawn of networking, the only tools that engineers could use for testing were traceroutes and pings. It&rsquo;s not necessarily bad since, after all, networks are supposed to be a simple packet transports and shouldn&rsquo;t be endowed with application-layer knowledge. Note that I&rsquo;m talking about traditional or, in SDN-era terms, &lsquo;underlay&rsquo; networks. The biggest problem with network testability is not the lack of test tools but rather lack of automation. For every ping and every traceroute we had to login a device, carefully craft the command including source interface names, VRFs and other various options and then interpret the output.<br/>
+I have already explored the idea of automated network testing in my previous blog posts - <a href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/">Building Network TDD framework</a> and <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">Network TDD quickstart</a>. I even got lucky enough to get invited to one of the <a href="http://blog.ipspace.net/2015/11/test-driven-network-development-with.html">greatest networking podcasts</a> hosted by Ivan Pepelnjak.</p>
+
+<h2>Problem #2 - Where to test</h2>
+
+<p>Another big problem is the lack of testable network software. We&rsquo;ve only had IOU, vSRX and vEOS for the past 3-4 years and even now a lot of the real-world functionality remains unvirtualizable. However having those images is a lot better than not, even though some of them tend to crash and behave unreliably from time to time.</p>
+
+<h2>Network CI</h2>
+
+<p>Here I&rsquo;ve come to the actual gist of my post. I want to demonstrate the tools that I&rsquo;ve built and how I use them to automate a lot of the repetitive tasks to prepare for network deployments and upgrades. This is what these tools can do:</p>
+
+<ul>
+<li>Create a replica of almost any real-world network topology inside a network emulation environment</li>
+<li>Apply configuration to all built devices</li>
+<li>Verify real-time connectivity between nodes</li>
+<li>Verify traffic flows under various failure conditions against pre-defined set rules</li>
+<li>Shutdown and delete the network topology</li>
+</ul>
+
+
+<p>All these steps can be done automatically without making a single click in a GUI or entering a single command in a CLI. This is a sneak peak of what to expect later in the series:</p>
+
+<p><div class="embed-video-container"><iframe src="//www.youtube.com/embed/jiZs0969RWI" allowfullscreen></iframe></div></p>
+
+<p>Please don&rsquo;t judge me too harshly, this is my first experience with screencasts.</p>
+
+<h2>Coming up</h2>
+
+<p>In the following posts I&rsquo;ll show how to setup a continuous delivery environment with Jenkins and UNetLab, create test cases and work with configuration files in git version control system to enable automatic testing by Jenkins server. If that sounds interesting to you - stay tuned.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[REST API for Network Engineers]]></title>
+    <link href="http://networkop.github.io/blog/2016/01/01/rest-for-neteng/"/>
+    <updated>2016-01-01T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/01/01/rest-for-neteng</id>
+    <content type="html"><![CDATA[<p>This is the first, introductory, post in a series dedicated to REST APIs for Network Engineers. In this post we&rsquo;ll learn what REST API is, what are the most common tools and ways to consume it. Later in the series I&rsquo;ll show how to build a REST client to control <a href="http://www.unetlab.com/">UnetLab</a>, a very popular network emulation environment.</p>
+
+<!--more-->
+
+
+<h2>Management interface evolution</h2>
+
+<p>Since the early dawn of networking, devices have been configured through <abbr title="Virtual Terminal User Interface">VTY</abbr>s. The transport has evolved from telnet to ssh but the underlying rule still maintained that network is configured manually, device-by-device by a human administrator. It&rsquo;s obvious that this approach does not scale and is prone to human error, however it still remains the most prevalent method of network device configuration. <br/>
+The first attempt to tackle these issues has been made in 1988 with the introduction of SNMP. The basic idea was to monitor and manage network devices using a strictly-defined data structures called <abbr title="Management Information Base">MIB</abbr>s. Unfortunately, due to several architectural issues and poor vendor implementation, SNMP has ended up being used mainly for basic monitoring tasks.<br/>
+The idea of programmatic management of network devices later resulted in the creation of NETCONF protocol. Despite being almost 10 years old, this protocol is still not widely used due to limited vendor support, however things may improve as the <abbr title="Yet Another Next Generation">YANG</abbr>-based network configuration gains greater adoption.<br/>
+Finally, with the advent of SDN, REST has become a new de-facto standard for network provisioning. It is supported by most of the latest products of all the major vendors. Let&rsquo;s take a closer look at what REST is and how it works.</p>
+
+<h2>REpresentational State Transfer overview</h2>
+
+<p>Technically speaking, REST is not a protocol but a <a href="https://en.wikipedia.org/wiki/Representational_state_transfer">software architectural pattern</a>. To put it in simple words, it describes <strong>a way</strong> to exchange information rather than the structure of that information. Think of it as another transport (like telnet or ssh for VTY) for payloads of any format. Most commonly payload will get encoded as <abbr title="JavaScript Object Notation">JSON</abbr>, however the structure of JSON is not defined and is different for each application. This rather <em>weak</em> definition opens up huge opportunities for potential use cases:</p>
+
+<ol>
+<li><p>The most basic use case is a Web application with client retrieving and updating information on a server. A good example in networking world would be the native interfaces of Cisco ACI or VMWare NSX. Each time you create an object (a network or a tenant) in a Web GUI, your client sends a request to server&rsquo;s REST interface.</p></li>
+<li><p>The more advanced use case is for communication between distributed software components over a network environment. This is how all management and control plane communications are designed inside OpenStack. For example, every time a new VM is created, <abbr title="Compute controller">Nova</abbr> sends a request to <abbr title="Network controller">Neutron</abbr>&rsquo;s REST API interface to allocate an IP address and a port for that VM.</p></li>
+</ol>
+
+
+<h2>REST under the hood</h2>
+
+<p>REST is an API that allows clients to perform read/write operations on data stored on the server. REST uses HTTP to perform a set of actions commonly known as <strong>CRUD</strong>:</p>
+
+<ul>
+<li>Create</li>
+<li>Read</li>
+<li>Update</li>
+<li>Delete</li>
+</ul>
+
+
+<p>Assuming we want to manipulate a &lsquo;device&rsquo; object on a server we can send an <code>HTTP GET</code> request to <code>/api/devices</code> and get a response with a payload containing a full list of known devices.<br/>
+If we want to add a new device, we need to construct a payload with device attributes (e.g. IP address, Hostname) and send it attached to an <code>HTTP POST</code> request.<br/>
+To update a device we need to send the full updated payload with <code>HTTP PUT</code> method.</p>
+
+<p><img class="centre" src="/images/rest-crud.png" title="Basic REST actions" ></p>
+
+<p>Note that both Update and Delete API calls refer to a specific number in url <code>/api/devices/{ID}</code>. That is a <abbr title="Universally Unique IDentifier">UUID</abbr> that server assigns to every new object and is returned in <code>Location</code> header of <code>201 Created</code> message sent in response to Create request.</p>
+
+<h2>REST API Constraints</h2>
+
+<p>For API to be considered <strong>RESTful</strong> it needs comply with a number of <a href="http://www.restapitutorial.com/lessons/whatisrest.html">formal constraints</a>. One of the most important constraint of all is the stateless nature of the interface. That means that no cookie or session information should be stored on the server, and every request is treated independently from every other request. The implication here is that all state needs to be maintained on the client and information needs to be cacheable in order to improve interface responsiveness.</p>
+
+<p>It&rsquo;s worth noting that an API can still be considered RESTful even if a server <em>does</em> store a session cookie, however all requests must still be treated independently. The last point means there&rsquo;s no <em>configuration modes</em> like we&rsquo;ve seen in traditional CLIs where all commands issued in &ldquo;interface configuration mode&rdquo; will be applied to that specific interface. With RESTful API each request from a client must reference a full path to an object including its UUID within the system.</p>
+
+<h2>Using REST</h2>
+
+<h3>cURL</h3>
+
+<p>cURL is a light-weight Linux command-line tool for transferring data. It&rsquo;s very simple to get started and very frequently used to make HTTP requests. For example, this is how you would issue a Read request to get a list of devices configured on an imaginary SDN controller:</p>
+
+<pre><code class="bash  Get all devices using cURL">$ curl -X GET http://sdn-controller.org:8181/api/devices
+</code></pre>
+
+<p>Obviously this tool is very good for fast prototyping and troubleshooting but becomes too cumbersome for anything involving more than a few commands.</p>
+
+<h3>Browser plugins</h3>
+
+<p>There&rsquo;s plenty of GUI-based clients that can be added-on to most popular browsers. <a href="https://www.getpostman.com/">Postman</a> and <a href="https://addons.mozilla.org/en-us/firefox/addon/restclient/">RESTClient</a> are amongst the most popular ones. In addition to basic functionality, these plugins allow you to store and issue sequence of requests which can be very handy for live demonstrations. Unfortunately that&rsquo;s where most of the people stop learning about REST API and assume this is the intended way to interact with a server.</p>
+
+<h3><abbr title="Software Development Kit">SDK</abbr></h3>
+
+<p>SDK is a collection of tools and libraries that allow users to build a full-blown applications with complex internal logic. Instead of caring about the exact syntax of API calls, SDK libraries provide a simple programming interface. For example, this is how you would run the same command we did earlier with cURL:</p>
+
+<pre><code class="python Get all devices using SDK">controller = sdk.Controller('sdn-controller.org', 8181)
+response = controller.get_devices()
+</code></pre>
+
+<p>We first create an instance of a controller with specific hostname and port number and then issue a <code>.get_devices()</code> call on it to obtain the list of all known devices. SDK library will do all the dirty work constructing HTTP request in the background and return the parsed information from HTTP response. We can then use that information to perform some complex logic, like start only Router devices (but not switches and firewalls):</p>
+
+<pre><code class="python Start all Routers using SDK">routers_started = [device.start() for device in response.get_payload() if device.type == 'Router']
+</code></pre>
+
+<p>As you can see, we can use all capabilities of a programming language to write a succinct and powerful code, something that would be extremely difficult to do with cURL or Postman. That&rsquo;s why the focus of this series of posts will be on the SDK, how to build one from scratch and how to use it.</p>
+
+<h2>UNetLab REST SDK</h2>
+
+<p>In the upcoming posts I&rsquo;ll show how to develop a REST SDK to control UnetLab. My final goal would be to be able to create and fully configure an arbitrary network topology. The whole series will be broken up into several posts going over:</p>
+
+<ol>
+<li><a href="http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest/">UnetLab SDK development environment setup</a>.
+I&rsquo;ll show how to setup PyCharm to work with UNL running in a hypervisor on a Windows machine.</li>
+<li><a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">First steps with REST API for UNetLab</a>.
+In this post I&rsquo;ll show how to work with HTTP and perform basic operations like login/logoff and object creation in UNL.</li>
+<li><a href="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/">Advanced actions with UNetLab SDK</a>.
+The final post will demonstrate how to push configuration to devices inside UNL. To wrap up I&rsquo;ll write a sample app to spin up and provision a three-node topology without making a single GUI click.</li>
+</ol>
+
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Automating the Build of FlexVPN Network]]></title>
+    <link href="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/"/>
+    <updated>2015-11-13T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to automatically build configuration files for Hubs and Spokes in FlexVPN network topology. I will also introduce two concepts that are frequently used in software development world - <abbr title="Do Not Repeat Yourself">DRY</abbr> and &ldquo;Convention over Configuration&rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
+
+<!--more-->
+
+
+<h2>FlexVPN network overview</h2>
+
+<p>FlexVPN topology will consist of two FlexVPN &ldquo;clouds&rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds. The two Hubs are interconnected by a direct site-to-site FlexVPN tunnel. To provide additional redundancy one Hub (HUB-1) and one Spoke (SPOKE-1) will have dual WAN links.</p>
+
+<p><img class="centre" src="/images/flexvpn-topo.png" title="FlexVPN topology" ></p>
+
+<h2>Assumptions</h2>
+
+<p>All FlexVPN devices will be using PKI-based authentication. However, in this post I will not cover the setup of PKI infrastructure and simply assume that all Hubs and Spokes are already enrolled with the appropriate CA. Following are the assumptions about the specifics of PKI setup on each router:</p>
+
+<ul>
+<li>Each FlexVPN cloud is defined by a unique domain name (e.g. cloud.one for HUB-1)</li>
+<li>Each Spoke has one X.509 certificate per FlexVPN cloud</li>
+<li>Spokes encode their WAN bandwidth in X.509 Organizational Unit (OU) attribute (e.g. RED corresponds to 50Mpbs)</li>
+<li>Each certificate&rsquo;s trustpoint will be called &ldquo;PKI-CLOUD-X&rdquo;, where X is 1 or 2 depending on FlexVPN cloud</li>
+</ul>
+
+
+<p>As an example, SPOKE-3 will have the following trustpoint configured for FlexVPN cloud #1:</p>
+
+<pre><code class="text PKI trustpoint #1">crypto pki trustpoint PKI-CLOUD-1
+ enrollment url http://120.0.0.2:80
+ serial-number
+ fingerprint 2BE13A4FF167CEB770A24B2D6716033E
+ subject-name CN=SPOKE-3.cloud.one,OU=GREEN
+ vrf FVRF
+ revocation-check crl
+ rsakeypair CLOUD-1
+ auto-enroll
+</code></pre>
+
+<h2>Convention over Configuration</h2>
+
+<p>This is where it&rsquo;d make sense to introduce the concept of Convention over Configuration. The fact that we&rsquo;ve assumed that all trustpoints will have the prefix of &ldquo;PKI-CLOUD-&rdquo; (convention) makes configuration templates a lot easier. Without it we could have allowed ANY naming of PKI trustpoint but then it should have been defined as a separate variable for every Spoke. Effectively we&rsquo;re sacrificing some level flexibility in favour of brevity (and simplicity). This principle has been popularised by Ruby on Rails web framework and is widely used in other modern web frameworks.</p>
+
+<h2>FlexVPN inventory file</h2>
+
+<p>Before we start working with Ansible, we need to populate host inventory file. A parent &ldquo;FLEXVPN&rdquo; group will include two children groups - &ldquo;HUBS&rdquo; and &ldquo;SPOKES&rdquo;. The latter will be subdivided into three groups - &ldquo;GREEN&rdquo;, &ldquo;BLUE&rdquo; or &ldquo;RED&rdquo;. Each spoke will be assigned to a group base on its X.509 OU value. Additionally, in order to keep configuration templates simpler, we&rsquo;ll treat multi-vrf SPOKE-1 as two different routers - SPOKE1_1 and SPOKE1_2:</p>
+
+<pre><code class="yaml ./hosts ">[FLEXVPN:children]
+HUBS
+SPOKES
+
+[HUBS]
+HUB-1
+HUB-2
+
+[SPOKES:children]
+GREEN
+BLUE
+RED
+
+[RED]
+SPOKE-1_1
+SPOKE-1_2
+
+[BLUE]
+SPOKE-2
+
+[GREEN]
+SPOKE-3 
+</code></pre>
+
+<h2>Front-door VRF configuration</h2>
+
+<p>Another assumption is that all routers will have their Front-door VRF configured. Normally this would imply configuring an IP address on Internet-facing interface and a vrf-specific default route. In case of HUB-1, where there are two physical links in a single VRF, it is assumed that appropriate SLA-tied static routes are configured to enable dynamic failover between the two links. Here&rsquo;s the example of how it&rsquo;s done on HUB-1:</p>
+
+<pre><code class="text show run vrf FVRF-1">interface Ethernet0/0
+ vrf forwarding FVRF-1
+ ip address 120.0.0.2 255.0.0.0
+!
+interface Ethernet0/1
+ vrf forwarding FVRF-1
+ ip address 121.0.0.2 255.0.0.0
+!
+ip route vrf FVRF-1 0.0.0.0 0.0.0.0 120.0.0.1 track 1
+ip route vrf FVRF-1 0.0.0.0 0.0.0.0 121.0.0.1 250
+</code></pre>
+
+<h2>Environment variables and the DRY principle</h2>
+
+<p>One of the most obvious things to turn into a variable is the FVRF name and interface. We&rsquo;ll put it into an Ansible&rsquo;s global variable file <code>./group_vars/all</code>. The same file will have a default BGP AS number for iBGP routing and a table mapping different OU values to their corresponding bandwidth in Kbps.</p>
+
+<pre><code class="yaml ./group_vars/all">---
+bgp_asn: 1
+
+fvrf: 
+  name: FVRF
+  interface: Ethernet0/0
+
+bandwidth:
+  RED:   50000
+  GREEN: 20000
+  BLUE:  10000
+</code></pre>
+
+<p>Each of these variables can be overridden by a more specific host variable located in <code>./host_vars/</code> directory like it is the case with <a href="https://github.com/networkop/flexvpn/blob/master/host_vars/SPOKE-1_1">SPOKE1</a>.  All host-specific variables, like domain names, FlexVPN subnets, public addresses for Hub devices are also being stored in the same directory. Here&rsquo;s an example of how HUB-1 overrides the default FVRF name and defines a few variables of its own:</p>
+
+<pre><code class="yaml ./host_vars/HUB-1">---
+primary: true
+
+domain_name: cloud.one
+
+nbma_ip: dynamic
+
+dynamic:
+  - 120.0.0.2
+  - 121.0.0.2
+
+vpn_ip: 169.254.1.1
+
+subnet: 169.254.1.0/24
+
+fvrf: 
+  name: FVRF-1
+</code></pre>
+
+<p>Here it makes sense to talk about the <strong>DRY principle</strong>. All Spokes in their configuration files will use information like Hub&rsquo;s NBMA address and domain name. So, in theory, we could have created a host variable file for each Spoke and stored that information there. However, in that case we would have multiple duplicate variables all storing the same value. This, obviously, creates a lot of problems when it comes to updating those variables. Instead of updating a value in a single place we now have to go and update every single Spoke&rsquo;s host variables file. That&rsquo;s why it&rsquo;s important to NOT have ANY duplicates of ANY information in ANY part of your code, even if it comes at a price of an increased code complexity. This is widely accepted as best practice and used in almost every programming language and CS discipline.</p>
+
+<h2>FlexVPN configuration templates</h2>
+
+<p>I will omit the actual configuration templates for the sake of brevity. Those who are interested can check out my <a href="https://github.com/networkop/flexvpn">FlexVPN Github repository</a>. Here&rsquo;s how you can generate a full-blown config for FlexVPN network:</p>
+
+<pre><code class="bash 1. Clone Github repository">$ git clone https://github.com/networkop/flexvpn.git
+</code></pre>
+
+<pre><code class="text 2. Update variables to match the network design">./hosts
+./group_vars/all
+./host_vars/
+</code></pre>
+
+<pre><code class="bash 3. Generate configuration files">$ ansible-playbook site.yml
+</code></pre>
+
+<p>All generated configuration files will be stored in <code>./files/</code> directory.</p>
+
+<h2>Conclusion</h2>
+
+<p>Thanks to DRY and Convention over Configuration principles it&rsquo;s possible to devise a configuration template that will be the same for all Spokes. The actual configuration will consist of multiple components like IKEv2, dynamic VTI, AAA and BGP configuration. I&rsquo;ll try to explain how they all tie together in my upcoming post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Automating New Network Build - Part 2 (BGP)]]></title>
+    <link href="http://networkop.github.io/blog/2015/09/03/automating-bgp-config/"/>
+    <updated>2015-09-03T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/09/03/automating-bgp-config</id>
+    <content type="html"><![CDATA[<p>In this post we&rsquo;ll have a look at how to automate a typical BGP setup. This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.</p>
+
+<!--more-->
+
+
+<h2>Requirements and assumptions</h2>
+
+<p>The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link. Secondary WAN link should only be used in case both primary and backdoor links are unavailable.<br/>
+All routed devices within Branch-2 will be running iBGP AS#3 with BR2-CORE playing a role of route-reflector for the two WAN routers. iBGP convergence timers should rely on IGP&rsquo;s timers (OSPF default timers of 10 and 40 seconds). Site&rsquo;s core switch should originate a site summary prefix as well as any other non-standard prefixes falling outside of the standard site summary (e.g. links to 3rd Parties, DMZ etc.). All prefixes originated by the site should be tagged with specific community values in order to be easily identifiable at the remote end.</p>
+
+<p><img class="centre" src="/images/full-network-topo.png" title="Full network topology" ></p>
+
+<h2>eBGP configuration automation</h2>
+
+<p>Each site will have a unique set of eBGP peers, hence, it is logical to put all eBGP-related variables into a site-specific directory <code>group_vars/branch-2/</code>. In order to understand how to configure each eBGP neighbor the following values need to be defined for each eBGP neighbor:</p>
+
+<ol>
+<li>IP addresses</li>
+<li>AS number</li>
+<li>(optional) Routing manipulation policies</li>
+</ol>
+
+
+<p>The above values correspond to the following Ansible variables:</p>
+
+<pre><code class="yaml ./group_vars/branch-2/bgp">ebgp_peers:
+  BR2-WAN1:
+    1.1.1.2:
+      - remote-as 1000
+  BR2-WAN2:
+    2.2.3.2:
+      - remote-as 2000
+      - route-map RM-BGP-PREPEND-OUT out
+  BR2-CORE:
+    10.0.2.49:
+       - remote-as 2
+</code></pre>
+
+<p>Here <code>ebgp_peers</code> variable contains a mapping between network devices and their eBGP neighbors identified by their IP addresses. BGP path manipulation policies ideally should belong to global variables and are defined under the company-wide <code>routing</code> group</p>
+
+<p>
+<code>yaml ./group_vars/routing/route-maps
+bgp_out_rmap_prepend:
+    - set as-path prepend {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }}
+</code>
+</p>
+
+<p>All information defined above will be reused by the <code>bgp</code> template of the <code>routing</code> ansible roles:</p>
+
+<p>
+<figure class='code'><figcaption><span>./roles/routing/template/bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">route-map RM-BGP-PREPEND-OUT permit 10</span>
+</span><span class='line'><span class="l-Scalar-Plain">{%- for clause in bgp_out_rmap_prepend %}</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">{{ clause }}</span>
+</span><span class='line'><span class="l-Scalar-Plain">{% endfor -%}&lt;/p&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;router bgp {{ site_ASN }}</span>
+</span><span class='line'><span class="l-Scalar-Plain">{%- if inventory_hostname in ebgp_peers %}</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">{%- for neighbor_ip in ebgp_peers[inventory_hostname] %}</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">{%- for option in ebgp_peers[inventory_hostname][neighbor_ip] %}</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">neighbor {{ neighbor_ip }} {{ option }}</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">{% endfor -%}</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">{% endfor -%}</span>
+</span><span class='line'><span class="l-Scalar-Plain">{% endif -%}</span>
+</span></code></pre></td></tr></table></div></figure>
+</p>
+
+<h2>iBGP configuration automation</h2>
+
+<p>Each site will be running a simple iBGP topology with a single route-reflector with two clients. Each routed device within the new branch will need to have it&rsquo;s iBGP role  defined (server or client).</p>
+
+<pre><code class="yaml ./group_vars/branch-2/bgp">ibgp_topo:
+  route_reflector: [BR2-CORE]
+  rr_clients: [BR2-WAN1, BR2-WAN2]
+
+bgp_originate_redistribute:
+  BR2-CORE:
+    - summary
+    - static
+
+bgp_originate_network:
+  BR2-WAN1:
+    - Loopback0
+  BR2-WAN2:
+    - Loopback0
+</code></pre>
+
+<p>Special variables that start with <code>bgp_originate_</code> define which subnets should be originated by which router. RR-server will originate site-wide summary and any 3rd party subnets while WAN routers will inject their own loopbacks in order to be remotely accessible even if BR2-CORE goes down. Specific route maps responsible for prefix origination should be defined in the global scope:</p>
+
+<p>
+<code>yaml ./group_vars/routing/route-maps
+bgp_redistr_route_maps:
+  static:
+    - match tag {{ tags.static }}
+    - set community {{ bgp_comm_static }}
+  summary:
+    - match tag {{ tags.summary }}
+    - set community {{ bgp_comm_summary }}
+</code>
+</p>
+
+<p>The resulting configuration for BR2-CORE will looks like this:</p>
+
+<pre><code class="text ./files/BR2-CORE.bgp">route-map RM-BGP-FROM-STATIC permit 10
+  match tag 110
+  set community 3:1
+route-map RM-BGP-FROM-SUMMARY permit 10
+  match tag 210
+  set community 3:0
+
+route-map RM-BGP-PREPEND-OUT permit 10
+  set as-path prepend 3 3 3 3 3 3 3
+!
+ip prefix-list PL-ALL-LOOPBACKS permit 0.0.0.0/0 le 32 ge 32
+!
+route-map RM-BGP-FALLOVER permit 10
+  match ip address prefix PL-ALL-LOOPBACKS
+!
+router bgp 3
+  redistribute static route-map RM-BGP-FROM-SUMMARY
+  redistribute static route-map RM-BGP-FROM-STATIC
+  neighbor 10.0.2.49 remote-as 2
+  neighbor RR-CLIENTS peer-group
+  neighbor RR-CLIENTS remote-as 3
+  neighbor RR-CLIENTS update-source Loopback0
+  neighbor RR-CLIENTS fall-over route-map RM-BGP-FALLOVER
+  neighbor RR-CLIENTS route-reflector-client
+  neighbor 10.0.3.2 peer-group RR-CLIENTS
+  neighbor 10.0.3.3 peer-group RR-CLIENTS
+</code></pre>
+
+<h2>Conclusion</h2>
+
+<p>This post concludes the series of articles describing how to automate enteprise network configuration. We first looked at how to automate <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">legacy network configuration</a>, interface and OSPF configuration for the <a href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/">new network build</a> and, finally, BGP configuration. Full version of files and scripts can be found in <a href="https://github.com/networkop/cisco-ansible-provisioning">my github repository</a>.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Automating New Network Build - Part 1]]></title>
+    <link href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/"/>
+    <updated>2015-08-26T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/08/26/automating-network-build-p1</id>
+    <content type="html"><![CDATA[<p>This post will demonstrate how to automate the build of a typical enterprise branch network consisting of a pair of WAN routers, a core switch and 3 access layer switches. I will show how to create the initial bootstrap configuration and enable basic routing with OSPF.</p>
+
+<!--more-->
+
+
+<h2>Prerequisites</h2>
+
+<p>It is assumed that by this time all detailed network design information is known including interfaces numbers, VLANs, IP addresses and <abbr title="Link Aggregation Group">LAGs</abbr>. This information will be used as an input to configuration automation scripts.</p>
+
+<p><img class="centre" src="/images/new-office-design.png" title="New Office Network Topology" ></p>
+
+<p>The inventory file is updated with a new <code>branch-2</code> group
+<code>text ./hosts
+[branch-2]
+BR2-CORE ansible_ssh_host=10.0.3.1
+BR2-WAN1 ansible_ssh_host=10.0.3.2
+BR2-WAN2 ansible_ssh_host=10.0.3.3
+BR2-AS01 ansible_ssh_host=10.0.3.130
+BR2-AS02 ansible_ssh_host=10.0.3.131
+BR2-AS03 ansible_ssh_host=10.0.3.132
+</code></p>
+
+<h2>Creating device bootstrap configuration</h2>
+
+<p>A lot of times when building a new network it is required to create a bootstrap config that would have some basic AAA configuration along with the layer 2 and layer 3 links configuration. Since we went through the AAA configuration in the <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">previous post</a> I will omit that bit and get straight to the configuration of L2/L3 links. My personal rule of thumb is to configure all intra-site links as layer 2 trunks, including the links between the routed devices. This allows for greater flexibility in the future in case some traffic will need to get steered through a particular device.<br/>
+The goal is to have configuration that would be copy-paste-friendly and would not require re-ordering or re-running. Therefore, it is important to apply configuration in the specific order:</p>
+
+<ol>
+<li>Layer 2 LAGs</li>
+<li>Layer 2 port configuration</li>
+<li>Layer 3 ip addressing</li>
+</ol>
+
+
+<p>The input information will be provided through a file called <code>interconnects</code> stored in the site-specific variable directory <code>branch-2</code>. Below is an abridged version of the file demonstrating the configuration of interfaces on the core switch. As always full version is available in my <a href="https://github.com/networkop/cisco-ansible-provisioning">github repository</a>.</p>
+
+<pre><code class="yaml ./group_vars/branch-2/interconnects">---
+link_aggregation:
+  BR2-CORE:
+    Po11: [Eth0/2, Eth0/3]
+
+l2_links:
+  BR2-CORE:
+    Eth0/0: 11
+    Eth0/1: 12
+    Eth1/0: 10,20,30,40,50
+    Eth1/1: except 40
+    Po11:   10-50
+
+l3_intf:
+  BR2-CORE:
+    Loopback0: 10.0.3.1/32
+    Vlan11: 10.0.1.38/29
+    Vlan12: 10.0.1.46/29
+    Vlan10: 10.0.3.65/27
+    Vlan20: 10.0.3.97/27
+    Vlan30: 10.0.3.129/27
+    Vlan40: 10.0.3.193/27
+    Vlan50: 10.0.3.161/27
+</code></pre>
+
+<p>This information is used by the <code>bootstrap</code> Ansible role to construct an interface configuration script. Here&rsquo;s the example of LAG configuration template. It iterates over all devices in <code>link_aggregation</code> variable and configures LACP protocol on each participating interface.</p>
+
+<p>
+<code>jinja ./roles/bootstrap/templates/bootstrap.conf.j2
+{% if inventory_hostname in link_aggregation %}
+  {% for channel_number in link_aggregation[inventory_hostname] %}
+    {% for interface in link_aggregation[inventory_hostname][channel_number] %}
+interface {{ interface }}
+  channel-group {{ channel_number.split("Po")[1] }} mode active
+  no shutdown
+   {% endfor %}
+  {% endfor %}
+{% endif %}
+</code>
+</p>
+
+<p>When configuring IP address information it&rsquo;s handy to use the built-in Ansible&rsquo;s <code>ipaddr</code> filter which can translate a prefix notation into Cisco&rsquo;s standard <code>ip_address netmask</code> as shown below:</p>
+
+<p>
+<code>jinja ./roles/bootstrap/templates/bootstrap.conf.j2
+ {% if inventory_hostname in l3_intf and inventory_hostname in groups['routers'] and not inventory_hostname in groups['switches'] %}
+  {% for interface in l3_intf[inventory_hostname] %}
+interface {{ interface }}
+  ip address {{ l3_intf[inventory_hostname][interface] | ipaddr('address') }} {{ l3_intf[inventory_hostname][interface] | ipaddr('netmask') }}
+  no shutdown
+  {% endfor %}
+{% endif %}
+</code>
+</p>
+
+<h2>Creating OSPF routing configuration</h2>
+
+<p>OSPF configuration will adhere to the following simple conventions:</p>
+
+<ul>
+<li>All routed devices participate in OSPF</li>
+<li>Every device advertises all its directly connected links</li>
+<li>All links are passive by default with the exception of inter-device links</li>
+<li>A single OSPF area 0 is used</li>
+</ul>
+
+
+<p>Another important aspect is separation of site-specific from enterprise-global configuration. The rule of thumb in this case would be to put as much information as possible into the global scope, keeping the site scope small. In our case all global variables and settings should reside under <code>./group_vars/routing</code> directory:</p>
+
+<pre><code class="yaml ./group_vars/routing/igp"> ---
+ospf:
+  global:
+    - default auto-cost reference-bandwidth 100000
+    - router-id 
+    - network 0.0.0.0 255.255.255.255 area 0
+    - passive-interface default
+</code></pre>
+
+<p>Site-specific OSPF variables will only contain a list of <em>active</em> interfaces that should form OSPF adjacencies:</p>
+
+<pre><code class="yaml ./group_vars/branch-2/igp">---
+ospf_intf_list:
+  BR2-CORE: [Vlan11, Vlan12]
+  BR2-WAN1: [Eth0/1.11]
+  BR2-WAN2: [Eth0/1.12]
+</code></pre>
+
+<p>Once again, a special <code>routing</code> role is created with a template making use of all of the configured variables:</p>
+
+<p>
+<code>jinja ./roles/routing/templates/igp.j2
+router ospf 1
+{% for option in ospf.global %}
+  {{ option }}
+{% endfor %}
+{% for interface in ospf_intf_list[inventory_hostname] %}
+  no passive-interface {{ interface }}
+{% endfor %}
+</code>
+</p>
+
+<p>The resulting configuration for the core switch would like like this:</p>
+
+<pre><code class="text ./files/BR2-CORE.igp">router ospf 1
+  default auto-cost reference-bandwidth 100000
+  router-id 10.0.3.1
+  network 0.0.0.0 255.255.255.255 area 0
+  passive-interface default
+  no passive-interface Vlan11
+  no passive-interface Vlan12
+</code></pre>
+
+<p>Just a reminder that full versions of templates, files and playbooks can be found on <a href="https://github.com/networkop/cisco-ansible-provisioning">github</a>.</p>
+
+<hr />
+
+<p>That&rsquo;s it for the basic L2/L3 and routing configuration. In the next post I will show how to automate a standard BGP configuration.</p>
+]]></content>
+  </entry>
+  
+</feed>

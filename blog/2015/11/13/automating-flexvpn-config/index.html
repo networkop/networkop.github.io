@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Automating the Build of FlexVPN Network - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="FlexVPN configuration automation">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/">
+  <meta property="og:title" content="Automating the Build of FlexVPN Network - Network-oriented programming">
+  <meta property="og:description" content="FlexVPN configuration automation">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li >
+                    <a href="/blog/archives">Archives</a>
+                </li>
+								<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-11-13T00:00:00-08:00"  data-updated="true" itemprop="datePublished dateCreated">13/11/2015</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Automating the Build of FlexVPN Network
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll show how to automatically build configuration files for Hubs and Spokes in FlexVPN network topology. I will also introduce two concepts that are frequently used in software development world - <abbr title="Do Not Repeat Yourself">DRY</abbr> and &ldquo;Convention over Configuration&rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
+
+<!--more-->
+
+
+<h2>FlexVPN network overview</h2>
+
+<p>FlexVPN topology will consist of two FlexVPN &ldquo;clouds&rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds. The two Hubs are interconnected by a direct site-to-site FlexVPN tunnel. To provide additional redundancy one Hub (HUB-1) and one Spoke (SPOKE-1) will have dual WAN links.</p>
+
+<p><img class="centre" src="/images/flexvpn-topo.png" title="FlexVPN topology" ></p>
+
+<h2>Assumptions</h2>
+
+<p>All FlexVPN devices will be using PKI-based authentication. However, in this post I will not cover the setup of PKI infrastructure and simply assume that all Hubs and Spokes are already enrolled with the appropriate CA. Following are the assumptions about the specifics of PKI setup on each router:</p>
+
+<ul>
+<li>Each FlexVPN cloud is defined by a unique domain name (e.g. cloud.one for HUB-1)</li>
+<li>Each Spoke has one X.509 certificate per FlexVPN cloud</li>
+<li>Spokes encode their WAN bandwidth in X.509 Organizational Unit (OU) attribute (e.g. RED corresponds to 50Mpbs)</li>
+<li>Each certificate&rsquo;s trustpoint will be called &ldquo;PKI-CLOUD-X&rdquo;, where X is 1 or 2 depending on FlexVPN cloud</li>
+</ul>
+
+
+<p>As an example, SPOKE-3 will have the following trustpoint configured for FlexVPN cloud #1:</p>
+
+<figure class='code'><figcaption><span>PKI trustpoint #1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>crypto pki trustpoint PKI-CLOUD-1
+</span><span class='line'> enrollment url http://120.0.0.2:80
+</span><span class='line'> serial-number
+</span><span class='line'> fingerprint 2BE13A4FF167CEB770A24B2D6716033E
+</span><span class='line'> subject-name CN=SPOKE-3.cloud.one,OU=GREEN
+</span><span class='line'> vrf FVRF
+</span><span class='line'> revocation-check crl
+</span><span class='line'> rsakeypair CLOUD-1
+</span><span class='line'> auto-enroll
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Convention over Configuration</h2>
+
+<p>This is where it&rsquo;d make sense to introduce the concept of Convention over Configuration. The fact that we&rsquo;ve assumed that all trustpoints will have the prefix of &ldquo;PKI-CLOUD-&rdquo; (convention) makes configuration templates a lot easier. Without it we could have allowed ANY naming of PKI trustpoint but then it should have been defined as a separate variable for every Spoke. Effectively we&rsquo;re sacrificing some level flexibility in favour of brevity (and simplicity). This principle has been popularised by Ruby on Rails web framework and is widely used in other modern web frameworks.</p>
+
+<h2>FlexVPN inventory file</h2>
+
+<p>Before we start working with Ansible, we need to populate host inventory file. A parent &ldquo;FLEXVPN&rdquo; group will include two children groups - &ldquo;HUBS&rdquo; and &ldquo;SPOKES&rdquo;. The latter will be subdivided into three groups - &ldquo;GREEN&rdquo;, &ldquo;BLUE&rdquo; or &ldquo;RED&rdquo;. Each spoke will be assigned to a group base on its X.509 OU value. Additionally, in order to keep configuration templates simpler, we&rsquo;ll treat multi-vrf SPOKE-1 as two different routers - SPOKE1_1 and SPOKE1_2:</p>
+
+<figure class='code'><figcaption><span>./hosts </span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">[</span><span class="nv">FLEXVPN</span><span class="p-Indicator">:</span><span class="nv">children</span><span class="p-Indicator">]</span>
+</span><span class='line'><span class="l-Scalar-Plain">HUBS</span>
+</span><span class='line'><span class="l-Scalar-Plain">SPOKES</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">[HUBS]</span>
+</span><span class='line'><span class="l-Scalar-Plain">HUB-1</span>
+</span><span class='line'><span class="l-Scalar-Plain">HUB-2</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">[SPOKES:children]</span>
+</span><span class='line'><span class="l-Scalar-Plain">GREEN</span>
+</span><span class='line'><span class="l-Scalar-Plain">BLUE</span>
+</span><span class='line'><span class="l-Scalar-Plain">RED</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">[RED]</span>
+</span><span class='line'><span class="l-Scalar-Plain">SPOKE-1_1</span>
+</span><span class='line'><span class="l-Scalar-Plain">SPOKE-1_2</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">[BLUE]</span>
+</span><span class='line'><span class="l-Scalar-Plain">SPOKE-2</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">[GREEN]</span>
+</span><span class='line'><span class="l-Scalar-Plain">SPOKE-3</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Front-door VRF configuration</h2>
+
+<p>Another assumption is that all routers will have their Front-door VRF configured. Normally this would imply configuring an IP address on Internet-facing interface and a vrf-specific default route. In case of HUB-1, where there are two physical links in a single VRF, it is assumed that appropriate SLA-tied static routes are configured to enable dynamic failover between the two links. Here&rsquo;s the example of how it&rsquo;s done on HUB-1:</p>
+
+<figure class='code'><figcaption><span>show run vrf FVRF-1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>interface Ethernet0/0
+</span><span class='line'> vrf forwarding FVRF-1
+</span><span class='line'> ip address 120.0.0.2 255.0.0.0
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/1
+</span><span class='line'> vrf forwarding FVRF-1
+</span><span class='line'> ip address 121.0.0.2 255.0.0.0
+</span><span class='line'>!
+</span><span class='line'>ip route vrf FVRF-1 0.0.0.0 0.0.0.0 120.0.0.1 track 1
+</span><span class='line'>ip route vrf FVRF-1 0.0.0.0 0.0.0.0 121.0.0.1 250
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Environment variables and the DRY principle</h2>
+
+<p>One of the most obvious things to turn into a variable is the FVRF name and interface. We&rsquo;ll put it into an Ansible&rsquo;s global variable file <code>./group_vars/all</code>. The same file will have a default BGP AS number for iBGP routing and a table mapping different OU values to their corresponding bandwidth in Kbps.</p>
+
+<figure class='code'><figcaption><span>./group_vars/all</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="l-Scalar-Plain">bgp_asn</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">fvrf</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">FVRF</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Ethernet0/0</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">bandwidth</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">RED</span><span class="p-Indicator">:</span>   <span class="l-Scalar-Plain">50000</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">GREEN</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">20000</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">BLUE</span><span class="p-Indicator">:</span>  <span class="l-Scalar-Plain">10000</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Each of these variables can be overridden by a more specific host variable located in <code>./host_vars/</code> directory like it is the case with <a href="https://github.com/networkop/flexvpn/blob/master/host_vars/SPOKE-1_1">SPOKE1</a>.  All host-specific variables, like domain names, FlexVPN subnets, public addresses for Hub devices are also being stored in the same directory. Here&rsquo;s an example of how HUB-1 overrides the default FVRF name and defines a few variables of its own:</p>
+
+<figure class='code'><figcaption><span>./host_vars/HUB-1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="l-Scalar-Plain">primary</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">true</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">domain_name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cloud.one</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">nbma_ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">dynamic</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">dynamic</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">120.0.0.2</span>
+</span><span class='line'>  <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">121.0.0.2</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">vpn_ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">169.254.1.1</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">subnet</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">169.254.1.0/24</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">fvrf</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">FVRF-1</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<p>Here it makes sense to talk about the <strong>DRY principle</strong>. All Spokes in their configuration files will use information like Hub&rsquo;s NBMA address and domain name. So, in theory, we could have created a host variable file for each Spoke and stored that information there. However, in that case we would have multiple duplicate variables all storing the same value. This, obviously, creates a lot of problems when it comes to updating those variables. Instead of updating a value in a single place we now have to go and update every single Spoke&rsquo;s host variables file. That&rsquo;s why it&rsquo;s important to NOT have ANY duplicates of ANY information in ANY part of your code, even if it comes at a price of an increased code complexity. This is widely accepted as best practice and used in almost every programming language and CS discipline.</p>
+
+<h2>FlexVPN configuration templates</h2>
+
+<p>I will omit the actual configuration templates for the sake of brevity. Those who are interested can check out my <a href="https://github.com/networkop/flexvpn">FlexVPN Github repository</a>. Here&rsquo;s how you can generate a full-blown config for FlexVPN network:</p>
+
+<figure class='code'><figcaption><span>1. Clone Github repository</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>git clone https://github.com/networkop/flexvpn.git
+</span></code></pre></td></tr></table></div></figure>
+
+
+
+
+<figure class='code'><figcaption><span>2. Update variables to match the network design</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>./hosts
+</span><span class='line'>./group_vars/all
+</span><span class='line'>./host_vars/
+</span></code></pre></td></tr></table></div></figure>
+
+
+
+
+<figure class='code'><figcaption><span>3. Generate configuration files</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ansible-playbook site.yml
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>All generated configuration files will be stored in <code>./files/</code> directory.</p>
+
+<h2>Conclusion</h2>
+
+<p>Thanks to DRY and Convention over Configuration principles it&rsquo;s possible to devise a configuration template that will be the same for all Spokes. The actual configuration will consist of multiple components like IKEv2, dynamic VTI, AAA and BGP configuration. I&rsquo;ll try to explain how they all tie together in my upcoming post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-11-13T00:00:00-08:00"  data-updated="true" itemprop="datePublished dateCreated">13/11/2015</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/network/'>network</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/" data-via="" data-counturl="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+	
+	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/" data-counter="right"></script>
+	
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2015/09/03/automating-bgp-config/" title="Previous Post: Automating new network build - Part 2 (BGP)">&laquo; Automating new network build - Part 2 (BGP)</a></li>
+            
+            
+            <li class="next"><a href="/blog/2016/01/01/rest-for-neteng/" title="Next Post: REST API for Network Engineers">REST API for Network Engineers &raquo;</a></li>
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item " href="/blog/2016/02/19/network-ci-intro/">Network Continuous Integration and Delivery</a>
+    
+    <a class="list-group-item " href="/blog/2016/01/17/rest-unl-advanced/">REST for Network Engineers Part 3 - Advanced Operations With UnetLab</a>
+    
+    <a class="list-group-item " href="/blog/2016/01/06/rest-basic-operations/">REST for Network Engineers Part 2 - Basic Operations With UnetLab</a>
+    
+    <a class="list-group-item " href="/blog/2016/01/03/dev-env-setup-rest/">REST for Network Engineers Part 1 - Development Environment Setup</a>
+    
+    <a class="list-group-item " href="/blog/2016/01/01/rest-for-neteng/">REST API for Network Engineers</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/automation/index.html">
+        <span class="badge">7</span>
+        automation
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/network/index.html">
+        <span class="badge">7</span>
+        network
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">5</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/cisco/index.html">
+        <span class="badge">4</span>
+        cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/rest/index.html">
+        <span class="badge">4</span>
+        rest
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">3</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">3</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
+        <span class="badge">1</span>
+        syncthing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/howto/index.html">
+        <span class="badge">1</span>
+        howto
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/git/index.html">
+        <span class="badge">1</span>
+        git
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
+        <span class="badge">1</span>
+        pycharm
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/devops/index.html">
+        <span class="badge">1</span>
+        devops
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">1</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">1</span>
+        routing
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2016 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/';
+        var disqus_url = 'http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>

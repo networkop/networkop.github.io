@@ -1,0 +1,800 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Category: Rest | Network-oriented programming]]></title>
+  <link href="http://networkop.github.io/blog/categories/rest/atom.xml" rel="self"/>
+  <link href="http://networkop.github.io/"/>
+  <updated>2016-02-18T20:24:34-08:00</updated>
+  <id>http://networkop.github.io/</id>
+  <author>
+    <name><![CDATA[Michael Kashin]]></name>
+    <email><![CDATA[mmkashin@gmail.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[REST for Network Engineers Part 3 - Advanced Operations With UnetLab]]></title>
+    <link href="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/"/>
+    <updated>2016-01-17T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/01/17/rest-unl-advanced</id>
+    <content type="html"><![CDATA[<p>In this post we&rsquo;ll look at how to create arbitrary topologies and push configuration to Nodes in UNetlab via REST SDK. We&rsquo;ll conclude by extending our sample application to create and configure a 3-node topology and enable full connectivity between all nodes.</p>
+
+<!--more-->
+
+
+<h2>Extracting Node&rsquo;s UUID</h2>
+
+<p>In the <a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">previous post</a> we have learned how to create a Node. To perform further actions on it we need to know it&rsquo;s UUID. According to HTTP specification <code>201 - Created</code> response SHOULD return a <code>Location</code> header with resource URI, which would contain resource UUID. However, UNetLab&rsquo;s implementation does not return a Location header so we need to extract that information ourselves. To do that we&rsquo;ll use the previously defined <code>.get_nodes()</code> method which returns all attributes of all configured Nodes in the following format:</p>
+
+<p><img class="centre" src="/images/rest-unl-get-nodes.png" title="REST SDK GET ALL NODES" ></p>
+
+<p>The best place to extract UUID would be when Node is being created. After the <code>Create</code> request has been sent to a server we&rsquo;ll send another <code>Read</code> request and extract all attributes of a Node based on its name.</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">class UnlNode(object):
+
+    def __init__(self, lab, device):
+        ...
+        self.node = self._get_node()
+        self.id = self.node['id']
+        self.url = self.node['url']
+
+    def _get_node(self):
+        nodes = self.lab.get_nodes().json()['data']
+        return get_obj_by_name(nodes, self.device.name)
+</code></pre>
+
+<p> To extract data from the payload we need to call <code>.json()</code> on the returned HTTP response and look for the <code>data</code> key inside that JSON object. The returned value will contain all attributes including the UUID and access URL which we&rsquo;ll use later. To help us find a Node object matching a name we&rsquo;ll use a helper function defined below:</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/helper.py">def get_obj_by_name(objects, name):
+    for obj_id in objects:
+        if objects[obj_id]["name"] == name:
+            return objects[obj_id]
+    return None
+</code></pre>
+
+<p>Needless to say that we MUST have unique names for all nodes otherwise it won&rsquo;t be possible to do the matching. It&rsquo;s quite a safe assumption to make in most cases however no built-in error checking will be performed by the REST SDK to prevent you from doing it.</p>
+
+<h2>UnlNet implementation</h2>
+
+<p>Before we start connecting Nodes together we need to create a Network. As per the <a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">design</a>, UnlNet will be a class holding a pointer to the UnlLab object which created it. The structure of the class will be very similar to UnlNode.</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">REST_SCHEMA = { 
+                ... ,
+                'create_net': '/labs/{lab_name}/networks',
+                'get_nets': '/labs/{lab_name}/networks'
+            }
+
+class UnlLab(object):
+    ...
+    def create_net(self, name):
+        return UnlNet(self, name)
+
+    def get_nets(self):
+        api_call = REST_SCHEMA['get_nets']
+        api_url = api_call.format(api_call, lab_name=append_unl(self.name))
+        resp = self.unl.get_object(api_url)
+        return resp
+
+
+class UnlNet(object):
+
+    def __init__(self, lab, name):
+        api_call = REST_SCHEMA['create_net']
+        self.unl, self.lab, self.name = lab.unl, lab, name
+        payload = {'type': 'bridge', 'name': self.name}
+        api_url = api_call.format(api_call, lab_name=append_unl(self.lab.name))
+        self.resp = self.unl.add_object(api_url, data=payload)
+        self.net = self._get_net()
+        self.id = self.net['id']
+
+    def _get_net(self):
+        nets = self.lab.get_nets().json()['data']
+        return get_obj_by_name(nets, self.name)
+</code></pre>
+
+<h2>Connecting Nodes to a network</h2>
+
+<p>Official <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">Unetlab API guide</a> is still under development and doesn&rsquo;t specify how to connect a Node to a network. If you want to find out the syntax for this or any other unspecified API call you can always try that in a Web GUI while capturing traffic with Wireshark. That is how I&rsquo;ve discovered that to connect a Node to a network we need to send an Update request with payload containing mapping between Node&rsquo;s interface ID and Network ID.</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">REST_SCHEMA = { 
+                ... ,
+                'connect_interface': '/labs/{lab_name}/nodes/{node_id}/interfaces'
+            }
+
+class UnlNode(object):
+    ...
+
+    def connect_interface(self, intf_name, net):
+        api_call = REST_SCHEMA['connect_interface']
+        api_url = api_call.format(api_call, lab_name=append_unl(self.lab.name), node_id=self.id)
+        payload = {get_intf_id(intf_name): net.id}
+        resp = self.unl.update_object(api_url, data=payload)
+        return resp
+</code></pre>
+
+<p>The ID of an interface &ldquo;Ethernet x/y” of an IOU device can be easily calculated based on the formula <code>id = x + (y * 16)</code> as described <a href="http://evilrouters.net/2011/01/09/creating-a-netmap-file-for-iou/">here</a>. This will be accomplished with yet another helper function:</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/helper.py">def get_intf_id(intf_name):
+    x, y = re.findall('\d+', intf_name)
+    return int(x) + (int(y) * 16)
+</code></pre>
+
+<h2>Connecting Nodes to each other</h2>
+
+<p>To create multi-access topologies we would need to maintain an internal mapping between Node&rsquo;s interface and the network it&rsquo;s attached to. However, if we assume that all links are point-to-point, we can not only simplify our implementation but also enable REST client to ignore the notion of a network all together.  We&rsquo;ll simply assume that when device A connects to B our implementation will create a network called <code>A_B</code> in the background and connect both devices to it. This method will perform two separate REST calls and thus will return both responses in a tuple:</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">class UnlNode(object):
+    ...
+
+def connect_node(self, local_intf, other_node, other_intf):
+    net = self.lab.create_net(name='_'.join([self.device.name, other_node.device.name]))
+    resp1 = self.connect_interface(local_intf, net)
+    resp2 = other_node.connect_interface(other_intf, net)
+    return resp1, resp2
+</code></pre>
+
+<p>Assuming all links are point-to-point certainly decreases visibility of created networks and we would not be able to perform selective changes on them in the future. However it is a safe assumption to make for 99% of the networks that I&rsquo;m dealing with.</p>
+
+<h2>Node Start, Stop and Delete</h2>
+
+<p>These simple actions can easily be coded using TDD. I will omit the actual implementation and simply provide unit tests for readers to exercise their TDD skills again.</p>
+
+<pre><code class="python /rest-blog-unl-client/tests/test_unl.py">class AdvancedUnlNodeTest(UnlTests):
+
+    def setUp(self):
+        super(AdvancedUnlNodeTest, self).setUp()
+        self.device_one = Router('R1')
+        self.device_two = Router('R2')
+        self.lab = self.unl.create_lab(LAB_NAME)
+        self.node_one = self.lab.create_node(self.device_one)
+        self.node_two = self.lab.create_node(self.device_two)
+
+    def tearDown(self):
+        self.unl.delete_lab(LAB_NAME)
+        super(AdvancedUnlNodeTest, self).tearDown()
+
+    def test_start_nodes(self):
+        self.lab.stop_all_nodes()
+        resp = self.lab.start_all_nodes()
+        self.assertEqual(200, resp.status_code)
+
+    def test_stop_nodes(self):
+        self.lab.start_all_nodes()
+        resp = self.lab.stop_all_nodes()
+        self.assertEqual(200, resp.status_code)
+
+    def test_delete_node(self):
+        resp = self.lab.delete_node(self.node_one.id)
+        self.assertEqual(200, resp.status_code)
+
+    def test_del_all_nodes(self):
+        self.lab.del_all_nodes()
+        resp = self.lab.get_nodes()
+        self.assertEqual(0, len(resp_2.json()['data']))
+
+    def test_lab_cleanup(self):
+        resp_1 = self.lab.stop_all_nodes()
+        self.lab.del_all_nodes()
+        resp_2 = self.lab.get_nodes()
+        self.assertEqual(200, resp_1.status_code)
+        self.assertEqual(0, len(resp_2.json()['data']))
+</code></pre>
+
+<p>The final, <code>lab_cleanup()</code> method is simply a shortcut to <code>stop_nodes()</code> followed by <code>del_all_nodes()</code>.<br/>
+As always, link to full code is available at the end of this post.</p>
+
+<h2>Pushing configuration to Nodes</h2>
+
+<p>At this point of time UnetLab does not support configuration import so we&rsquo;re stuck with the only access method available - telnet. To push configuration into the Node we&rsquo;re gonna have to establish a telnet session to Node&rsquo;s URI (which we&rsquo;ve extracted earlier) and write all configuration into that session.</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">class UnlNode(object):
+    ...
+
+    def configure(self, text):
+        return self.device.send_config(wrap_conf(text))
+</code></pre>
+
+<p>Another helper function <code>wrap_conf()</code> prepends <code>enable</code> and appends <code>end</code> to make configuration suitable for pasting into the new IOU device.</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/device.py">class Router(Device):
+    ...
+
+    def send_config(self, config):
+        session = telnetlib.Telnet(self.url_ip, self.url_port)
+        send_and_wait(session, '\r\n')
+        result = send_and_wait(session, config)
+        session.close()
+        return result
+</code></pre>
+
+<p>The biggest problem is that Nodes, when started, take some time to boot before we can access the CLI prompt. To overcome that I had to implement a dirty hack in a form of <code>send_and_wait()</code> helper function that simulates pressing the <code>Enter</code> button every 0.1 second until it sees a CLI prompt (either <code>&gt;</code> or <code>#</code>).</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/helper.py">
+def send_and_wait(session, text):
+        session.read_very_eager()
+        result = ''
+        session.write(text)
+        while not any(stop_char in result[-3:] for stop_char in ['&gt;', '#']):
+            session.write('\r\n')
+            result += session.read_very_eager()
+            time.sleep(0.1)
+        return result
+</code></pre>
+
+<p>Let&rsquo;s hope that UNL team will implement config import soon so that we can get rid of this kludgy workaround.</p>
+
+<h2>Extending our sample app</h2>
+
+<p>At this stage we&rsquo;ve got all the code to finish our sample app. The goal is to create and configure the following 3-node topology:</p>
+
+<p><img class="centre" src="/images/rest-sample-app.png" title="REST SDK SAMPLE TOPO" ></p>
+
+<p>We&rsquo;ll assume that all configs will be stored as text files under the <code>./config</code> directory and will have device names as their filename. A helper function <code>read_file</code> will read the contents of a configuration text file into a Python string.</p>
+
+<pre><code class="python">
+TOPOLOGY = {('R1', 'Ethernet0/0'): ('R2', 'Ethernet0/0'),
+            ('R2', 'Ethernet0/1'): ('R3', 'Ethernet0/0'),
+            ('R1', 'Ethernet0/1'): ('R3', 'Ethernet0/1')}
+
+def app_1():
+    ...
+    try:
+        # Creating topology in UnetLab
+        nodes = dict()
+        for (a_name, a_intf), (b_name, b_intf) in TOPOLOGY.iteritems():
+            # Create a mapping between a Node's name and an object
+            if not a_name in nodes:
+                nodes[a_name] = lab.create_node(Router(a_name))
+                print("*** NODE {} CREATED".format(a_name))
+            if not b_name in nodes:
+                nodes[b_name] = lab.create_node(Router(b_name))
+                print("*** NODE {} CREATED".format(b_name))
+            # Extract Node objects using their names and connect them
+            node_a = nodes[a_name]
+            node_b = nodes[b_name]
+            node_a.connect_node(a_intf, node_b, b_intf)
+            print("*** NODES {0} and {1} ARE CONNECTED".format(a_name, b_name))
+        print("*** TOPOLOGY IS BUILT")
+        lab.start_all_nodes()
+        print("*** NODES STARTED")
+        # Reading and pushing configuration
+        for node_name in nodes:
+            conf = read_file('..\\config\\{}.txt'.format(node_name))
+            nodes[node_name].configure(conf)
+            print("*** NODE {} CONFIGURED".format(node_name))
+        raw_input('PRESS ANY KEY TO STOP THE LAB')
+    except Exception as e:
+        print("*** APP FAILED : {}".format(e))
+    finally:
+        print("*** CLEANING UP THE LAB")
+        lab.cleanup()
+        unl.delete_lab(LAB_NAME)
+</code></pre>
+
+<p>When you run this app for the first time, the lab with 3 nodes will be spun up and configured. When you get to the <code>PRESS ANY KEY</code> prompt you can login into Web GUI and navigate to lab <code>test_1</code> and validate that all configs have been pushed and devices can ping each other&rsquo;s loopbacks.</p>
+
+<h2>Source code</h2>
+
+<p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/2e847b8a809a1c9c4c0962b61c1c72325a405090">public repository on Github</a></p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[REST for Network Engineers Part 2 - Basic Operations With UnetLab]]></title>
+    <link href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/"/>
+    <updated>2016-01-06T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/01/06/rest-basic-operations</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to build REST SDK to authenticate, create labs and nodes in <a href="http://www.unetlab.com/">UnetLab</a>. I&rsquo;ll briefly cover the difference between composition and inheritance design patterns and demonstrate how to use test-driven development.</p>
+
+<!--more-->
+
+
+<h2>REST SDK Design</h2>
+
+<p>As it is with networks, design is a very crucial part of programming. I won&rsquo;t pretend to be an expert in that field and merely present the way I&rsquo;ve built REST SDK. Fortunately, a lot of design will mimic the objects and their relationship on the server side. I&rsquo;ll slightly enhance it to improve code re-use and portability. Here are the basic objects:</p>
+
+<ol>
+<li>RestServer - implements basic application-agnostic HTTP CRUD logic</li>
+<li>UnlServer - an extension of a RestServer with specific authentication method (cookie-based) and several additional methods</li>
+<li>Device - an instance of a network device with specific attributes like type, image name, number of CPUs</li>
+<li>UnlLab - a lab instance existing inside a UnlServer</li>
+<li>UnlNode - a node instance existing inside a UnlLab</li>
+<li>UnlNet - a network instance also existing inside a UnlLab object</li>
+</ol>
+
+
+<p>All these objects and their relationships are depicted on the following simplified <abbr title="Unified Modeling Language">UML</abbr> diagram. If you&rsquo;re interested in what different connections mean you can read <a href="http://www.codeproject.com/Articles/618/OOP-and-UML">this guide</a>.</p>
+
+<p><img class="centre" src="/images/rest-oop-design.png" title="REST SDK UML Diagram" ></p>
+
+<p>Here I&rsquo;ve used inheritance to <em>extend</em> RestServer functionality to make a UnlServer. This makes sense because UnlServer object will re-use a lot of the methods from the RestServer. I could have combined them in a single object but I&rsquo;ve decided to split the application-agnostic bit into a separate component to allow it to be re-used by other RESTful clients in the future.</p>
+
+<p>The other objects are aggregated and interact through code composition, where Lab holds a pointer to the UnlServer where it was created, Nodes and Nets point to the Lab in which they live. Composition creates loose coupling between objects, while still allowing method delegation and code re-use.</p>
+
+<p>For additional information about Composition vs Inheritance you can go <a href="http://learnpythonthehardway.org/book/ex44.html">here</a>, <a href="http://learnpythonthehardway.org/book/ex44.html">here</a> or <a href="http://learnpythonthehardway.org/book/ex44.html">here</a>.</p>
+
+<h2>REST SDK Implementation</h2>
+
+<blockquote><p>Throughout this post I&rsquo;ll be omitting a lot of the non-important code. For full working code refer to the link at the end of this post.</p></blockquote>
+
+<h3>RestServer implementation</h3>
+
+<p>When RestServer object is created, <code>__init__()</code> function takes the server IP address and constructs a <code>base_url</code>, a common prefix for all API calls. The 4 CRUD actions are encoded into names of the methods implementing them, for example to send an Update one would need to call <code>.update_object()</code>. This convention will make the implementation of UnlServer a lot more readable. Each of the 4 CRUD methods call <code>_send_request()</code> with correct HTTP verb preset (the leading underscore means that this method is private and should only be called from within the RestServer class).</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/server.py">class RestServer(object):
+
+    def __init__(self, address):
+        self.cookies = None
+        self.base_url = '/'.join(['http:/', address, 'api'])
+
+    def _send_request(self, method, path, data=None):
+        response = None
+        url = self.base_url + path
+        try:
+            response = requests.request(method, url,  json=data, cookies=self.cookies)
+        except requests.exceptions.RequestException as e:
+            print('*** Error calling %s: %s', url, e.message)
+        return response
+
+    def get_object(self, api_call, data=None):
+        return self._send_request('GET', api_call, data)
+
+    def add_object(self, api_call, data=None):
+        return self._send_request('POST', api_call, data)
+
+    def update_object(self, api_call, data=None):
+        return self._send_request('PUT', api_call, data)
+
+    def del_object(self, api_call, data=None):
+        return self._send_request('DELETE', api_call, data)
+
+    def set_cookies(self, cookie):
+        self.cookies = cookie
+</code></pre>
+
+<p>At this stage RestServer does very simple exception and no HTTP response error handling. I&rsquo;ll show how to extend it to do authentication error handling in the future posts.</p>
+
+<h3>UnlServer implementation</h3>
+
+<p>At the very top of the <code>unetlab.py</code> file we have a <code>REST_SCHEMA</code> global variable providing mapping between actions and their respective <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">API calls</a>. This improves code readability (at least to me) and makes future upgrades to API easier to implement.<br/>
+UnlServer class is extending the functionality of a RestServer by implementing UNetLab-specific methods. For example, <code>login()</code> sends username and password using the <code>add_object()</code> method of the parent class and sets the cookies extracted from the response to allow all subsequent methods to be authenticated.</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">REST_SCHEMA = {
+    'login': '/auth/login',
+    'logout': '/auth/logout',
+    'status': '/status',
+    'list_templates': '/list/templates/'
+}
+
+class UnlServer(RestServer):
+
+    def __init__(self, address):
+        super(UnlServer, self).__init__(address)
+
+    def login(self, user, pwd):
+        api_call = REST_SCHEMA['login']
+        payload = {
+            "username": user,
+            "password": pwd
+        }
+        resp = self.add_object(api_call, data=payload)
+        self.set_cookies(resp.cookies)
+        return resp
+
+    def logout(self):
+        api_call = REST_SCHEMA['logout']
+        resp = self.get_object(api_call)
+        return resp
+
+    def get_status(self):
+        api_call = REST_SCHEMA['status']
+        resp = self.get_object(api_call)
+        return resp
+
+    def get_templates(self):
+        api_call = REST_SCHEMA['list_templates']
+        resp = self.get_object(api_call)
+        return resp
+</code></pre>
+
+<p>As you can see all methods follow the same pattern:</p>
+
+<ol>
+<li>Extract an API url from <code>REST_SCHEMA</code> global variable</li>
+<li>Send a request using one of the 4 CRUD methods of the parent RestServer class</li>
+<li>Return the response</li>
+</ol>
+
+
+<p>Now let&rsquo;s see how we can use TDD approach to build out the rest of the code.</p>
+
+<h2>Test-driven development</h2>
+
+<p>The easiest way to test RESTful application is by observing the status code of the returned HTTP response. If it is 200 or 201 then it can be considered successful. The biggest challenge is to make sure each test case is independent from one another. One option is to include all the code required by a test case inside the function that implements it. This, however, may lead to long and unwieldy spaghetti-code and breaks the <abbr title="Do Not Repeat Yourself">DRY</abbr> principle.<br/>
+To help avoid that, TDD frameworks often have <code>fixtures</code> - functions that are run before and after every test case, designed to setup and cleanup the test environment. In our case we can use fixtures to login before each test case is run and logoff after it&rsquo;s finished. Let&rsquo;s see how we can use Python&rsquo;s built-in <a href="https://docs.python.org/2/library/unittest.html">unittest</a> framework to drive the REST SDK development process.<br/>
+First let&rsquo;s define our base class <code>UnlTests</code> who&rsquo;s sole purpose will be to implement authentication fixtures. All the test cases will go into child classes that can either reuse and extend these fixtures. This is how test cases for the already existing code look like:</p>
+
+<pre><code class="python /rest-blog-unl-client/tests/test_unl.py">
+class UnlTests(unittest.TestCase):
+
+    def setUp(self):
+        self.unl = UnlServer(UNETLAB_ADDRESS)
+        resp = self.unl.login(USERNAME, PASSWORD)
+        self.assertEqual(200, resp.status_code)
+
+    def tearDown(self):
+        resp = self.unl.logout()
+        self.assertEqual(200, resp.status_code)
+
+class BasicUnlTests(UnlTests):
+
+    def test_status(self):
+        resp = self.unl.get_status()
+        self.assertEqual(200, resp.status_code)
+
+    def test_templates(self):
+        resp = self.unl.get_templates()
+        self.assertEqual(200, resp.status_code)
+</code></pre>
+
+<p>At this point if you add all the necessary import statements and populate global variables with correct IP addresses and credentials all tests should pass. Now let&rsquo;s add another test case to retrieve <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc2">user information</a> from UNL:</p>
+
+<pre><code class="python /rest-blog-unl-client/tests/test_unl.py">
+class BasicUnlTests(UnlTests):
+    ...
+
+    def test_user_info(self):
+        resp = self.unl.get_user_info()
+        self.assertEqual(200, resp.status_code)
+</code></pre>
+
+<p>Rerun the tests and watch the last one fail saying <code>'UnlServer' object has no attribute 'get_user_info'</code>. Now let&rsquo;s go back to our UNL SDK code and add that attribute:</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">REST_SCHEMA = {
+    ... ,
+    'get_user_info': '/auth'
+}
+
+class UnetLab(RestServer):
+    ...
+
+    def get_user_info(self):
+        api_call = REST_SCHEMA['get_user_info']
+        resp = self.get_object(api_call)
+        return resp
+</code></pre>
+
+<p>Rerun the <code>test_unl.py</code> now and watch all tests succeed again. The same iterative approach can be used to add any number of new methods at the same time making sure none of the existing functionality is affected.<br/>
+Note that these are very simple tests and they only verify the response code and not its contents. The better approach would be to look inside the payload and verify, for example, that username is <code>admin</code>.</p>
+
+<h3>UnlLab and UnlNode implementation</h3>
+
+<p>Now let&rsquo;s revert back to normal coding style for a second and create classes for Labs and Nodes. As per the design, these should be separate objects but they should contain a pointer to the context in which they exist. Therefore, it makes sense to instantiate a Lab inside a UnlServer, a Node inside a Lab and pass in the <code>self</code> (UnlServer or Lab) as an argument. For example, here is how a lab will be created:</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">REST_SCHEMA = {
+    ... ,
+    'create_lab': '/labs'
+}
+
+class UnlServer(RestServer):
+    ...
+
+    def create_lab(self, name):
+        return UnlLab(self, name)
+
+class UnlLab(object):
+
+    def __init__(self, unl, name):
+        api_call = REST_SCHEMA['create_lab']
+        payload = {
+           "path": "/",
+           "name": name,
+           "version": "1"
+        }
+        self.name = name
+        self.unl = unl
+        self.resp = self.unl.add_object(api_call, data=payload)
+</code></pre>
+
+<p>So to create a Lab we need to issue a <code>.create_lab()</code> call on UnlServer object and give it a labname. That function will return a new Lab object with the following attributes preset:</p>
+
+<ul>
+<li>Lab name - <code>self.name</code></li>
+<li>UnlServer that created it - <code>self.unl</code></li>
+<li>HTTP response returned by the server after the Create CRUD action - <code>self.resp</code></li>
+</ul>
+
+
+<p>The latter can be used to check if the creation was successful (and potentially throw an error if it wasn&rsquo;t). The structure of the payload can be found in <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc30">API docs</a>.</p>
+
+<p>Nodes will be created in a similar way with a little exception. Apart from the name, Node also needs to know about the particulars of the device it will represent (like device type, image name etc.). That&rsquo;s where Device class comes in. The implementation details are very easy and can be found on <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/device.py">Github</a> so I won&rsquo;t provide them here. The only function of a Device at this stage is to create a dictionary that can be used as a payload in <code>create_node</code> <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc34">API request</a>.</p>
+
+<pre><code class="python /rest-blog-unl-client/restunl/unetlab.py">REST_SCHEMA = {
+    ... ,
+    'create_node': '/labs/{lab_name}/nodes',
+}
+
+class UnlLab(object):
+    ...
+
+    def create_node(self, device):
+        return UnlNode(self, device)
+
+class UnlNode(object):
+
+    def __init__(self, lab, device):
+        self.unl = lab.unl
+        self.lab = lab
+        self.device = device
+        api_call = REST_SCHEMA['create_node']
+        api_url = api_call.format(api_call, lab_name=append_unl(self.lab.name))
+        payload = self.device.to_json()
+        self.resp = self.unl.add_object(api_url, data=payload)
+</code></pre>
+
+<p>Take a quick look at how the <code>api_url</code> is created. We&rsquo;re using <code>.format()</code> method (built-into <code>string</code> module) to substitute a named variable <code>{format}</code> with the actual name of the lab (<code>self.lab.name</code>). That labname gets appended with an extension by a helper function <code>append_unl</code>. That helper function, along with the others we&rsquo;ll define in the future, can also be found on <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/helper.py">Github</a>.</p>
+
+<h2>Back to TDD</h2>
+
+<p>Let&rsquo;s use TDD again to add the last two actions we&rsquo;ll cover in this post.</p>
+
+<ul>
+<li>Get list of all Nodes</li>
+<li>Delete a lab</li>
+</ul>
+
+
+<pre><code class="python /rest-blog-unl-client/tests/test_unl.py">class BasicUnlLabTest(UnlTests):
+
+    def test_create_lab(self):     
+        self.unl.delete_lab(LAB_NAME)
+        resp = self.unl.create_lab(LAB_NAME).resp
+        self.unl.delete_lab(LAB_NAME)
+        self.assertEqual(200, resp.status_code)
+
+    def test_delete_lab(self):
+        self.unl.create_lab(LAB_NAME)
+        resp = self.unl.delete_lab(LAB_NAME)
+        self.assertEqual(200, resp.status_code)
+
+    def test_get_nodes(self):
+        lab = self.unl.create_lab(LAB_NAME)
+        resp = lab.get_nodes()
+        self.unl.delete_lab(LAB_NAME)
+        self.assertEqual(200, resp.status_code)   
+</code></pre>
+
+<p>As a challenge, try implementing the SDK logic for the last two failing methods yourself using <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">UNL API</a> as a reference. You can always refer the the link at the end of the post if you run into any problems.</p>
+
+<h2>Simple App</h2>
+
+<p>So far we&rsquo;ve created and deleted objects with REST API but haven&rsquo;t seen the actual result. Let&rsquo;s start writing an app that we&rsquo;ll continue to expand in the next post. In this post we&rsquo;ll simply login and create a lab containing a single node.</p>
+
+<pre><code class="python  /rest-blog-unl-client/samples/app-1.py">from restunl.unetlab import UnlServer
+from restunl.device import Router
+
+LAB_NAME = 'test_1'
+
+def app_1():
+    unl = UnlServer('192.168.247.20')
+    unl.login('admin', 'unl')
+    print ("*** CONNECTED TO UNL")
+    lab = unl.create_lab(LAB_NAME)
+    print ("*** CREATED LAB")
+    node_1 = lab.create_node(Router('R1'))
+    print ("*** CREATED NODE")
+
+if __name__ == '__main__':
+    app_1()
+</code></pre>
+
+<p>Run this once, then login the UNL web GUI and navigate to <code>test_1</code> lab. Examine how node <strong>R1</strong> is configured and compare it to the defaults set in a <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/device.py">Device module</a>.</p>
+
+<h2>Source code</h2>
+
+<p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/c72f7bdc11427ac5efe9ec18401f0d63c57221ba">public repository on Github</a></p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[REST for Network Engineers Part 1 - Development Environment Setup]]></title>
+    <link href="http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest/"/>
+    <updated>2016-01-03T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to setup environment for <a href="http://www.unetlab.com/">UnetLab</a> REST SDK development on Windows. I&rsquo;ll be running UNL inside a VM and using PyCharm as Python IDE on the host OS.</p>
+
+<!--more-->
+
+
+<h2>UnetLab Installation</h2>
+
+<p>Since UNL is a separate project with its own evolving documentation I won&rsquo;t try to reproduce it in my blog and I&rsquo;ll simply refer all my readers to <a href="http://www.unetlab.com/download/index.html">UNL download page</a>, <a href="http://www.unetlab.com/documentation/index.html">UNL installation instructions</a> and <a href="http://www.unetlab.com/2014/11/first-unetlab-boot-configuration/">UNL first boot configuration</a>.<br/>
+At the time of writing UNL is distributed as an image packaged in Open Virtualization Format. I&rsquo;m using VMWare Workstation as a type-2 hypervisor to import and run this image. Check with the <a href="http://www.unetlab.com/documentation/index.html">UNL how-to page</a> for the list of currently supported hypervisors.<br/>
+I&rsquo;ll be using Cisco IOU as a network device emulator in my topologies. Similarly, you can find IOU installation instructions on <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">UNL website</a>. The rest of this post assumes you&rsquo;ve got UNL up and running and you can successfully create, start and connect to an IOU device by navigating through native GUI interface.</p>
+
+<h2>Installing Python and Dependencies</h2>
+
+<p>For development purposes I&rsquo;ll be using <a href="https://www.python.org/downloads/release/python-2711/">Python 2.7</a>. You&rsquo;ll need to install a package management system <a href="https://pip.pypa.io/en/latest/installing/">pip</a> to gain access to <a href="http://docs.python-requests.org/en/latest/user/install/">requests</a> library that we&rsquo;ll be using to talk HTTP to our REST server. To install <strong>requests</strong> or any other package using <strong>pip</strong> on a Windows machine, you can use the following command:
+<code>powershell Installing Python HTTP library
+python -m pip install requests
+</code></p>
+
+<h2>PyCharm and Github integration</h2>
+
+<p>There&rsquo;s a plethora of <abbr title="Intergrated Development Environment">IDE</abbr>s <a href="https://wiki.python.org/moin/IntegratedDevelopmentEnvironments">available for Python</a>. My personal choice is <a href="https://www.jetbrains.com/pycharm/">PyCharm</a> - an open-source IDE with built-in debugger, syntax checker, code completion and GIT integration. Here is how you setup PyCharm to work with Github:</p>
+
+<ol>
+<li><strong>Create</strong> a new repository on <a href="https://github.com">Github</a>.</li>
+<li>In PyCharm navigate to <code>VCS -&gt; Checkout from Version Control -&gt; Github</code>, paste in the link to a newly created repository and click <code>Clone</code>. This will <strong>create a clone</strong> of an empty code repository on your local machine. From now on you&rsquo;ll see two VCS buttons in PyCharm toolbar to pull and push code to Github.</li>
+<li><strong>Add</strong> newly created files and directories to git by right-clicking on them and selecting <code>Git -&gt; Add</code></li>
+<li>At the end of your work <strong>push</strong> the code to Github by clicking the green VCS button, write your comment in <code>Commit message</code> window, enter your Github username in <code>Author</code> field and select <code>Commit and Push</code>.</li>
+<li>To get the latest version of code from Github click the blue VCS button to <strong>pull</strong> changes to local directory.</li>
+</ol>
+
+
+<p>Just remember that your Github repository is your source of truth and you need to push changes to it every time you finish work and pull code from it every time you restart it. It makes sense even if you work alone since it creates a good habit which may come very useful in the future.  <br/>
+For additional information about git workflow and working with Github you can check out (no pun intended) <a href="https://help.github.com/categories/bootcamp/">Github help</a> and <a href="https://guides.github.com/">Github guides</a>.</p>
+
+<h2>Project Skeleton</h2>
+
+<p>Now that we&rsquo;ve fully integrated with Github we can setup our basic directory structure. In project Navigation Bar under the project&rsquo;s main directory create 3 subdirectories:</p>
+
+<ul>
+<li><code>restunl</code> - to store all code implementing REST SDK logic</li>
+<li><code>samples</code> - to store sample applications</li>
+<li><code>tests</code> - to store test cases for REST SDK</li>
+</ul>
+
+
+<p>Next we need to tell git which files we DON&rsquo;T want to track. To do that add filename patterns to <code>.gitignore</code> file and put this file into every directory. Rule of thumb is to only track your code and not your auxiliary files like compiled python code (.pyc), PyCharm settings (.idea) or local git files (.git).</p>
+
+<pre><code class="bash /rest-blog-unl-client/.gitignore">.idea
+.git
+*.pyc
+</code></pre>
+
+<p>Finally, in order to be able to import code between different directories within the project, we need to add an empty <code>__init__.py</code> file to each non-root directory which tells Python to treat that directory as <a href="https://docs.python.org/2/tutorial/modules.html#packages">a package</a>. The final version of skeleton will look like this:</p>
+
+<p><img class="centre" src="/images/restunl-skeleton.png" title="Project Skeleton" ></p>
+
+<h2>Before you REST</h2>
+
+<p>Here are a few things you need to know about the REST server before you start working with it:</p>
+
+<ol>
+<li>IP address and Port - the same IP address you use to access UNL from your web browser (in my case it&rsquo;s 192.168.247.20:80)</li>
+<li>Username and password for authentication - default UNL credentials (admin/unl)</li>
+<li>REST API documentation - in our case it&rsquo;ll be <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">UnetLab API documentation</a></li>
+</ol>
+
+
+<h2>Using REST for the first time</h2>
+
+<p>Let&rsquo;s try to query the status of our UnetLab server. According <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">UNL documentation</a> the correct request should look like this:</p>
+
+<pre><code class="bash UNL status API call">curl -s -c /tmp/cookie -b /tmp/cookie -X GET -H 'Content-type: application/json' http://127.0.0.1/api/status
+</code></pre>
+
+<p>Take note of the HTTP method (GET) and URL (<a href="http://ip_address/api/status">http://ip_address/api/status</a>), we&rsquo;ll use these values in our test program. Disregard the cookies and Content-type headers for now, we&rsquo;ll get back to them in the future posts. In our project&rsquo;s root directory create a <code>test.py</code> file with the following code:</p>
+
+<pre><code class="python /rest-blog-unl-client/test.py">import requests
+import json
+
+url = 'http://192.168.247.20/api/status'
+method = 'GET'
+response = requests.request(method, url)
+payload = json.loads(response.content)
+print payload['code']
+</code></pre>
+
+<p>This code calls <code>.request</code> method of requests library and passes in an HTTP method type and the URL. The value returned by this call would be an HTTP response. Since payload is encoded as JSON we need to parse the content of the HTTP response (<code>response.content</code>) by calling a <code>.loads</code> method of json library. Once parsed, we can work with any part of JSON payload same way we would with a Python dictionary. If you&rsquo;ve done everything right, the result of the last print statement should be <code>200</code>. Feel free to experiment and print, for example, the current version of UNL. Refer to <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">API documentation</a> for the exact structure of the payload.</p>
+
+<h2>Conclusion</h2>
+
+<p>Now that we&rsquo;ve setup our development environment we&rsquo;ll move on to the actual REST SDK development in the next post. Don&rsquo;t forget to add all your newly created files and directories to git and push them to Github.</p>
+
+<p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/63d8d13e48e61e896185eb7afee3759c1f2cd5a9">public repository on Github</a></p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[REST API for Network Engineers]]></title>
+    <link href="http://networkop.github.io/blog/2016/01/01/rest-for-neteng/"/>
+    <updated>2016-01-01T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/01/01/rest-for-neteng</id>
+    <content type="html"><![CDATA[<p>This is the first, introductory, post in a series dedicated to REST APIs for Network Engineers. In this post we&rsquo;ll learn what REST API is, what are the most common tools and ways to consume it. Later in the series I&rsquo;ll show how to build a REST client to control <a href="http://www.unetlab.com/">UnetLab</a>, a very popular network emulation environment.</p>
+
+<!--more-->
+
+
+<h2>Management interface evolution</h2>
+
+<p>Since the early dawn of networking, devices have been configured through <abbr title="Virtual Terminal User Interface">VTY</abbr>s. The transport has evolved from telnet to ssh but the underlying rule still maintained that network is configured manually, device-by-device by a human administrator. It&rsquo;s obvious that this approach does not scale and is prone to human error, however it still remains the most prevalent method of network device configuration. <br/>
+The first attempt to tackle these issues has been made in 1988 with the introduction of SNMP. The basic idea was to monitor and manage network devices using a strictly-defined data structures called <abbr title="Management Information Base">MIB</abbr>s. Unfortunately, due to several architectural issues and poor vendor implementation, SNMP has ended up being used mainly for basic monitoring tasks.<br/>
+The idea of programmatic management of network devices later resulted in the creation of NETCONF protocol. Despite being almost 10 years old, this protocol is still not widely used due to limited vendor support, however things may improve as the <abbr title="Yet Another Next Generation">YANG</abbr>-based network configuration gains greater adoption.<br/>
+Finally, with the advent of SDN, REST has become a new de-facto standard for network provisioning. It is supported by most of the latest products of all the major vendors. Let&rsquo;s take a closer look at what REST is and how it works.</p>
+
+<h2>REpresentational State Transfer overview</h2>
+
+<p>Technically speaking, REST is not a protocol but a <a href="https://en.wikipedia.org/wiki/Representational_state_transfer">software architectural pattern</a>. To put it in simple words, it describes <strong>a way</strong> to exchange information rather than the structure of that information. Think of it as another transport (like telnet or ssh for VTY) for payloads of any format. Most commonly payload will get encoded as <abbr title="JavaScript Object Notation">JSON</abbr>, however the structure of JSON is not defined and is different for each application. This rather <em>weak</em> definition opens up huge opportunities for potential use cases:</p>
+
+<ol>
+<li><p>The most basic use case is a Web application with client retrieving and updating information on a server. A good example in networking world would be the native interfaces of Cisco ACI or VMWare NSX. Each time you create an object (a network or a tenant) in a Web GUI, your client sends a request to server&rsquo;s REST interface.</p></li>
+<li><p>The more advanced use case is for communication between distributed software components over a network environment. This is how all management and control plane communications are designed inside OpenStack. For example, every time a new VM is created, <abbr title="Compute controller">Nova</abbr> sends a request to <abbr title="Network controller">Neutron</abbr>&rsquo;s REST API interface to allocate an IP address and a port for that VM.</p></li>
+</ol>
+
+
+<h2>REST under the hood</h2>
+
+<p>REST is an API that allows clients to perform read/write operations on data stored on the server. REST uses HTTP to perform a set of actions commonly known as <strong>CRUD</strong>:</p>
+
+<ul>
+<li>Create</li>
+<li>Read</li>
+<li>Update</li>
+<li>Delete</li>
+</ul>
+
+
+<p>Assuming we want to manipulate a &lsquo;device&rsquo; object on a server we can send an <code>HTTP GET</code> request to <code>/api/devices</code> and get a response with a payload containing a full list of known devices.<br/>
+If we want to add a new device, we need to construct a payload with device attributes (e.g. IP address, Hostname) and send it attached to an <code>HTTP POST</code> request.<br/>
+To update a device we need to send the full updated payload with <code>HTTP PUT</code> method.</p>
+
+<p><img class="centre" src="/images/rest-crud.png" title="Basic REST actions" ></p>
+
+<p>Note that both Update and Delete API calls refer to a specific number in url <code>/api/devices/{ID}</code>. That is a <abbr title="Universally Unique IDentifier">UUID</abbr> that server assigns to every new object and is returned in <code>Location</code> header of <code>201 Created</code> message sent in response to Create request.</p>
+
+<h2>REST API Constraints</h2>
+
+<p>For API to be considered <strong>RESTful</strong> it needs comply with a number of <a href="http://www.restapitutorial.com/lessons/whatisrest.html">formal constraints</a>. One of the most important constraint of all is the stateless nature of the interface. That means that no cookie or session information should be stored on the server, and every request is treated independently from every other request. The implication here is that all state needs to be maintained on the client and information needs to be cacheable in order to improve interface responsiveness.</p>
+
+<p>It&rsquo;s worth noting that an API can still be considered RESTful even if a server <em>does</em> store a session cookie, however all requests must still be treated independently. The last point means there&rsquo;s no <em>configuration modes</em> like we&rsquo;ve seen in traditional CLIs where all commands issued in &ldquo;interface configuration mode&rdquo; will be applied to that specific interface. With RESTful API each request from a client must reference a full path to an object including its UUID within the system.</p>
+
+<h2>Using REST</h2>
+
+<h3>cURL</h3>
+
+<p>cURL is a light-weight Linux command-line tool for transferring data. It&rsquo;s very simple to get started and very frequently used to make HTTP requests. For example, this is how you would issue a Read request to get a list of devices configured on an imaginary SDN controller:</p>
+
+<pre><code class="bash  Get all devices using cURL">$ curl -X GET http://sdn-controller.org:8181/api/devices
+</code></pre>
+
+<p>Obviously this tool is very good for fast prototyping and troubleshooting but becomes too cumbersome for anything involving more than a few commands.</p>
+
+<h3>Browser plugins</h3>
+
+<p>There&rsquo;s plenty of GUI-based clients that can be added-on to most popular browsers. <a href="https://www.getpostman.com/">Postman</a> and <a href="https://addons.mozilla.org/en-us/firefox/addon/restclient/">RESTClient</a> are amongst the most popular ones. In addition to basic functionality, these plugins allow you to store and issue sequence of requests which can be very handy for live demonstrations. Unfortunately that&rsquo;s where most of the people stop learning about REST API and assume this is the intended way to interact with a server.</p>
+
+<h3><abbr title="Software Development Kit">SDK</abbr></h3>
+
+<p>SDK is a collection of tools and libraries that allow users to build a full-blown applications with complex internal logic. Instead of caring about the exact syntax of API calls, SDK libraries provide a simple programming interface. For example, this is how you would run the same command we did earlier with cURL:</p>
+
+<pre><code class="python Get all devices using SDK">controller = sdk.Controller('sdn-controller.org', 8181)
+response = controller.get_devices()
+</code></pre>
+
+<p>We first create an instance of a controller with specific hostname and port number and then issue a <code>.get_devices()</code> call on it to obtain the list of all known devices. SDK library will do all the dirty work constructing HTTP request in the background and return the parsed information from HTTP response. We can then use that information to perform some complex logic, like start only Router devices (but not switches and firewalls):</p>
+
+<pre><code class="python Start all Routers using SDK">routers_started = [device.start() for device in response.get_payload() if device.type == 'Router']
+</code></pre>
+
+<p>As you can see, we can use all capabilities of a programming language to write a succinct and powerful code, something that would be extremely difficult to do with cURL or Postman. That&rsquo;s why the focus of this series of posts will be on the SDK, how to build one from scratch and how to use it.</p>
+
+<h2>UNetLab REST SDK</h2>
+
+<p>In the upcoming posts I&rsquo;ll show how to develop a REST SDK to control UnetLab. My final goal would be to be able to create and fully configure an arbitrary network topology. The whole series will be broken up into several posts going over:</p>
+
+<ol>
+<li><a href="http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest/">UnetLab SDK development environment setup</a>.
+I&rsquo;ll show how to setup PyCharm to work with UNL running in a hypervisor on a Windows machine.</li>
+<li><a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">First steps with REST API for UNetLab</a>.
+In this post I&rsquo;ll show how to work with HTTP and perform basic operations like login/logoff and object creation in UNL.</li>
+<li><a href="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/">Advanced actions with UNetLab SDK</a>.
+The final post will demonstrate how to push configuration to devices inside UNL. To wrap up I&rsquo;ll write a sample app to spin up and provision a three-node topology without making a single GUI click.</li>
+</ol>
+
+]]></content>
+  </entry>
+  
+</feed>
