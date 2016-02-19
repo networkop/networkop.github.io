@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-02-18T20:24:34-08:00</updated>
+  <updated>2016-02-18T20:30:42-08:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -28,6 +28,57 @@
 <p>How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an <abbr title=" Request For Change">RFC</abbr>, submit it at least a week before the planned implementation date, go through at least one <abbr title=" Change Admission Board">CAB</abbr> meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to &lsquo;please have a look at the network perfomance issues&rsquo;?</p>
 
 <p>Software developers have solved most of the these problems for themselves. DevOps movement has brought forth ideas of Continuous Intergration and Delivery (CI/CD) to streamline the change process and &lsquo;embrace&rsquo; the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.</p>
+
+<h2>Problem #1 - How to test</h2>
+
+<p>Ever since the dawn of networking, the only tools that engineers could use for testing were traceroutes and pings. It&rsquo;s not necessarily bad since, after all, networks are supposed to be a simple packet transports and shouldn&rsquo;t be endowed with application-layer knowledge. Note that I&rsquo;m talking about traditional or, in SDN-era terms, &lsquo;underlay&rsquo; networks. The biggest problem with network testability is not the lack of test tools but rather lack of automation. For every ping and every traceroute we had to login a device, carefully craft the command including source interface names, VRFs and other various options and then interpret the output.<br/>
+I have already explored the idea of automated network testing in my previous blog posts - <a href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/">Building Network TDD framework</a> and <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">Network TDD quickstart</a>. I even got lucky enough to get invited to one of the <a href="http://blog.ipspace.net/2015/11/test-driven-network-development-with.html">greatest networking podcasts</a> hosted by Ivan Pepelnjak.</p>
+
+<h2>Problem #2 - Where to test</h2>
+
+<p>Another big problem is the lack of testable network software. We&rsquo;ve only had IOU, vSRX and vEOS for the past 3-4 years and even now a lot of the real-world functionality remains unvirtualizable. However having those images is a lot better than not, even though some of them tend to crash and behave unreliably from time to time.</p>
+
+<h2>Network CI</h2>
+
+<p>Here I&rsquo;ve come to the actual gist of my post. I want to demonstrate the tools that I&rsquo;ve built and how I use them to automate a lot of the repetitive tasks to prepare for network deployments and upgrades. This is what these tools can do:</p>
+
+<ul>
+<li>Create a replica of almost any real-world network topology inside a network emulation environment</li>
+<li>Apply configuration to all built devices</li>
+<li>Verify real-time connectivity between nodes</li>
+<li>Verify traffic flows under various failure conditions against pre-defined set rules</li>
+<li>Shutdown and delete the network topology</li>
+</ul>
+
+
+<p>All these steps can be done automatically without making a single click in a GUI or entering a single command in a CLI. This is a sneak peak of what to expect later in the series:</p>
+
+<div class="embed-video-container"><iframe src="//www.youtube.com/embed/jiZs0969RWI" allowfullscreen></iframe></div>
+
+
+<p>Please don&rsquo;t judge me too harshly, this is my first experience with screencasts.</p>
+
+<h2>Coming up</h2>
+
+<p>In the following posts I&rsquo;ll show how to setup a continuous delivery environment with Jenkins and UNetLab, create test cases and work with configuration files in git version control system to enable automatic testing by Jenkins server. If that sounds interesting to you - stay tuned.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Network Continuous Integration and Delivery]]></title>
+    <link href="http://networkop.github.io/blog/2016/02/17/network-ci-intro/"/>
+    <updated>2016-02-17T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/02/17/network-ci-intro</id>
+    <content type="html"><![CDATA[<p>In this series of posts I&rsquo;ll introduce the tools I&rsquo;ve been using for continuous network development and how they can be used with automation servers like Jenkins for network continuous integration and delivery.</p>
+
+<!--more-->
+
+
+<h2>CI/CD vs ITIL</h2>
+
+<p>How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an <abbr title=" Request For Change">RFC</abbr>, submit it at least a week before the planned implementation date, go through at least one <abbr title=" Change Admission Board">CAB</abbr> meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to &lsquo;please have a look at the network performance issues&rsquo;?</p>
+
+<p>Software developers have solved most of these problems for themselves. DevOps movement has brought forth ideas of Continuous Integration and Delivery (CI/CD) to streamline the change process and &lsquo;embrace&rsquo; the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.</p>
 
 <h2>Problem #1 - How to test</h2>
 
@@ -4833,191 +4884,6 @@ steps:</p>
 is running with all its neighbors with <code>show mpls ldp neighbor</code></li>
 </ol>
 
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Enterprise IP Routing Best Practices]]></title>
-    <link href="http://networkop.github.io/blog/2015/06/03/ent-ip-routing-bcp/"/>
-    <updated>2015-06-03T14:19:02-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/06/03/ent-ip-routing-bcp</id>
-    <content type="html"><![CDATA[<p>What motivated me to write this post is a state of the IP routing of some of the enterprise networks I&rsquo;ve seen.
-A quick <code>show ip route</code> command reveals a non-disentanglable mixture of dynamic and static route with multiple points of redistribution and complex,
-rigid filtering rules, something you&rsquo;d only see in your bad dream or a CCIE-level lab. It certainly takes
-a good engineer to understand how it works and even that can take up to several hours. I think the reason for that
-is that people have generally been concentrated on learning about the routing protocol, how it works, all the knobs you can twist
-to influence a routing decision logic. However, one thing often overlooked is the routing protocols best practice design,
-i.e. <strong>when</strong> and <strong>how</strong> to use a particular protocol.
-And since the latter is often an acquired skill, a lot of not-so-lucky engineers end up with wrong ideas and concepts
-in the heads. Below I&rsquo;ll try to list what <em>I</em>{:.underline} consider a best practice design of today&rsquo;s enterprise networks.</p>
-
-<!--more-->
-
-
-<h2>OSPF, EIGRP, BGP? Which one to use?</h2>
-
-<p>Golden rule is to always use a protocol where it was designed to be used. Use and constrain IGP to a single autonomous system.
-For enterprise networks autonomous system can be:</p>
-
-<ul>
-<li>a single, geographically-constrained office network</li>
-<li>remote branch office network</li>
-<li>campus network</li>
-<li>data centre</li>
-</ul>
-
-
-<p>Use BGP to interconnect these systems. When there&rsquo;s a choice to use iBGP vs eBGP, always prefer eBGP since it has less restrictions.
-However for some designs iBGP is a better fit (i.e. Hub-and-Spoke topologies). Almost for every WAN technology there&rsquo;s a <em>preferred</em>
-WAN protocol, e.g. eBGP for L3VPN, iBGP for DMVPN/FlexVPN, so always check with the vendor&rsquo;s design guide.</p>
-
-<h2>IGP best practices</h2>
-
-<p>The choice of a particular IGP is mainly irrelevant. EIGRP scales better in a well-structured hierarchical network, whereas link-state protocol like OSPF
-don&rsquo;t require any underlying structure. In fact, best practice for OSPF design, for quite some time, has been to put all routers in a single Area 0 regardless
-of their geographical location. This rule, like any, has its' exceptions and special dampening/ advertisement containment rules need to be applied
-to links prone to flapping (e.g. aerial links). However, both EIGRP and OSPF have proven to be quite stable and scalable even with <em>not-so-good</em> designs.<br/>
-I follow the these rules when designing an IGP:</p>
-
-<ul>
-<li>Advertise all routers' networks, i.e. <code>network 0.0.0.0 0.0.0.0</code> command</li>
-</ul>
-
-
-<blockquote><p>ideally within a single AS there will be a full-mesh reachability between the devices</p></blockquote>
-
-<ul>
-<li>Explicitly control which interfaces will form routing adjacencies with <code>passive interface</code> commands</li>
-<li>statically set router-id to the address of loopback interface which uniquely identifies the device
-(not included in any other summary and not advertise by anyone else)</li>
-<li>When using EIGRP exclude bandwidth and leave only delay in metric calculation with <code>metric weights 0 0 0 1 0 0</code></li>
-</ul>
-
-
-<blockquote><p>as opposed to bandwidth, interface delay is uniquely used by EIGRP so changing it won&rsquo;t negatively affect any other processes</p></blockquote>
-
-<ul>
-<li>When using OSPF always update reference bandwidth on all routers to 100G with <code>auto-cost reference-bandwidth 100000</code></li>
-<li>All WAN links should be known to IGP natively but should be passive at the same time</li>
-<li>Avoid redistribution between IGP and BGP at all costs</li>
-</ul>
-
-
-<blockquote><p>redistribution can create routing loops due to loss of native routing protocol metric. troubleshooting these loops is one of the most difficult
-tasks for a network engineer</p></blockquote>
-
-<h2>BGP best practices</h2>
-
-<p>Whenever I design a non-stub (i.e. transit) network I try to enable BGP on all transit devices. This rule helps me avoid using redistribution between
-IGP and BGP. Assuming a standard dual-core, dual-wan link topology the core will become a route-reflector whereas WAN routers will become RR-clients.
-The only issue is that a lot of devices used in the network core still come with limit or no BGP support. In this case redistribution can be an option, however
-carefull planning and strict filtering rules need to be put in place in order to prevent any potential routing loops.
-These are my BGP best practices:</p>
-
-<ul>
-<li>Always statically configure BGP router-id to be equal to ip address of loopback interface</li>
-<li>Always send/receive both standard and extended communities <code>neighbor X.X.X.X send-community both</code></li>
-<li>Always add description to a neighbor. You can&rsquo;t overdocument your network</li>
-<li>When configuring iBGP always use loopbacks (advertised by your IGP) for peering. This will help a lot with performance optimisation described below</li>
-<li>Always keep track of BGP AS numbers in use in the network</li>
-<li>For every network that doesn&rsquo;t need to be transit assign community <code>local-as</code> in the inbound route-map</li>
-<li>Whenever possible filter <strong>outbound</strong> rather than <strong>inbound</strong></li>
-</ul>
-
-
-<blockquote><p>this way only infromation <strong>that is needed</strong> is sent to the neighbor</p></blockquote>
-
-<ul>
-<li>Always configure <code>ip bgp community new-format</code> on all routers</li>
-<li>Only inject <strong>summaries</strong> into BGP. The only exception can be routers' loopback address which can be used by remote SLA monitoring.</li>
-</ul>
-
-
-<blockquote><p>This is the key distinction between IGP and BGP. IGPs deal with all networks within an AS big or small.
-BGP deals with networks that represent a whole AS, i.e. summaries.
-Normally, the core device in the network originates a summary from a static <em>null</em> route and advertises it to all the neighbors.</p></blockquote>
-
-<ul>
-<li>Always tag all prefixes injected into BGP with communities. For example:</li>
-</ul>
-
-
-<blockquote><p>65000:0 - for site-specific summary<br/>
-65000:1 - for smaller, site-specific subnets outside of summary range (e.g. DMZ)<br/>
-65000:3 - for 3rd-party routes (e.g. provider-originated routes, interconnects with other clients)</p></blockquote>
-
-<ul>
-<li>Always filter based on communities rather than prefix lists or access-lists</li>
-<li>Do not use route filtering as a security measure. Firewalls are designed to do that</li>
-<li>For any route decision manipulation rely on explicitly configured metrics and not on, say, router-id or IGP metric</li>
-</ul>
-
-
-<blockquote><p>Use as few metric manipulations as possible. For example use local-preference for outbound and as-path for inbound path selection</p></blockquote>
-
-<ul>
-<li>Always tune BGP convergence timers (more on that below)</li>
-</ul>
-
-
-<h2>BGP performance tuning</h2>
-
-<ul>
-<li>BFD</li>
-</ul>
-
-
-<p>This seemingly <em>old</em> technology unfortunately still sees very little adoption in the enterprise market. It is the best option for
-fast high-bandwidth links and should be used whenever possible</p>
-
-<ul>
-<li>external/internal fall-over</li>
-</ul>
-
-
-<p>This convergence optimisation techniques rely on the presence of route to neighbor in the routing table.
-as soon the route is gone, the neighborship is brought down. Fast fall-over is enabled by default for eBGP neighbors
-on Cisco devices and should be enabled manually per neighbor(-group) for iBGP neighbors.</p>
-
-<pre><code># the following triggers fall-over only if host-route to neighbor disappears
-router bgp 10
- neighbor 1.1.1.1 remote-as 10
- neigbhor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER
-!
-ip prefix-list PL-ALL-LOOPBACKS 0.0.0.0/0 ge 32
-!
-route-map RM-BGP-FALLOVER
- match ip address prefix-list PL-ALL-LOOPBACKS
-!
-</code></pre>
-
-<ul>
-<li>BGP keepalive timer</li>
-</ul>
-
-
-<p>Default BGP timers 30/180 seconds are too big for most of the cases. However, if fast fall-over is properly used they never need to be modified.
-Internal fall-over effectively makes BGP neighborships rely on IGP default timers instead, while external fall-over will work only for directly connected
-neighbor (or if a route to this neighbor recurses over a directly connected interface). The only reason to change the default timer values would be if the route
-to external neighbor can potentially recurse over an internal interface (e.g. in case default route is present). In this case using `neighbor X.X.X.X keepalive 10 30"
-would set keepalive/dead timers to 10/30 seconds. The timer values are negotiated to the lowest values between the two peers during neighborship establishment.</p>
-
-<ul>
-<li>Prefix-independent convergence and ip next-hop tracking</li>
-</ul>
-
-
-<p>These two optimisation techniques do not require any configuration and are enabled by default in all recent code versions.
-PIC decouples ip prefixes and next-hops and allows for quicker convergence when multiple BGP prefixes are present in BGP RIB with different next-hops.
-IP NH-tracking triggers route recomputation based on changes in the routing table (i.e. next-hop becoming unavailable) rather than waiting for the periodic update
-scanner to run every 60 seconds. There&rsquo;s plenty of additional information about both PIC (<a href="http://blog.ipspace.net/2012/01/prefix-independent-convergence-pic.html">one</a>, <a href="http://blog.ine.com/2010/11/22/understanding-bgp-convergence/">two</a>, <a href="http://www.cisco.com/c/en/us/td/docs/routers/7600/ios/15S/configuration/guide/7600_15_0s_book/BGP.html">three</a>) and
-IP NH-tracking (<a href="http://blog.ine.com/2010/11/22/understanding-bgp-convergence/">one</a>, <a href="http://www.cisco.com/c/en/us/td/docs/ios/12_2sb/feature/guide/sbbnhop.html">two</a>) on the internet.</p>
-
-<h2>Conclusion</h2>
-
-<p>Enterprise network designers should more often look at their Service Provider counterparts and how they do things.
-SP design practices have been evolving for years and proved to be stable and scalable. License permitting, we can
-apply the same rules in enterprise networks and end up with a more stable and scalable network.</p>
 ]]></content>
   </entry>
   

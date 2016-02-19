@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Automation | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/automation/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-02-18T20:24:34-08:00</updated>
+  <updated>2016-02-18T20:30:42-08:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -28,6 +28,56 @@
 <p>How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an <abbr title=" Request For Change">RFC</abbr>, submit it at least a week before the planned implementation date, go through at least one <abbr title=" Change Admission Board">CAB</abbr> meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to &lsquo;please have a look at the network perfomance issues&rsquo;?</p>
 
 <p>Software developers have solved most of the these problems for themselves. DevOps movement has brought forth ideas of Continuous Intergration and Delivery (CI/CD) to streamline the change process and &lsquo;embrace&rsquo; the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.</p>
+
+<h2>Problem #1 - How to test</h2>
+
+<p>Ever since the dawn of networking, the only tools that engineers could use for testing were traceroutes and pings. It&rsquo;s not necessarily bad since, after all, networks are supposed to be a simple packet transports and shouldn&rsquo;t be endowed with application-layer knowledge. Note that I&rsquo;m talking about traditional or, in SDN-era terms, &lsquo;underlay&rsquo; networks. The biggest problem with network testability is not the lack of test tools but rather lack of automation. For every ping and every traceroute we had to login a device, carefully craft the command including source interface names, VRFs and other various options and then interpret the output.<br/>
+I have already explored the idea of automated network testing in my previous blog posts - <a href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/">Building Network TDD framework</a> and <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">Network TDD quickstart</a>. I even got lucky enough to get invited to one of the <a href="http://blog.ipspace.net/2015/11/test-driven-network-development-with.html">greatest networking podcasts</a> hosted by Ivan Pepelnjak.</p>
+
+<h2>Problem #2 - Where to test</h2>
+
+<p>Another big problem is the lack of testable network software. We&rsquo;ve only had IOU, vSRX and vEOS for the past 3-4 years and even now a lot of the real-world functionality remains unvirtualizable. However having those images is a lot better than not, even though some of them tend to crash and behave unreliably from time to time.</p>
+
+<h2>Network CI</h2>
+
+<p>Here I&rsquo;ve come to the actual gist of my post. I want to demonstrate the tools that I&rsquo;ve built and how I use them to automate a lot of the repetitive tasks to prepare for network deployments and upgrades. This is what these tools can do:</p>
+
+<ul>
+<li>Create a replica of almost any real-world network topology inside a network emulation environment</li>
+<li>Apply configuration to all built devices</li>
+<li>Verify real-time connectivity between nodes</li>
+<li>Verify traffic flows under various failure conditions against pre-defined set rules</li>
+<li>Shutdown and delete the network topology</li>
+</ul>
+
+
+<p>All these steps can be done automatically without making a single click in a GUI or entering a single command in a CLI. This is a sneak peak of what to expect later in the series:</p>
+
+<p><div class="embed-video-container"><iframe src="//www.youtube.com/embed/jiZs0969RWI" allowfullscreen></iframe></div></p>
+
+<p>Please don&rsquo;t judge me too harshly, this is my first experience with screencasts.</p>
+
+<h2>Coming up</h2>
+
+<p>In the following posts I&rsquo;ll show how to setup a continuous delivery environment with Jenkins and UNetLab, create test cases and work with configuration files in git version control system to enable automatic testing by Jenkins server. If that sounds interesting to you - stay tuned.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Network Continuous Integration and Delivery]]></title>
+    <link href="http://networkop.github.io/blog/2016/02/17/network-ci-intro/"/>
+    <updated>2016-02-17T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/02/17/network-ci-intro</id>
+    <content type="html"><![CDATA[<p>In this series of posts I&rsquo;ll introduce the tools I&rsquo;ve been using for continuous network development and how they can be used with automation servers like Jenkins for network continuous integration and delivery.</p>
+
+<!--more-->
+
+
+<h2>CI/CD vs ITIL</h2>
+
+<p>How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an <abbr title=" Request For Change">RFC</abbr>, submit it at least a week before the planned implementation date, go through at least one <abbr title=" Change Admission Board">CAB</abbr> meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to &lsquo;please have a look at the network performance issues&rsquo;?</p>
+
+<p>Software developers have solved most of these problems for themselves. DevOps movement has brought forth ideas of Continuous Integration and Delivery (CI/CD) to streamline the change process and &lsquo;embrace&rsquo; the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.</p>
 
 <h2>Problem #1 - How to test</h2>
 
@@ -465,167 +515,6 @@ router bgp 3
 <h2>Conclusion</h2>
 
 <p>This post concludes the series of articles describing how to automate enteprise network configuration. We first looked at how to automate <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">legacy network configuration</a>, interface and OSPF configuration for the <a href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/">new network build</a> and, finally, BGP configuration. Full version of files and scripts can be found in <a href="https://github.com/networkop/cisco-ansible-provisioning">my github repository</a>.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Automating New Network Build - Part 1]]></title>
-    <link href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/"/>
-    <updated>2015-08-26T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/08/26/automating-network-build-p1</id>
-    <content type="html"><![CDATA[<p>This post will demonstrate how to automate the build of a typical enterprise branch network consisting of a pair of WAN routers, a core switch and 3 access layer switches. I will show how to create the initial bootstrap configuration and enable basic routing with OSPF.</p>
-
-<!--more-->
-
-
-<h2>Prerequisites</h2>
-
-<p>It is assumed that by this time all detailed network design information is known including interfaces numbers, VLANs, IP addresses and <abbr title="Link Aggregation Group">LAGs</abbr>. This information will be used as an input to configuration automation scripts.</p>
-
-<p><img class="centre" src="/images/new-office-design.png" title="New Office Network Topology" ></p>
-
-<p>The inventory file is updated with a new <code>branch-2</code> group
-<code>text ./hosts
-[branch-2]
-BR2-CORE ansible_ssh_host=10.0.3.1
-BR2-WAN1 ansible_ssh_host=10.0.3.2
-BR2-WAN2 ansible_ssh_host=10.0.3.3
-BR2-AS01 ansible_ssh_host=10.0.3.130
-BR2-AS02 ansible_ssh_host=10.0.3.131
-BR2-AS03 ansible_ssh_host=10.0.3.132
-</code></p>
-
-<h2>Creating device bootstrap configuration</h2>
-
-<p>A lot of times when building a new network it is required to create a bootstrap config that would have some basic AAA configuration along with the layer 2 and layer 3 links configuration. Since we went through the AAA configuration in the <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">previous post</a> I will omit that bit and get straight to the configuration of L2/L3 links. My personal rule of thumb is to configure all intra-site links as layer 2 trunks, including the links between the routed devices. This allows for greater flexibility in the future in case some traffic will need to get steered through a particular device.<br/>
-The goal is to have configuration that would be copy-paste-friendly and would not require re-ordering or re-running. Therefore, it is important to apply configuration in the specific order:</p>
-
-<ol>
-<li>Layer 2 LAGs</li>
-<li>Layer 2 port configuration</li>
-<li>Layer 3 ip addressing</li>
-</ol>
-
-
-<p>The input information will be provided through a file called <code>interconnects</code> stored in the site-specific variable directory <code>branch-2</code>. Below is an abridged version of the file demonstrating the configuration of interfaces on the core switch. As always full version is available in my <a href="https://github.com/networkop/cisco-ansible-provisioning">github repository</a>.</p>
-
-<pre><code class="yaml ./group_vars/branch-2/interconnects">---
-link_aggregation:
-  BR2-CORE:
-    Po11: [Eth0/2, Eth0/3]
-
-l2_links:
-  BR2-CORE:
-    Eth0/0: 11
-    Eth0/1: 12
-    Eth1/0: 10,20,30,40,50
-    Eth1/1: except 40
-    Po11:   10-50
-
-l3_intf:
-  BR2-CORE:
-    Loopback0: 10.0.3.1/32
-    Vlan11: 10.0.1.38/29
-    Vlan12: 10.0.1.46/29
-    Vlan10: 10.0.3.65/27
-    Vlan20: 10.0.3.97/27
-    Vlan30: 10.0.3.129/27
-    Vlan40: 10.0.3.193/27
-    Vlan50: 10.0.3.161/27
-</code></pre>
-
-<p>This information is used by the <code>bootstrap</code> Ansible role to construct an interface configuration script. Here&rsquo;s the example of LAG configuration template. It iterates over all devices in <code>link_aggregation</code> variable and configures LACP protocol on each participating interface.</p>
-
-<p>
-<code>jinja ./roles/bootstrap/templates/bootstrap.conf.j2
-{% if inventory_hostname in link_aggregation %}
-  {% for channel_number in link_aggregation[inventory_hostname] %}
-    {% for interface in link_aggregation[inventory_hostname][channel_number] %}
-interface {{ interface }}
-  channel-group {{ channel_number.split("Po")[1] }} mode active
-  no shutdown
-   {% endfor %}
-  {% endfor %}
-{% endif %}
-</code>
-</p>
-
-<p>When configuring IP address information it&rsquo;s handy to use the built-in Ansible&rsquo;s <code>ipaddr</code> filter which can translate a prefix notation into Cisco&rsquo;s standard <code>ip_address netmask</code> as shown below:</p>
-
-<p>
-<code>jinja ./roles/bootstrap/templates/bootstrap.conf.j2
- {% if inventory_hostname in l3_intf and inventory_hostname in groups['routers'] and not inventory_hostname in groups['switches'] %}
-  {% for interface in l3_intf[inventory_hostname] %}
-interface {{ interface }}
-  ip address {{ l3_intf[inventory_hostname][interface] | ipaddr('address') }} {{ l3_intf[inventory_hostname][interface] | ipaddr('netmask') }}
-  no shutdown
-  {% endfor %}
-{% endif %}
-</code>
-</p>
-
-<h2>Creating OSPF routing configuration</h2>
-
-<p>OSPF configuration will adhere to the following simple conventions:</p>
-
-<ul>
-<li>All routed devices participate in OSPF</li>
-<li>Every device advertises all its directly connected links</li>
-<li>All links are passive by default with the exception of inter-device links</li>
-<li>A single OSPF area 0 is used</li>
-</ul>
-
-
-<p>Another important aspect is separation of site-specific from enterprise-global configuration. The rule of thumb in this case would be to put as much information as possible into the global scope, keeping the site scope small. In our case all global variables and settings should reside under <code>./group_vars/routing</code> directory:</p>
-
-<pre><code class="yaml ./group_vars/routing/igp"> ---
-ospf:
-  global:
-    - default auto-cost reference-bandwidth 100000
-    - router-id 
-    - network 0.0.0.0 255.255.255.255 area 0
-    - passive-interface default
-</code></pre>
-
-<p>Site-specific OSPF variables will only contain a list of <em>active</em> interfaces that should form OSPF adjacencies:</p>
-
-<pre><code class="yaml ./group_vars/branch-2/igp">---
-ospf_intf_list:
-  BR2-CORE: [Vlan11, Vlan12]
-  BR2-WAN1: [Eth0/1.11]
-  BR2-WAN2: [Eth0/1.12]
-</code></pre>
-
-<p>Once again, a special <code>routing</code> role is created with a template making use of all of the configured variables:</p>
-
-<p>
-<code>jinja ./roles/routing/templates/igp.j2
-router ospf 1
-{% for option in ospf.global %}
-  {{ option }}
-{% endfor %}
-{% for interface in ospf_intf_list[inventory_hostname] %}
-  no passive-interface {{ interface }}
-{% endfor %}
-</code>
-</p>
-
-<p>The resulting configuration for the core switch would like like this:</p>
-
-<pre><code class="text ./files/BR2-CORE.igp">router ospf 1
-  default auto-cost reference-bandwidth 100000
-  router-id 10.0.3.1
-  network 0.0.0.0 255.255.255.255 area 0
-  passive-interface default
-  no passive-interface Vlan11
-  no passive-interface Vlan12
-</code></pre>
-
-<p>Just a reminder that full versions of templates, files and playbooks can be found on <a href="https://github.com/networkop/cisco-ansible-provisioning">github</a>.</p>
-
-<hr />
-
-<p>That&rsquo;s it for the basic L2/L3 and routing configuration. In the next post I will show how to automate a standard BGP configuration.</p>
 ]]></content>
   </entry>
   
