@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Devops | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/devops/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-02-18T21:42:54-08:00</updated>
+  <updated>2016-02-24T23:11:35-08:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,92 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins]]></title>
+    <link href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/"/>
+    <updated>2016-02-25T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup</id>
+    <content type="html"><![CDATA[<p>Traditionally, the first post in the series describes how to setup a development environment. This time I&rsquo;ll do it DevOps-style. I&rsquo;ll show how to use Packer to automatically create and configure a VM with UNetLab and Jenkins pre-installed.</p>
+
+<!--more-->
+
+
+<p><img class="center" src="/images/packer-unl-jenkins.png" title="Packer-UNL-Jenkins" ></p>
+
+<h2>Packer intro</h2>
+
+<p><a href="https://www.packer.io/">Packer</a> is a tool that can automatically create virtual machines for different hypervisors and cloud platforms. The goal is to produce identically configured VMs for either VirtualBox, VMWare, Amazon or Google clouds based on a single template file. If you&rsquo;re familiar with <a href="https://www.vagrantup.com/docs/">Vagrant</a>, then you can also use Packer to create custom Vagrant boxes. In our case, however, we&rsquo;re only concerned about VMWare since it&rsquo;s the only <a href="https://en.wikipedia.org/wiki/Hypervisor">type-2 hypervisor</a> that supports nested hardware virtualisation (e.g. Intel VT-x), a feature required by UNetLab to run some of the emulated images.</p>
+
+<p>Packer builds VMs using a special template file. At the very least, this file describes how to:</p>
+
+<ul>
+<li><p>Build a VM</p></li>
+<li><p>Provision and configure apps on a VM</p></li>
+</ul>
+
+
+<p>These two actions correspond to the <code>builders</code> and <code>provisioners</code> sections of the template file.</p>
+
+<p>The <code>builders</code> section contains a set of instructions for a particular hypervisor or platform on how to build a VM. For example, it might contain the amount of  RAM, CPU and disk sizes, number and type of interfaces, OS boot instructions and so on.</p>
+
+<p>The <code>provisioners</code> section contains a set of instructions to configure a VM. This section may be as simple as a list of shell scripts or may include a reference to Ansible playbook which will be executed after the VM is built.</p>
+
+<p>You can find my Packer templates along with Ubuntu preseed and provisioner scripts in my <a href="https://github.com/networkop/packer-unl-jenkins">Gihub repository</a>. For those looking for deeper insights about how to build a packer template I can recommend an official Packer <a href="https://www.packer.io/intro/index.html">introduction docs</a>.</p>
+
+<h2>Building a VM with Packer</h2>
+
+<p>As I&rsquo;ve mentioned previously, I&rsquo;m using Windows as my primary development environment and VMWare Workstation as my hypervisor. Before you begin you also need to have <a href="https://www.packer.io/intro/getting-started/setup.html">Packer</a> and <a href="https://git-scm.com/download/win">git</a> installed.</p>
+
+<pre><code class="winbatch 1. Clone git repository">git clone https://github.com/networkop/packer-unl-jenkins
+cd packer-unl-jenkins
+</code></pre>
+
+<pre><code class="winbatch 2. Start the build">packer build vmware.json
+</code></pre>
+
+<p>With a bit of luck, approximately 30 minutes later you should have a fully configured VM inside your VMWare Workstation waiting to be powered on. These are some of the features of this new VM:</p>
+
+<ul>
+<li>4 GB of RAM, 20GB of disk space, 2 dual-core vCPUs</li>
+<li>1 Host-only and 1 NAT ethernet interfaces both using DHCP</li>
+<li>Jenkins and UNetLab installed</li>
+<li>Git and Python PIP packages installed</li>
+<li>Username/password are <code>unl/admin</code></li>
+</ul>
+
+
+<p>Once powered on, you should be able to navigate to UNetLab&rsquo;s home page at <code>http://vm_ip:80</code> and Jenkins' home page and <code>http://vm_ip:8080</code>, where <code>vm_ip</code> is the IP of your new VM.</p>
+
+<h2>IOU images</h2>
+
+<p>Unfortunately IOU images are not publicly available so you&rsquo;re gonna have to find them yourself, which shouldn&rsquo;t be too hard. You&rsquo;ll also need to generate a license file for these images which, again, I&rsquo;m not going to discuss in this blog, but I can guarantee that you won&rsquo;t have to look farther than the 1st page of Google search to find all your answers. These are the remaining steps that you need to do:</p>
+
+<ol>
+<li>Obtain L2 and L3 IOU images</li>
+<li>Generate a license file</li>
+<li>Follow <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">these instructions</a> to install those images on the UNetLab server</li>
+</ol>
+
+
+<h2>non-DevOps way</h2>
+
+<p>In case you&rsquo;re struggling with Packer here are the list of steps to setup a similar VM manually:</p>
+
+<ol>
+<li><a href="http://www.ubuntu.com/download/server">Download</a> your favourite Ubuntu Server image. Recommended release at the time of writing is 14.04.4.</li>
+<li>Create a VM with at least 4GB of RAM, VT-x support and boot it off the Ubuntu ISO image.</li>
+<li>Following instructions <a href="http://www.unetlab.com/2015/08/installing-unetlab-on-a-physical-server/">install Ubuntu and UNetLab</a>.</li>
+<li>Install Jenkins as described on <a href="https://wiki.jenkins-ci.org/display/JENKINS/Installing+Jenkins+on+Ubuntu">their wiki website</a></li>
+<li>Install additional packages like git and pip. Refer to my Packer <a href="https://github.com/networkop/packer-unl-jenkins/blob/master/scripts/packages.sh">packages script</a> for commands.</li>
+</ol>
+
+
+<h2>Coming up</h2>
+
+<p>In the next post I&rsquo;ll show how to setup Jenkins to do automatic network testing and verification.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network Continuous Integration and Delivery]]></title>

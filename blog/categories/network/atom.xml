@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Network | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/network/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-02-18T21:42:54-08:00</updated>
+  <updated>2016-02-24T23:11:35-08:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,92 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins]]></title>
+    <link href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/"/>
+    <updated>2016-02-25T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup</id>
+    <content type="html"><![CDATA[<p>Traditionally, the first post in the series describes how to setup a development environment. This time I&rsquo;ll do it DevOps-style. I&rsquo;ll show how to use Packer to automatically create and configure a VM with UNetLab and Jenkins pre-installed.</p>
+
+<!--more-->
+
+
+<p><img class="center" src="/images/packer-unl-jenkins.png" title="Packer-UNL-Jenkins" ></p>
+
+<h2>Packer intro</h2>
+
+<p><a href="https://www.packer.io/">Packer</a> is a tool that can automatically create virtual machines for different hypervisors and cloud platforms. The goal is to produce identically configured VMs for either VirtualBox, VMWare, Amazon or Google clouds based on a single template file. If you&rsquo;re familiar with <a href="https://www.vagrantup.com/docs/">Vagrant</a>, then you can also use Packer to create custom Vagrant boxes. In our case, however, we&rsquo;re only concerned about VMWare since it&rsquo;s the only <a href="https://en.wikipedia.org/wiki/Hypervisor">type-2 hypervisor</a> that supports nested hardware virtualisation (e.g. Intel VT-x), a feature required by UNetLab to run some of the emulated images.</p>
+
+<p>Packer builds VMs using a special template file. At the very least, this file describes how to:</p>
+
+<ul>
+<li><p>Build a VM</p></li>
+<li><p>Provision and configure apps on a VM</p></li>
+</ul>
+
+
+<p>These two actions correspond to the <code>builders</code> and <code>provisioners</code> sections of the template file.</p>
+
+<p>The <code>builders</code> section contains a set of instructions for a particular hypervisor or platform on how to build a VM. For example, it might contain the amount of  RAM, CPU and disk sizes, number and type of interfaces, OS boot instructions and so on.</p>
+
+<p>The <code>provisioners</code> section contains a set of instructions to configure a VM. This section may be as simple as a list of shell scripts or may include a reference to Ansible playbook which will be executed after the VM is built.</p>
+
+<p>You can find my Packer templates along with Ubuntu preseed and provisioner scripts in my <a href="https://github.com/networkop/packer-unl-jenkins">Gihub repository</a>. For those looking for deeper insights about how to build a packer template I can recommend an official Packer <a href="https://www.packer.io/intro/index.html">introduction docs</a>.</p>
+
+<h2>Building a VM with Packer</h2>
+
+<p>As I&rsquo;ve mentioned previously, I&rsquo;m using Windows as my primary development environment and VMWare Workstation as my hypervisor. Before you begin you also need to have <a href="https://www.packer.io/intro/getting-started/setup.html">Packer</a> and <a href="https://git-scm.com/download/win">git</a> installed.</p>
+
+<pre><code class="winbatch 1. Clone git repository">git clone https://github.com/networkop/packer-unl-jenkins
+cd packer-unl-jenkins
+</code></pre>
+
+<pre><code class="winbatch 2. Start the build">packer build vmware.json
+</code></pre>
+
+<p>With a bit of luck, approximately 30 minutes later you should have a fully configured VM inside your VMWare Workstation waiting to be powered on. These are some of the features of this new VM:</p>
+
+<ul>
+<li>4 GB of RAM, 20GB of disk space, 2 dual-core vCPUs</li>
+<li>1 Host-only and 1 NAT ethernet interfaces both using DHCP</li>
+<li>Jenkins and UNetLab installed</li>
+<li>Git and Python PIP packages installed</li>
+<li>Username/password are <code>unl/admin</code></li>
+</ul>
+
+
+<p>Once powered on, you should be able to navigate to UNetLab&rsquo;s home page at <code>http://vm_ip:80</code> and Jenkins' home page and <code>http://vm_ip:8080</code>, where <code>vm_ip</code> is the IP of your new VM.</p>
+
+<h2>IOU images</h2>
+
+<p>Unfortunately IOU images are not publicly available so you&rsquo;re gonna have to find them yourself, which shouldn&rsquo;t be too hard. You&rsquo;ll also need to generate a license file for these images which, again, I&rsquo;m not going to discuss in this blog, but I can guarantee that you won&rsquo;t have to look farther than the 1st page of Google search to find all your answers. These are the remaining steps that you need to do:</p>
+
+<ol>
+<li>Obtain L2 and L3 IOU images</li>
+<li>Generate a license file</li>
+<li>Follow <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">these instructions</a> to install those images on the UNetLab server</li>
+</ol>
+
+
+<h2>non-DevOps way</h2>
+
+<p>In case you&rsquo;re struggling with Packer here are the list of steps to setup a similar VM manually:</p>
+
+<ol>
+<li><a href="http://www.ubuntu.com/download/server">Download</a> your favourite Ubuntu Server image. Recommended release at the time of writing is 14.04.4.</li>
+<li>Create a VM with at least 4GB of RAM, VT-x support and boot it off the Ubuntu ISO image.</li>
+<li>Following instructions <a href="http://www.unetlab.com/2015/08/installing-unetlab-on-a-physical-server/">install Ubuntu and UNetLab</a>.</li>
+<li>Install Jenkins as described on <a href="https://wiki.jenkins-ci.org/display/JENKINS/Installing+Jenkins+on+Ubuntu">their wiki website</a></li>
+<li>Install additional packages like git and pip. Refer to my Packer <a href="https://github.com/networkop/packer-unl-jenkins/blob/master/scripts/packages.sh">packages script</a> for commands.</li>
+</ol>
+
+
+<h2>Coming up</h2>
+
+<p>In the next post I&rsquo;ll show how to setup Jenkins to do automatic network testing and verification.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network Continuous Integration and Delivery]]></title>
@@ -465,167 +551,6 @@ router bgp 3
 <h2>Conclusion</h2>
 
 <p>This post concludes the series of articles describing how to automate enteprise network configuration. We first looked at how to automate <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">legacy network configuration</a>, interface and OSPF configuration for the <a href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/">new network build</a> and, finally, BGP configuration. Full version of files and scripts can be found in <a href="https://github.com/networkop/cisco-ansible-provisioning">my github repository</a>.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Automating New Network Build - Part 1]]></title>
-    <link href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/"/>
-    <updated>2015-08-26T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/08/26/automating-network-build-p1</id>
-    <content type="html"><![CDATA[<p>This post will demonstrate how to automate the build of a typical enterprise branch network consisting of a pair of WAN routers, a core switch and 3 access layer switches. I will show how to create the initial bootstrap configuration and enable basic routing with OSPF.</p>
-
-<!--more-->
-
-
-<h2>Prerequisites</h2>
-
-<p>It is assumed that by this time all detailed network design information is known including interfaces numbers, VLANs, IP addresses and <abbr title="Link Aggregation Group">LAGs</abbr>. This information will be used as an input to configuration automation scripts.</p>
-
-<p><img class="centre" src="/images/new-office-design.png" title="New Office Network Topology" ></p>
-
-<p>The inventory file is updated with a new <code>branch-2</code> group
-<code>text ./hosts
-[branch-2]
-BR2-CORE ansible_ssh_host=10.0.3.1
-BR2-WAN1 ansible_ssh_host=10.0.3.2
-BR2-WAN2 ansible_ssh_host=10.0.3.3
-BR2-AS01 ansible_ssh_host=10.0.3.130
-BR2-AS02 ansible_ssh_host=10.0.3.131
-BR2-AS03 ansible_ssh_host=10.0.3.132
-</code></p>
-
-<h2>Creating device bootstrap configuration</h2>
-
-<p>A lot of times when building a new network it is required to create a bootstrap config that would have some basic AAA configuration along with the layer 2 and layer 3 links configuration. Since we went through the AAA configuration in the <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">previous post</a> I will omit that bit and get straight to the configuration of L2/L3 links. My personal rule of thumb is to configure all intra-site links as layer 2 trunks, including the links between the routed devices. This allows for greater flexibility in the future in case some traffic will need to get steered through a particular device.<br/>
-The goal is to have configuration that would be copy-paste-friendly and would not require re-ordering or re-running. Therefore, it is important to apply configuration in the specific order:</p>
-
-<ol>
-<li>Layer 2 LAGs</li>
-<li>Layer 2 port configuration</li>
-<li>Layer 3 ip addressing</li>
-</ol>
-
-
-<p>The input information will be provided through a file called <code>interconnects</code> stored in the site-specific variable directory <code>branch-2</code>. Below is an abridged version of the file demonstrating the configuration of interfaces on the core switch. As always full version is available in my <a href="https://github.com/networkop/cisco-ansible-provisioning">github repository</a>.</p>
-
-<pre><code class="yaml ./group_vars/branch-2/interconnects">---
-link_aggregation:
-  BR2-CORE:
-    Po11: [Eth0/2, Eth0/3]
-
-l2_links:
-  BR2-CORE:
-    Eth0/0: 11
-    Eth0/1: 12
-    Eth1/0: 10,20,30,40,50
-    Eth1/1: except 40
-    Po11:   10-50
-
-l3_intf:
-  BR2-CORE:
-    Loopback0: 10.0.3.1/32
-    Vlan11: 10.0.1.38/29
-    Vlan12: 10.0.1.46/29
-    Vlan10: 10.0.3.65/27
-    Vlan20: 10.0.3.97/27
-    Vlan30: 10.0.3.129/27
-    Vlan40: 10.0.3.193/27
-    Vlan50: 10.0.3.161/27
-</code></pre>
-
-<p>This information is used by the <code>bootstrap</code> Ansible role to construct an interface configuration script. Here&rsquo;s the example of LAG configuration template. It iterates over all devices in <code>link_aggregation</code> variable and configures LACP protocol on each participating interface.</p>
-
-<p>
-<code>jinja ./roles/bootstrap/templates/bootstrap.conf.j2
-{% if inventory_hostname in link_aggregation %}
-  {% for channel_number in link_aggregation[inventory_hostname] %}
-    {% for interface in link_aggregation[inventory_hostname][channel_number] %}
-interface {{ interface }}
-  channel-group {{ channel_number.split("Po")[1] }} mode active
-  no shutdown
-   {% endfor %}
-  {% endfor %}
-{% endif %}
-</code>
-</p>
-
-<p>When configuring IP address information it&rsquo;s handy to use the built-in Ansible&rsquo;s <code>ipaddr</code> filter which can translate a prefix notation into Cisco&rsquo;s standard <code>ip_address netmask</code> as shown below:</p>
-
-<p>
-<code>jinja ./roles/bootstrap/templates/bootstrap.conf.j2
- {% if inventory_hostname in l3_intf and inventory_hostname in groups['routers'] and not inventory_hostname in groups['switches'] %}
-  {% for interface in l3_intf[inventory_hostname] %}
-interface {{ interface }}
-  ip address {{ l3_intf[inventory_hostname][interface] | ipaddr('address') }} {{ l3_intf[inventory_hostname][interface] | ipaddr('netmask') }}
-  no shutdown
-  {% endfor %}
-{% endif %}
-</code>
-</p>
-
-<h2>Creating OSPF routing configuration</h2>
-
-<p>OSPF configuration will adhere to the following simple conventions:</p>
-
-<ul>
-<li>All routed devices participate in OSPF</li>
-<li>Every device advertises all its directly connected links</li>
-<li>All links are passive by default with the exception of inter-device links</li>
-<li>A single OSPF area 0 is used</li>
-</ul>
-
-
-<p>Another important aspect is separation of site-specific from enterprise-global configuration. The rule of thumb in this case would be to put as much information as possible into the global scope, keeping the site scope small. In our case all global variables and settings should reside under <code>./group_vars/routing</code> directory:</p>
-
-<pre><code class="yaml ./group_vars/routing/igp"> ---
-ospf:
-  global:
-    - default auto-cost reference-bandwidth 100000
-    - router-id 
-    - network 0.0.0.0 255.255.255.255 area 0
-    - passive-interface default
-</code></pre>
-
-<p>Site-specific OSPF variables will only contain a list of <em>active</em> interfaces that should form OSPF adjacencies:</p>
-
-<pre><code class="yaml ./group_vars/branch-2/igp">---
-ospf_intf_list:
-  BR2-CORE: [Vlan11, Vlan12]
-  BR2-WAN1: [Eth0/1.11]
-  BR2-WAN2: [Eth0/1.12]
-</code></pre>
-
-<p>Once again, a special <code>routing</code> role is created with a template making use of all of the configured variables:</p>
-
-<p>
-<code>jinja ./roles/routing/templates/igp.j2
-router ospf 1
-{% for option in ospf.global %}
-  {{ option }}
-{% endfor %}
-{% for interface in ospf_intf_list[inventory_hostname] %}
-  no passive-interface {{ interface }}
-{% endfor %}
-</code>
-</p>
-
-<p>The resulting configuration for the core switch would like like this:</p>
-
-<pre><code class="text ./files/BR2-CORE.igp">router ospf 1
-  default auto-cost reference-bandwidth 100000
-  router-id 10.0.3.1
-  network 0.0.0.0 255.255.255.255 area 0
-  passive-interface default
-  no passive-interface Vlan11
-  no passive-interface Vlan12
-</code></pre>
-
-<p>Just a reminder that full versions of templates, files and playbooks can be found on <a href="https://github.com/networkop/cisco-ansible-provisioning">github</a>.</p>
-
-<hr />
-
-<p>That&rsquo;s it for the basic L2/L3 and routing configuration. In the next post I will show how to automate a standard BGP configuration.</p>
 ]]></content>
   </entry>
   
