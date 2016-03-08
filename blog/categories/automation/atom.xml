@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Automation | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/automation/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-02-24T23:11:35-08:00</updated>
+  <updated>2016-03-07T20:11:04-08:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,112 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Network-CI Part 2 - Small Network Demo]]></title>
+    <link href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/"/>
+    <updated>2016-03-03T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/03/03/network-ci-demo-small</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network.</p>
+
+<!--more-->
+
+
+<h2>Demo network overview</h2>
+
+<p>The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.</p>
+
+<p><img class="center" src="/images/ci-acme-small.jpg" title="Small demo topology" ></p>
+
+<p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small">repository</a> and reset it to work with your own Github account using <code>git remote set-url https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br/>
+Local development environment contains the following files describing the modelled topology:</p>
+
+<ol>
+<li>Configuration files for each node under the <code>./config</code> directory</li>
+<li>Network topology in <code>./network/topology.py</code> modelled as a list of pairs of interconnected devices</li>
+<li>UNetLab configuration file containing the IP address and username/passwords to access the server</li>
+<li>Traffic flow test definitions under <code>./network/test</code> directory</li>
+</ol>
+
+
+<h2>Test definitions</h2>
+
+<p>Traffic flow test file contains an ordered set of test scenarios that will be performed automatically. The following is an example that illustrates main capabilities of our test tools:</p>
+
+<pre><code class="text ./network/tests/traffic_flows.txt">## Normal operations
+1 Failed None
+  From R1 to R3 via R2 or R4, R3
+  From R2 to R3 via R3
+  From R2 to R4 via R1 or R3
+
+# Failed link between R1 and R2
+2 Failed Failed R1 Gig1/1, R2 Gig0/0
+  From R1 to R2 via not R2, R3
+  From R2 to R4 via not R1, R4
+</code></pre>
+
+<p>Each scenario starts with a <strong>failure definition</strong>. It could be either <code>None</code>, which represents normal network conditions, or it could contain a list of interfaces that need to be failed. Following the failure definition are the actual tests. On each line we define source, destination and the path we expect the traffic to take. Path definition (everything following the &lsquo;via&rsquo; keyword) contains an ordered set of nodes and can use simple boolean operators like <strong>or</strong> or <strong>not</strong>.</p>
+
+<p>Ping flow definition file is a lot shorter and simply contains a list of source/destination pairs to run a ping test between. All ping tests will execute concurrently and issue only 2 pings, therefore we&rsquo;ll only be able to detect connectivity loss if it lasts for more than 4 seconds.</p>
+
+<h2>Jenkins setup</h2>
+
+<p>In the previous post we&rsquo;ve automatically built a VM with Jenkins and UNetLab pre-installed. Before we can start using Jenkins we need to install a Github plugin, which can be done very easily from Jenkins GUI. Power up your <strong>vm-network-ci</strong> and open Jenkins home page at <code>http://VM_IP:8080</code>. From there navigate to <strong>Manage Jenkins -> Manage Plugins -> Available</strong>, search for and install the <strong>GitHub plugin</strong>.</p>
+
+<h2>A quick Jenkins intro</h2>
+
+<p>Inside Jenkins, <strong>a job</strong> represents a set of tasks that need to be automated for a particular project. Each job first waits for a trigger, which can be either a manual or an automatic event. When triggered, it connects to Github repository, downloads all the code to a local machine and executes a set of build steps defined in this job. A very simple workflow would looks like this:</p>
+
+<ol>
+<li>Developer commits and pushes a change to a Github repository</li>
+<li>Github notifies Jenkins server by sending an HTTP POST request</li>
+<li>Jenkins identifies the job that needs to be run and clones Github repo into a local directory</li>
+<li>It then goes through and executes a set of build steps defined for this job</li>
+<li>At the end you can optionally configure Jenkins to update the status of the build as described <a href="http://stackoverflow.com/questions/14274293/show-current-state-of-jenkins-build-on-github-repo">here</a></li>
+</ol>
+
+
+<h2>Using Jenkins for network testing</h2>
+
+<ol>
+<li>From Jenkins home page click on <strong>create new jobs</strong> and create a <em>Freestyle project</em> called <strong>acme-small</strong>.</li>
+<li>Select the <strong>Github project</strong> option and enter a url of your Github repository (in my case its <a href="https://github.com/networkop/network-ci">https://github.com/networkop/network-ci</a>).</li>
+<li>Under <strong>Source Code Management</strong> select <em>Git</em> and enter the same repository URL.</li>
+<li>Under <strong>Additional Behaviours</strong> add a <em>Polling ignores commits in certain paths</em>. <br/>
+Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to make sure that this job is only triggered if commit affected a particular directory.</li>
+<li>Under <strong>Included Regions</strong> add <code>acme-small/.*</code> to only trigger builds for changes made to <strong>acme-small</strong> directory.</li>
+<li>Optionally you can specify the build triggers to either build periodically or wait for changes to be pushed to Github.</li>
+<li><p>Under <strong>Build</strong> add a new build step with the following shell commands:</p>
+
+<pre><code class="`bash"> export UNL_IP="unl_ip_address"
+ export PYTHONUNBUFFERED=1
+ cd acme-small
+ chmod +x 0_built_topo.py
+ chmod +x 2_test.py
+ chmod +x 3_destroy_topo.py
+ ./0_built_topo.py
+ ./2_test.py
+ ./3_destroy_topo.py
+</code></pre>
+
+<p>The first two env variables setup ip address of UNL server and disable IO buffering so that we can see the output of running our scripts in real time. The remaining steps simply execute the build, test and destroy scripts in order.</p></li>
+<li><p>Save the job and click on the <strong>Build Now</strong> to trigger the build manually.</p></li>
+<li>In the <strong>Build History</strong> pane click on the latest build number (should be #1) and go to <em>Console Output</em>.</li>
+<li>Observe how Jenkins builds, tests and destroys our demo topology</li>
+</ol>
+
+
+<h2>Network upgrade workflow</h2>
+
+<p>Now imagine that a new requirements has come in to make sure that traffic from R1 to R3&rsquo;s Gig0/1 does not traverse R4 and goes via R2 instead, only falling back to R4 when R1-R2 link is down. In the following video I&rsquo;ll show how to use network-ci tools locally to implement and test this traffic engineering requirement.</p>
+
+<p><div class="embed-video-container"><iframe src="//www.youtube.com/embed/GLOG9KZzP90" allowfullscreen></iframe></div></p>
+
+<h2>Coming up</h2>
+
+<p>In the next post I&rsquo;ll show how to apply the same workflow to automate the build, test and ugprade of a large 14-node topology.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins]]></title>
@@ -397,160 +503,6 @@ fvrf:
 <h2>Conclusion</h2>
 
 <p>Thanks to DRY and Convention over Configuration principles it&rsquo;s possible to devise a configuration template that will be the same for all Spokes. The actual configuration will consist of multiple components like IKEv2, dynamic VTI, AAA and BGP configuration. I&rsquo;ll try to explain how they all tie together in my upcoming post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Automating New Network Build - Part 2 (BGP)]]></title>
-    <link href="http://networkop.github.io/blog/2015/09/03/automating-bgp-config/"/>
-    <updated>2015-09-03T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/09/03/automating-bgp-config</id>
-    <content type="html"><![CDATA[<p>In this post we&rsquo;ll have a look at how to automate a typical BGP setup. This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.</p>
-
-<!--more-->
-
-
-<h2>Requirements and assumptions</h2>
-
-<p>The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link. Secondary WAN link should only be used in case both primary and backdoor links are unavailable.<br/>
-All routed devices within Branch-2 will be running iBGP AS#3 with BR2-CORE playing a role of route-reflector for the two WAN routers. iBGP convergence timers should rely on IGP&rsquo;s timers (OSPF default timers of 10 and 40 seconds). Site&rsquo;s core switch should originate a site summary prefix as well as any other non-standard prefixes falling outside of the standard site summary (e.g. links to 3rd Parties, DMZ etc.). All prefixes originated by the site should be tagged with specific community values in order to be easily identifiable at the remote end.</p>
-
-<p><img class="centre" src="/images/full-network-topo.png" title="Full network topology" ></p>
-
-<h2>eBGP configuration automation</h2>
-
-<p>Each site will have a unique set of eBGP peers, hence, it is logical to put all eBGP-related variables into a site-specific directory <code>group_vars/branch-2/</code>. In order to understand how to configure each eBGP neighbor the following values need to be defined for each eBGP neighbor:</p>
-
-<ol>
-<li>IP addresses</li>
-<li>AS number</li>
-<li>(optional) Routing manipulation policies</li>
-</ol>
-
-
-<p>The above values correspond to the following Ansible variables:</p>
-
-<pre><code class="yaml ./group_vars/branch-2/bgp">ebgp_peers:
-  BR2-WAN1:
-    1.1.1.2:
-      - remote-as 1000
-  BR2-WAN2:
-    2.2.3.2:
-      - remote-as 2000
-      - route-map RM-BGP-PREPEND-OUT out
-  BR2-CORE:
-    10.0.2.49:
-       - remote-as 2
-</code></pre>
-
-<p>Here <code>ebgp_peers</code> variable contains a mapping between network devices and their eBGP neighbors identified by their IP addresses. BGP path manipulation policies ideally should belong to global variables and are defined under the company-wide <code>routing</code> group</p>
-
-<p>
-<code>yaml ./group_vars/routing/route-maps
-bgp_out_rmap_prepend:
-    - set as-path prepend {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }}
-</code>
-</p>
-
-<p>All information defined above will be reused by the <code>bgp</code> template of the <code>routing</code> ansible roles:</p>
-
-<p>
-<figure class='code'><figcaption><span>./roles/routing/template/bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">route-map RM-BGP-PREPEND-OUT permit 10</span>
-</span><span class='line'><span class="l-Scalar-Plain">{%- for clause in bgp_out_rmap_prepend %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{{ clause }}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{% endfor -%}&lt;/p&gt;</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;router bgp {{ site_ASN }}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{%- if inventory_hostname in ebgp_peers %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{%- for neighbor_ip in ebgp_peers[inventory_hostname] %}</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">{%- for option in ebgp_peers[inventory_hostname][neighbor_ip] %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">neighbor {{ neighbor_ip }} {{ option }}</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">{% endfor -%}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{% endfor -%}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{% endif -%}</span>
-</span></code></pre></td></tr></table></div></figure>
-</p>
-
-<h2>iBGP configuration automation</h2>
-
-<p>Each site will be running a simple iBGP topology with a single route-reflector with two clients. Each routed device within the new branch will need to have it&rsquo;s iBGP role  defined (server or client).</p>
-
-<pre><code class="yaml ./group_vars/branch-2/bgp">ibgp_topo:
-  route_reflector: [BR2-CORE]
-  rr_clients: [BR2-WAN1, BR2-WAN2]
-
-bgp_originate_redistribute:
-  BR2-CORE:
-    - summary
-    - static
-
-bgp_originate_network:
-  BR2-WAN1:
-    - Loopback0
-  BR2-WAN2:
-    - Loopback0
-</code></pre>
-
-<p>Special variables that start with <code>bgp_originate_</code> define which subnets should be originated by which router. RR-server will originate site-wide summary and any 3rd party subnets while WAN routers will inject their own loopbacks in order to be remotely accessible even if BR2-CORE goes down. Specific route maps responsible for prefix origination should be defined in the global scope:</p>
-
-<p>
-<code>yaml ./group_vars/routing/route-maps
-bgp_redistr_route_maps:
-  static:
-    - match tag {{ tags.static }}
-    - set community {{ bgp_comm_static }}
-  summary:
-    - match tag {{ tags.summary }}
-    - set community {{ bgp_comm_summary }}
-</code>
-</p>
-
-<p>The resulting configuration for BR2-CORE will looks like this:</p>
-
-<pre><code class="text ./files/BR2-CORE.bgp">route-map RM-BGP-FROM-STATIC permit 10
-  match tag 110
-  set community 3:1
-route-map RM-BGP-FROM-SUMMARY permit 10
-  match tag 210
-  set community 3:0
-
-route-map RM-BGP-PREPEND-OUT permit 10
-  set as-path prepend 3 3 3 3 3 3 3
-!
-ip prefix-list PL-ALL-LOOPBACKS permit 0.0.0.0/0 le 32 ge 32
-!
-route-map RM-BGP-FALLOVER permit 10
-  match ip address prefix PL-ALL-LOOPBACKS
-!
-router bgp 3
-  redistribute static route-map RM-BGP-FROM-SUMMARY
-  redistribute static route-map RM-BGP-FROM-STATIC
-  neighbor 10.0.2.49 remote-as 2
-  neighbor RR-CLIENTS peer-group
-  neighbor RR-CLIENTS remote-as 3
-  neighbor RR-CLIENTS update-source Loopback0
-  neighbor RR-CLIENTS fall-over route-map RM-BGP-FALLOVER
-  neighbor RR-CLIENTS route-reflector-client
-  neighbor 10.0.3.2 peer-group RR-CLIENTS
-  neighbor 10.0.3.3 peer-group RR-CLIENTS
-</code></pre>
-
-<h2>Conclusion</h2>
-
-<p>This post concludes the series of articles describing how to automate enteprise network configuration. We first looked at how to automate <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">legacy network configuration</a>, interface and OSPF configuration for the <a href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/">new network build</a> and, finally, BGP configuration. Full version of files and scripts can be found in <a href="https://github.com/networkop/cisco-ansible-provisioning">my github repository</a>.</p>
 ]]></content>
   </entry>
   
