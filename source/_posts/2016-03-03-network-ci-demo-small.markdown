@@ -19,7 +19,7 @@ The network consists of 4 nodes interconnected via point-to-point links and runn
 
 {% img center  /images/ci-acme-small.jpg Small demo topology %} 
 
-To create a local development environment you can clone my [repository][github-small] and reset it to work with your own Github account using `git remote set-url https://github.com/USERNAME/OTHERREPOSITORY.git` command.  
+To create a local development environment you can clone my [repository][github-small] and reset it to work with your own Github account using `git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git` command.  
 Local development environment contains the following files describing the modelled topology:  
 
 1. Configuration files for each node under the `./config` directory
@@ -39,7 +39,7 @@ Traffic flow test file contains an ordered set of test scenarios that will be pe
   From R2 to R4 via R1 or R3
 
 # Failed link between R1 and R2
-2 Failed Failed R1 Gig1/1, R2 Gig0/0
+2 Failed R1 Gig1/1, R2 Gig0/0
   From R1 to R2 via not R2, R3
   From R2 to R4 via not R1, R4
 ```

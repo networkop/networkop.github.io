@@ -46,10 +46,18 @@ Please don't judge me too harshly, this is my first experience with screencasts.
 
 ## Coming up
 
-In the following posts I'll show how to setup a continuous delivery environment with Jenkins and UNetLab, create test cases and work with configuration files in git version control system to enable automatic testing by Jenkins server. If that sounds interesting to you - stay tuned.
+In the following posts I'll show how to:  
+
+* [Setup continuous delivery environment with Jenkins and UNetLab][env-setup]
+* [Create test cases to enable automatic testing by Jenkins server][small-network-demo] 
+* [Safely replace a core routing protocol inside an Active/Standby DC][large-network-demo]
+
+If that sounds interesting to you - stay tuned.
 
 
 [simple-tdd-build]: http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/
 [tdd-quickstart]: http://networkop.github.io/blog/2015/07/17/tdd-quickstart/
 [ipspace-tdd]: http://blog.ipspace.net/2015/11/test-driven-network-development-with.html
-
+[env-setup]: http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/
+[small-network-demo]: http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/
+[large-network-demo]: http://networkop.github.io/blog/2016/03/03/network-ci-demo-large/

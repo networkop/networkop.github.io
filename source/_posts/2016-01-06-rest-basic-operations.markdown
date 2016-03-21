@@ -32,7 +32,7 @@ Here I've used inheritance to *extend* RestServer functionality to make a UnlSer
 
 The other objects are aggregated and interact through code composition, where Lab holds a pointer to the UnlServer where it was created, Nodes and Nets point to the Lab in which they live. Composition creates loose coupling between objects, while still allowing method delegation and code re-use.  
 
-For additional information about Composition vs Inheritance you can go [here][comp-v-inh-1], [here][comp-v-inh-1] or [here][comp-v-inh-1].
+For additional information about Composition vs Inheritance you can go [here][comp-v-inh-1], [here][comp-v-inh-2] or [here][comp-v-inh-3].
 
 ## REST SDK Implementation
 
