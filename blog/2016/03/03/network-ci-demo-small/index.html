@@ -140,7 +140,7 @@
   </header>
 
 
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network.</p>
+<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network topology.</p>
 
 <!--more-->
 
@@ -151,7 +151,7 @@
 
 <p><img class="center" src="/images/ci-acme-small.jpg" title="Small demo topology" ></p>
 
-<p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small">repository</a> and reset it to work with your own Github account using <code>git remote set-url https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br/>
+<p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small">repository</a> and reset it to work with your own Github account using <code>git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br/>
 Local development environment contains the following files describing the modelled topology:</p>
 
 <ol>
@@ -183,13 +183,13 @@ Local development environment contains the following files describing the modell
 </span><span class='line'>  From R2 to R4 via R1 or R3
 </span><span class='line'>
 </span><span class='line'># Failed link between R1 and R2
-</span><span class='line'>2 Failed Failed R1 Gig1/1, R2 Gig0/0
+</span><span class='line'>2 Failed R1 Gig1/1, R2 Gig0/0
 </span><span class='line'>  From R1 to R2 via not R2, R3
 </span><span class='line'>  From R2 to R4 via not R1, R4
 </span></code></pre></td></tr></table></div></figure>
 
 
-<p>Each scenario starts with a <strong>failure definition</strong>. It could be either <code>None</code>, which represents normal network conditions, or it could contain a list of interfaces that need to be failed. Following the failure definition are the actual tests. On each line we define source, destination and the path we expect the traffic to take. Path definition (everything following the &lsquo;via&rsquo; keyword) contains an ordered set of nodes and can use simple boolean operators like <strong>or</strong> or <strong>not</strong>.</p>
+<p>Each scenario starts with a <strong>failure definition</strong>. It could be either <em>None</em>, which represents normal network conditions, or it could contain a list of interfaces that need to be failed. Following the failure definition are the actual tests. On each line we define source, destination and the path we expect the traffic to take. Path definition (everything following the &lsquo;via&rsquo; keyword) contains an ordered set of nodes and can use simple boolean operators like <strong>or</strong> or <strong>not</strong>.</p>
 
 <p>Ping flow definition file is a lot shorter and simply contains a list of source/destination pairs to run a ping test between. All ping tests will execute concurrently and issue only 2 pings, therefore we&rsquo;ll only be able to detect connectivity loss if it lasts for more than 4 seconds.</p>
 
@@ -233,7 +233,7 @@ Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to 
  ./3_destroy_topo.py
 </code></pre>
 
-<p>The first two env variables setup ip address of UNL server and disable IO buffering so that we can see the output of running our scripts in real time. The remaining steps simply execute the build, test and destroy scripts in order.</p></li>
+<p>The first two env variables setup the UNL&rsquo;s IP address of and disable IO buffering so that we can see the output produced by our scripts in real time. The remaining steps simply execute the build, test and destroy scripts in order.</p></li>
 <li><p>Save the job and click on the <strong>Build Now</strong> to trigger the build manually.</p></li>
 <li>In the <strong>Build History</strong> pane click on the latest build number (should be #1) and go to <em>Console Output</em>.</li>
 <li>Observe how Jenkins builds, tests and destroys our demo topology</li>
