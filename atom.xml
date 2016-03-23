@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-03-21T03:56:14-07:00</updated>
+  <updated>2016-03-23T03:24:51-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,108 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC]]></title>
+    <link href="http://networkop.github.io/blog/2016/03/23/network-ci-demo-large/"/>
+    <updated>2016-03-23T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/03/23/network-ci-demo-large</id>
+    <content type="html"><![CDATA[<p>The final post in a series demonstrates how to use the <strong>network-ci</strong> tools to safely replace a core routing protocol inside a small Active/Standby Data Centre.</p>
+
+<!--more-->
+
+
+<h2>Current network overview</h2>
+
+<p>Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/network-ci-dc-before.png" title="Current network topology" ></p>
+
+<h2>Target network overview</h2>
+
+<p>The task is to replace OSPF with BGP as the core routing protocol inside the Data Centre. There are many advantages to using BGP inside a DC, in our case they are:</p>
+
+<ul>
+<li>Enhanced traffic routing and filtering policies</li>
+<li>Reduced number of redistribution points</li>
+<li>Because Ivan Pepelnjak <a href="http://blog.ipspace.net/2016/02/using-bgp-in-data-center-fabrics.html">said so</a></li>
+</ul>
+
+
+<p>We&rsquo;re not going getting rid of OSPF completely, but rather reduce its function to a simple distribution of <em>internal</em> DC prefixes. BGP will be running on top of OSPF and distribute all the DC and WAN <em>summary</em> prefixes.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/network-ci-dc-after.png" title="Target network topology" ></p>
+
+<h2>Physical topology overview</h2>
+
+<p>Now let&rsquo;s take a closer look at the network that we&rsquo;re going to emulate. All green devices on the left-hand side constitute the <strong>Active</strong> Data Centre, that is where all the traffic will flow under normal conditions. All green devices have red <strong>Standby</strong> counterparts. These devices will pick up the function of traffic forwarding in case their green peer becomes unavailable.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/network-ci-dc-full.png" title="Full demo topology" ></p>
+
+<p>When simulating a real-life network it&rsquo;s often impossible to fit an exact replica inside a network emulator. That&rsquo;s why using <strong>mock</strong> devices is a crucial part in every simulation. The function of a mock is to approximate a set of network devices. There&rsquo;s a number of mock devices on our diagram colour-coded in purple. These devices simulate the remaining parts of the network. For example, <strong>Cloud</strong> devices may represent <abbr title=" Top-Of-the-Rack">TOR</abbr> switches, while <strong>MPLS/DMVPN</strong> devices represent remote WAN sites. Normally these devices will have some made-up configuration that best reflects real life, but not necessarily a copy-paste from an existing network device.</p>
+
+<p>It&rsquo;s also important to pick the right amount of mock devices to strike the balance between accuracy and complexity. For example, for WAN sites it may suffice to create one site per unique combination of WAN links to make sure WAN failover works as expected.</p>
+
+<h2>Traffic flow definition</h2>
+
+<p>Let&rsquo;s define how we would expect the traffic to flow through our network. Let&rsquo;s assume that we should always try to use MPLS links when possible and only use DMVPN when both MPLS links are down. This translates to the following order of WAN links' precedence:</p>
+
+<ol>
+<li>Primary MPLS link</li>
+<li>Standby MPLS link</li>
+<li>Primary DMVPN link</li>
+<li>Standby DMVPN link</li>
+</ol>
+
+
+<p>Based on that we can create the following traffic flows definition for network working under normal conditions.</p>
+
+<figure class='code'><figcaption><span>/network/tests/traffic_flows.txt</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>1 Failed None
+</span><span class='line'>  From FW to MPLS-DMVPN via Primary-WAN, Primary-MPLS
+</span><span class='line'>  From FW to DMVPN-ONLY via Primary-CORE-SW, Primary-DMVPN
+</span><span class='line'>  From FW to MPLS-ONLY via Primary-WAN, Primary-MPLS
+</span><span class='line'>  From Cloud-1 to FW Loopback0 via Primary-CORE-SW
+</span><span class='line'>  From Cloud-2 to MPLS-DMVPN via Primary-WAN, Primary-MPLS
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>We expect all traffic to flow through active devices, even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS links and a complete outage of the primary core switch.</p>
+
+<h2>Workflow example</h2>
+
+<p>This is how you would approach a project like this.</p>
+
+<ol>
+<li>Get a copy of network-ci <a href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/">VM</a></li>
+<li>Get a local copy of network-ci <a href="https://github.com/networkop/network-ci/tree/master/acme-large">tools</a></li>
+<li>Copy configuration from real-life devices into the <a href="https://github.com/networkop/network-ci/tree/master/acme-large/config">config directory</a></li>
+<li>Add configuration files for mock devices to the same directory</li>
+<li>Review the <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/topology.py">topology definition file</a> to make sure it reflects our physical diagram</li>
+<li>Review the UNL <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/unetlab.yml">configuration file</a> to make sure it points to the correct IP address assigned to your network-ci VM</li>
+<li>Kick-off topology build inside UNL by running <code>./0_built_topo.py</code> script</li>
+<li>Verify the traffic flows as expected with <code>2_test.py</code> script</li>
+<li>Start the real-time monitoring with <code>1_monitor.py</code> script</li>
+<li>Implement required changes on individual devices (all required changes can be found in <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/ospf-bgp.txt">ospf-bgp.txt</a> file)</li>
+<li>Make sure that the network still behaves as before by running <code>2_test.py</code> script</li>
+<li>Destroy the topology in UNL by running <code>3_destroy_topo.py</code></li>
+</ol>
+
+
+<h2>Continuous Integration</h2>
+
+<p>In the <a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/">previous post</a> I&rsquo;ve showed how to use Jenkins to setup the CI environment for a small demo network. The same method can be applied to setup the job for our small Data Centre. It is simply a matter of changing the directory name from <strong>acme-small</strong> to <strong>acme-large</strong> in the first build step.</p>
+
+<h2>Source code</h2>
+
+<p>All code from this and previous posts is available on <a href="https://github.com/networkop/network-ci/tree/master/acme-large">Github</a></p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network-CI Part 2 - Small Network Demo]]></title>
@@ -4925,79 +5027,6 @@ These tests can also be used during regression testing of the network each time 
 
 
 <p>A <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">quickstart guide</a> for those interested to see the final product in action.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[iBGP Fall-over Trick]]></title>
-    <link href="http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick/"/>
-    <updated>2015-06-11T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/06/11/ibgp-fallover-trick</id>
-    <content type="html"><![CDATA[<p>BGP fall-over is a neat BGP convergence optimisation technique whereby BGP peering is brought down as soon as the route to neighbor disappears from a routing table.
-The difference between external and internal BGP is that the former usually peers over a directly-attached interface so that when the interface to neighbor is disconnected,
-route is withdrawn from the routing table which triggers eBGP fall-over to bring down the neighborship.
-iBGP, on the other hand, normally uses device loopbacks to establish peering sessions. What this means is if a summary or a default route is present in the routing table (either static or learned
-via IGP), there is always a route to iBGP neighbor. In this case BGP has to wait for default 180 seconds (3 x keepalive timer) to bring down the neighborship and withdraw all the routes learned from dead neighbor.<br/>
-To overcome that there&rsquo;s a route-map option for a <code>neighbor fall-over</code> command which allows user to specify the exact prefix for which to look in the routing table. In the example below, the router will
-look for specific host routes representing neighbor&rsquo;s loopbacks and will trigger reconvergence as soon as those routes disappear.</p>
-
-<!--more-->
-
-
-
-
-<div class="highlight"><pre><code class="language-text" data-lang="text">!
-router bgp 100
- neighbor 1.1.1.1 remote-as 100
- neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER-1
- neighbor 2.2.2.2 remote-as 200
- neighbor 2.2.2.2 fall-over route-map RM-BGP-FALLOVER-2
-!
-ip prefix-list PL-ROUTER-1 seq 5 permit 1.1.1.1/32
-!
-ip prefix-list PL-ROUTER-2 seq 5 permit 2.2.2.2/32
-!
-route-map RM-BGP-FALLOVER-1 permit 10
- match ip address prefix-list PL-ROUTER-1
-!
-route-map RM-BGP-FALLOVER-2 permit 10
- match ip address prefix-list PL-ROUTER-2
-!</code></pre></div>
-
-
-<p>It&rsquo;s obvious that this configuration is not very scalable as it requires a separate route-map and a separate prefix-list for each of the iBGP neighbors which,
-on a device like a route-reflector, can easily turn into dozens of lines of code.</p>
-
-<h2>Solution</h2>
-
-<p>There is a nice and short way of how to accomplish the same task which relies on a prefix-list property often overlooked. Cisco&rsquo;s ip prefix-list are often used in the
-most straight-forward way, e.g. to define a a link-local subnet we&rsquo;d use <code>169.254.0.0/16</code> or <code>0.0.0.0/0 le 32</code> for all possible prefixes. However, there&rsquo;s a way
-to define, for example, a list of prefixes that start with 10.0. and have a length from /24 to /25 with <code>10.0.0.0/16 ge 24 le 25</code>. In this case the first /16 defines
-the number of bits in the prefix to be matched and ge, le simple define the length boundaries. Using a similar logic it is possible to define all prefix-list that
-would match all possible host-routes - <code>ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32</code>. The first part <code>0.0.0.0/0</code> makes the router ignore the actual
-bits in the prefix effectively making it match ALL prefixes, while the second part <code>ge 32</code> tells the router to only match prefixes that are => 32 effectively matching
-only host-specific routes.<br/>
-With that in mind, it is possible to re-write the former
-config in a much more concise format so that all iBGP neighbors would use a single route-map with a single prefix-list.</p>
-
-<div class="highlight"><pre><code class="language-text" data-lang="text">!
-router bgp 100
- neighbor 1.1.1.1 remote-as 100
- neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER
- neighbor 2.2.2.2 remote-as 200
- neighbor 2.2.2.2 fall-over route-map RM-BGP-FALLOVER
-!
-ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32
-!
-route-map RM-BGP-FALLOVER permit 10
- match ip address prefix-list PL-ALL-LOOPBACKS
-!</code></pre></div>
-
-
-<p>What happens now is that Cisco router, when bringing up the neighbor, scans it&rsquo;s own routing table looking for a /32 host-route that matches the ip address of that neighbor and
-attaches a listener to this route. If the neighbor goes down, the IGP will detect it a lot sooner than BGP and will withdraw that host-route; our router&rsquo;s bgp process will get notified
-and will re-scan it&rsquo;s routing table for any other matches and, having found none, will bring down the neighborship immediately. Effectively this makes iBGP rely totally on timers of underlying IGP, which,
-needless to say, dramatically speeds up convergence times for BGP.</p>
 ]]></content>
   </entry>
   

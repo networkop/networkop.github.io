@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Network | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/network/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-03-21T03:56:14-07:00</updated>
+  <updated>2016-03-23T03:24:51-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,101 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC]]></title>
+    <link href="http://networkop.github.io/blog/2016/03/23/network-ci-demo-large/"/>
+    <updated>2016-03-23T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/03/23/network-ci-demo-large</id>
+    <content type="html"><![CDATA[<p>The final post in a series demonstrates how to use the <strong>network-ci</strong> tools to safely replace a core routing protocol inside a small Active/Standby Data Centre.</p>
+
+<!--more-->
+
+
+<h2>Current network overview</h2>
+
+<p>Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</p>
+
+<p><img class="center" src="/images/network-ci-dc-before.png" title="Current network topology" ></p>
+
+<h2>Target network overview</h2>
+
+<p>The task is to replace OSPF with BGP as the core routing protocol inside the Data Centre. There are many advantages to using BGP inside a DC, in our case they are:</p>
+
+<ul>
+<li>Enhanced traffic routing and filtering policies</li>
+<li>Reduced number of redistribution points</li>
+<li>Because Ivan Pepelnjak <a href="http://blog.ipspace.net/2016/02/using-bgp-in-data-center-fabrics.html">said so</a></li>
+</ul>
+
+
+<p>We&rsquo;re not going getting rid of OSPF completely, but rather reduce its function to a simple distribution of <em>internal</em> DC prefixes. BGP will be running on top of OSPF and distribute all the DC and WAN <em>summary</em> prefixes.</p>
+
+<p><img class="center" src="/images/network-ci-dc-after.png" title="Target network topology" ></p>
+
+<h2>Physical topology overview</h2>
+
+<p>Now let&rsquo;s take a closer look at the network that we&rsquo;re going to emulate. All green devices on the left-hand side constitute the <strong>Active</strong> Data Centre, that is where all the traffic will flow under normal conditions. All green devices have red <strong>Standby</strong> counterparts. These devices will pick up the function of traffic forwarding in case their green peer becomes unavailable.</p>
+
+<p><img class="center" src="/images/network-ci-dc-full.png" title="Full demo topology" ></p>
+
+<p>When simulating a real-life network it&rsquo;s often impossible to fit an exact replica inside a network emulator. That&rsquo;s why using <strong>mock</strong> devices is a crucial part in every simulation. The function of a mock is to approximate a set of network devices. There&rsquo;s a number of mock devices on our diagram colour-coded in purple. These devices simulate the remaining parts of the network. For example, <strong>Cloud</strong> devices may represent <abbr title=" Top-Of-the-Rack">TOR</abbr> switches, while <strong>MPLS/DMVPN</strong> devices represent remote WAN sites. Normally these devices will have some made-up configuration that best reflects real life, but not necessarily a copy-paste from an existing network device.</p>
+
+<p>It&rsquo;s also important to pick the right amount of mock devices to strike the balance between accuracy and complexity. For example, for WAN sites it may suffice to create one site per unique combination of WAN links to make sure WAN failover works as expected.</p>
+
+<h2>Traffic flow definition</h2>
+
+<p>Let&rsquo;s define how we would expect the traffic to flow through our network. Let&rsquo;s assume that we should always try to use MPLS links when possible and only use DMVPN when both MPLS links are down. This translates to the following order of WAN links' precedence:</p>
+
+<ol>
+<li>Primary MPLS link</li>
+<li>Standby MPLS link</li>
+<li>Primary DMVPN link</li>
+<li>Standby DMVPN link</li>
+</ol>
+
+
+<p>Based on that we can create the following traffic flows definition for network working under normal conditions.</p>
+
+<pre><code class="text /network/tests/traffic_flows.txt">1 Failed None
+  From FW to MPLS-DMVPN via Primary-WAN, Primary-MPLS
+  From FW to DMVPN-ONLY via Primary-CORE-SW, Primary-DMVPN
+  From FW to MPLS-ONLY via Primary-WAN, Primary-MPLS
+  From Cloud-1 to FW Loopback0 via Primary-CORE-SW
+  From Cloud-2 to MPLS-DMVPN via Primary-WAN, Primary-MPLS
+</code></pre>
+
+<p>We expect all traffic to flow through active devices, even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS links and a complete outage of the primary core switch.</p>
+
+<h2>Workflow example</h2>
+
+<p>This is how you would approach a project like this.</p>
+
+<ol>
+<li>Get a copy of network-ci <a href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/">VM</a></li>
+<li>Get a local copy of network-ci <a href="https://github.com/networkop/network-ci/tree/master/acme-large">tools</a></li>
+<li>Copy configuration from real-life devices into the <a href="https://github.com/networkop/network-ci/tree/master/acme-large/config">config directory</a></li>
+<li>Add configuration files for mock devices to the same directory</li>
+<li>Review the <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/topology.py">topology definition file</a> to make sure it reflects our physical diagram</li>
+<li>Review the UNL <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/unetlab.yml">configuration file</a> to make sure it points to the correct IP address assigned to your network-ci VM</li>
+<li>Kick-off topology build inside UNL by running <code>./0_built_topo.py</code> script</li>
+<li>Verify the traffic flows as expected with <code>2_test.py</code> script</li>
+<li>Start the real-time monitoring with <code>1_monitor.py</code> script</li>
+<li>Implement required changes on individual devices (all required changes can be found in <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/ospf-bgp.txt">ospf-bgp.txt</a> file)</li>
+<li>Make sure that the network still behaves as before by running <code>2_test.py</code> script</li>
+<li>Destroy the topology in UNL by running <code>3_destroy_topo.py</code></li>
+</ol>
+
+
+<h2>Continuous Integration</h2>
+
+<p>In the <a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/">previous post</a> I&rsquo;ve showed how to use Jenkins to setup the CI environment for a small demo network. The same method can be applied to setup the job for our small Data Centre. It is simply a matter of changing the directory name from <strong>acme-small</strong> to <strong>acme-large</strong> in the first build step.</p>
+
+<h2>Source code</h2>
+
+<p>All code from this and previous posts is available on <a href="https://github.com/networkop/network-ci/tree/master/acme-large">Github</a></p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network-CI Part 2 - Small Network Demo]]></title>
@@ -360,158 +455,6 @@ In this post I&rsquo;ll show how to work with HTTP and perform basic operations 
 The final post will demonstrate how to push configuration to devices inside UNL. To wrap up I&rsquo;ll write a sample app to spin up and provision a three-node topology without making a single GUI click.</li>
 </ol>
 
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Automating the Build of FlexVPN Network]]></title>
-    <link href="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/"/>
-    <updated>2015-11-13T00:00:00-08:00</updated>
-    <id>http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config</id>
-    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to automatically build configuration files for Hubs and Spokes in FlexVPN network topology. I will also introduce two concepts that are frequently used in software development world - <abbr title="Do Not Repeat Yourself">DRY</abbr> and &ldquo;Convention over Configuration&rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
-
-<!--more-->
-
-
-<h2>FlexVPN network overview</h2>
-
-<p>FlexVPN topology will consist of two FlexVPN &ldquo;clouds&rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds. The two Hubs are interconnected by a direct site-to-site FlexVPN tunnel. To provide additional redundancy one Hub (HUB-1) and one Spoke (SPOKE-1) will have dual WAN links.</p>
-
-<p><img class="centre" src="/images/flexvpn-topo.png" title="FlexVPN topology" ></p>
-
-<h2>Assumptions</h2>
-
-<p>All FlexVPN devices will be using PKI-based authentication. However, in this post I will not cover the setup of PKI infrastructure and simply assume that all Hubs and Spokes are already enrolled with the appropriate CA. Following are the assumptions about the specifics of PKI setup on each router:</p>
-
-<ul>
-<li>Each FlexVPN cloud is defined by a unique domain name (e.g. cloud.one for HUB-1)</li>
-<li>Each Spoke has one X.509 certificate per FlexVPN cloud</li>
-<li>Spokes encode their WAN bandwidth in X.509 Organizational Unit (OU) attribute (e.g. RED corresponds to 50Mpbs)</li>
-<li>Each certificate&rsquo;s trustpoint will be called &ldquo;PKI-CLOUD-X&rdquo;, where X is 1 or 2 depending on FlexVPN cloud</li>
-</ul>
-
-
-<p>As an example, SPOKE-3 will have the following trustpoint configured for FlexVPN cloud #1:</p>
-
-<pre><code class="text PKI trustpoint #1">crypto pki trustpoint PKI-CLOUD-1
- enrollment url http://120.0.0.2:80
- serial-number
- fingerprint 2BE13A4FF167CEB770A24B2D6716033E
- subject-name CN=SPOKE-3.cloud.one,OU=GREEN
- vrf FVRF
- revocation-check crl
- rsakeypair CLOUD-1
- auto-enroll
-</code></pre>
-
-<h2>Convention over Configuration</h2>
-
-<p>This is where it&rsquo;d make sense to introduce the concept of Convention over Configuration. The fact that we&rsquo;ve assumed that all trustpoints will have the prefix of &ldquo;PKI-CLOUD-&rdquo; (convention) makes configuration templates a lot easier. Without it we could have allowed ANY naming of PKI trustpoint but then it should have been defined as a separate variable for every Spoke. Effectively we&rsquo;re sacrificing some level flexibility in favour of brevity (and simplicity). This principle has been popularised by Ruby on Rails web framework and is widely used in other modern web frameworks.</p>
-
-<h2>FlexVPN inventory file</h2>
-
-<p>Before we start working with Ansible, we need to populate host inventory file. A parent &ldquo;FLEXVPN&rdquo; group will include two children groups - &ldquo;HUBS&rdquo; and &ldquo;SPOKES&rdquo;. The latter will be subdivided into three groups - &ldquo;GREEN&rdquo;, &ldquo;BLUE&rdquo; or &ldquo;RED&rdquo;. Each spoke will be assigned to a group base on its X.509 OU value. Additionally, in order to keep configuration templates simpler, we&rsquo;ll treat multi-vrf SPOKE-1 as two different routers - SPOKE1_1 and SPOKE1_2:</p>
-
-<pre><code class="yaml ./hosts ">[FLEXVPN:children]
-HUBS
-SPOKES
-
-[HUBS]
-HUB-1
-HUB-2
-
-[SPOKES:children]
-GREEN
-BLUE
-RED
-
-[RED]
-SPOKE-1_1
-SPOKE-1_2
-
-[BLUE]
-SPOKE-2
-
-[GREEN]
-SPOKE-3 
-</code></pre>
-
-<h2>Front-door VRF configuration</h2>
-
-<p>Another assumption is that all routers will have their Front-door VRF configured. Normally this would imply configuring an IP address on Internet-facing interface and a vrf-specific default route. In case of HUB-1, where there are two physical links in a single VRF, it is assumed that appropriate SLA-tied static routes are configured to enable dynamic failover between the two links. Here&rsquo;s the example of how it&rsquo;s done on HUB-1:</p>
-
-<pre><code class="text show run vrf FVRF-1">interface Ethernet0/0
- vrf forwarding FVRF-1
- ip address 120.0.0.2 255.0.0.0
-!
-interface Ethernet0/1
- vrf forwarding FVRF-1
- ip address 121.0.0.2 255.0.0.0
-!
-ip route vrf FVRF-1 0.0.0.0 0.0.0.0 120.0.0.1 track 1
-ip route vrf FVRF-1 0.0.0.0 0.0.0.0 121.0.0.1 250
-</code></pre>
-
-<h2>Environment variables and the DRY principle</h2>
-
-<p>One of the most obvious things to turn into a variable is the FVRF name and interface. We&rsquo;ll put it into an Ansible&rsquo;s global variable file <code>./group_vars/all</code>. The same file will have a default BGP AS number for iBGP routing and a table mapping different OU values to their corresponding bandwidth in Kbps.</p>
-
-<pre><code class="yaml ./group_vars/all">---
-bgp_asn: 1
-
-fvrf: 
-  name: FVRF
-  interface: Ethernet0/0
-
-bandwidth:
-  RED:   50000
-  GREEN: 20000
-  BLUE:  10000
-</code></pre>
-
-<p>Each of these variables can be overridden by a more specific host variable located in <code>./host_vars/</code> directory like it is the case with <a href="https://github.com/networkop/flexvpn/blob/master/host_vars/SPOKE-1_1">SPOKE1</a>.  All host-specific variables, like domain names, FlexVPN subnets, public addresses for Hub devices are also being stored in the same directory. Here&rsquo;s an example of how HUB-1 overrides the default FVRF name and defines a few variables of its own:</p>
-
-<pre><code class="yaml ./host_vars/HUB-1">---
-primary: true
-
-domain_name: cloud.one
-
-nbma_ip: dynamic
-
-dynamic:
-  - 120.0.0.2
-  - 121.0.0.2
-
-vpn_ip: 169.254.1.1
-
-subnet: 169.254.1.0/24
-
-fvrf: 
-  name: FVRF-1
-</code></pre>
-
-<p>Here it makes sense to talk about the <strong>DRY principle</strong>. All Spokes in their configuration files will use information like Hub&rsquo;s NBMA address and domain name. So, in theory, we could have created a host variable file for each Spoke and stored that information there. However, in that case we would have multiple duplicate variables all storing the same value. This, obviously, creates a lot of problems when it comes to updating those variables. Instead of updating a value in a single place we now have to go and update every single Spoke&rsquo;s host variables file. That&rsquo;s why it&rsquo;s important to NOT have ANY duplicates of ANY information in ANY part of your code, even if it comes at a price of an increased code complexity. This is widely accepted as best practice and used in almost every programming language and CS discipline.</p>
-
-<h2>FlexVPN configuration templates</h2>
-
-<p>I will omit the actual configuration templates for the sake of brevity. Those who are interested can check out my <a href="https://github.com/networkop/flexvpn">FlexVPN Github repository</a>. Here&rsquo;s how you can generate a full-blown config for FlexVPN network:</p>
-
-<pre><code class="bash 1. Clone Github repository">$ git clone https://github.com/networkop/flexvpn.git
-</code></pre>
-
-<pre><code class="text 2. Update variables to match the network design">./hosts
-./group_vars/all
-./host_vars/
-</code></pre>
-
-<pre><code class="bash 3. Generate configuration files">$ ansible-playbook site.yml
-</code></pre>
-
-<p>All generated configuration files will be stored in <code>./files/</code> directory.</p>
-
-<h2>Conclusion</h2>
-
-<p>Thanks to DRY and Convention over Configuration principles it&rsquo;s possible to devise a configuration template that will be the same for all Spokes. The actual configuration will consist of multiple components like IKEv2, dynamic VTI, AAA and BGP configuration. I&rsquo;ll try to explain how they all tie together in my upcoming post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
 ]]></content>
   </entry>
   
