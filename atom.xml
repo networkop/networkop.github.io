@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-03-23T03:24:51-07:00</updated>
+  <updated>2016-04-04T04:20:44-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,348 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack on UNetlab]]></title>
+    <link href="http://networkop.github.io/blog/2016/04/11/openstak-unl/"/>
+    <updated>2016-04-11T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/04/11/openstak-unl</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;m going to show how to get a running instance of Openstack inside a UNetLab virtual machine.</p>
+
+<!--more-->
+
+
+<p><img class="center" src="http://networkop.github.io/images/unl-os.png"></p>
+
+<h2>What the hell am I trying to do?</h2>
+
+<p>I admit that running Openstack on anything other than baremetal is nonsense. So why would anyone want to run it with two layers of virtualisation underneath? My goal is to explore some of the new SDN/NFV technologies without leaving the confines on my home area network and/or racking up a triple-digit electricity bill. I also wanted to be able to swap underlay networks without spending hours trying to plumb together virtualized switches and servers from multiple vendors. That&rsquo;s why I&rsquo;ve decided to use UNetLab VM as a host for my Openstack lab. This would allow me to easily assemble any type of underlay, WAN or DCI network and with hardware virtualisation support I can afford to run Openstack double-nested inside Workstation and Qemu on my dual-core i7 without too much of a performance penalty. After all, <a href="https://www.ravellosystems.com/technology/hvx">some companies</a> even managed to turn similar things into a commercial product.</p>
+
+<p>My interest in Openstack is strictly limited by networking, that&rsquo;s why a lot of the things you&rsquo;ll see in this and following posts will not be applicable to a real-life production environment. However, as far as networking is concerned, I&rsquo;ll try to stick as close to the official Openstack <a href="http://docs.openstack.org/openstack-ops/content/example_architecture.html">network design</a> as possible. I&rsquo;ll be using <a href="https://www.rdoproject.org">RDO</a> to deploy Openstack. The specific method will be Packstack which is a collection of Puppet modules used to deploy Openstack components.</p>
+
+<p>Why have I not went the OpenDaylight/Mininet way if I wanted to play with SDN/NFV? Because I wanted something more realistic to play with, that wouldn&rsquo;t feel like vendor&rsquo;s powerpoint presentation. Plus there&rsquo;s plenty of resources on the &lsquo;net about it anyway.</p>
+
+<p>So, without further ado, let&rsquo;s get cracking.</p>
+
+<h2>Setting the scene</h2>
+
+<p>On my Windows 8 laptop I&rsquo;ve got a UNL virtual machine running inside a VMWare Workstation.. I&rsquo;ve <a href="http://www.unetlab.com/download/">downloaded</a> and <a href="http://www.unetlab.com/2014/11/upgrade-unetlab-installation/">upgraded</a> a pre-built UNL VM image. I&rsquo;ve also downloaded a copy of the <a href="http://isoredirect.centos.org/centos/7/isos/x86_64/CentOS-7-x86_64-Minimal-1511.iso">Centos 7 minimal ISO image</a> and copied it over to my UNL VM&rsquo;s home directory.</p>
+
+<p>For network access I&rsquo;ll be using VMWware Workstation&rsquo;s NAT interface. It&rsquo;s currently configured with <code>192.168.91.0/24</code> subnet with DHCP range of <code>.128-.254</code>. Therefore I&rsquo;ll be using <code>.10-.126</code> to allocate IPs to my Openstack servers.</p>
+
+<h2>Creating a custom node type in UNL</h2>
+
+<p>Every node type inside UNL has its own unique settings. Some settings, like amount of RAM, CPU or number of network interfaces, can be changed during node instantiation, while some of them remain &ldquo;baked in&rdquo;. Say, for example, the default &ldquo;Linux&rdquo; template creates nodes with default <strong>Qemu Virtual CPU</strong> which doesn&rsquo;t support the hardware virtualisation (<strong>VT-X/AMD-V</strong>) <a href="http://docs.openstack.org/liberty/config-reference/content/kvm.html">required</a> by Openstack. In order to change that you can either edit the existing node template or follow these steps to create a new one:</p>
+
+<ol>
+<li><p>Add Openstack node definition to initialization file <code>/opt/unetlab/html/includes/init.php</code>.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='php'><span class='line'>    <span class="s1">&#39;linux&#39;</span>                 <span class="o">=&gt;</span>      <span class="s1">&#39;Linux&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s1">&#39;openstack&#39;</span>             <span class="o">=&gt;</span>      <span class="s1">&#39;Openstack&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s1">&#39;mikrotik&#39;</span>              <span class="o">=&gt;</span>      <span class="s1">&#39;MikroTik RouterOS&#39;</span><span class="p">,</span>
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Create a new Openstack node template based on existing linux node template.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>cp /opt/unetlab/html/templates/linux.php /opt/unetlab/html/templates/openstack.php
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Edit the template file replacing all occurences of &lsquo;Linux&rsquo; with &lsquo;Openstack&rsquo;</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>sed -i <span class="s1">&#39;s/Linux/Openstack/g; s/linux/openstack/g&#39;</span> /opt/unetlab/html/templates/openstack.php
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Edit the template file to double the RAM and CPU and pass all host&rsquo;s CPU instructions to Openstack nodes</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>sed -i <span class="s1">&#39;s/2048/4096/; s/(cpu.*) = 1/\1 = 2/; s/(order=)dc/\1cd -cpu host/&#39;</span> /opt/unetlab/html/templates/openstack.php
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+</ol>
+
+
+<p>At this point you should be able to navigate to UNL&rsquo;s web interface and find a new node of type Openstack. However you won&rsquo;t be able to create it until you have at least one image, which is what we&rsquo;re going to build next.</p>
+
+<h2>Building a Linux VM inside UNetLab</h2>
+
+<p>Now we need to create a CentOS image inside a UNL. One way to do it is build it inside a VMWare Workstation, copy it to UNL and convert the <strong>.vmdk</strong> to <strong>.qcow2</strong>. However, when I tried doing this I ran into a problem with CentOS not finding the correct disk partitions during bootup. The workaround was to boot into rescue mode and rebuild the initramfs. For those feeling adventurous, I would recommend checking out the following links [<a href="https://wiki.centos.org/TipsAndTricks/CreateNewInitrd">1</a>, <a href="http://advancelinux.blogspot.com.au/2013/06/how-to-rebuild-initrd-or-initramfs-in.html">2</a>, <a href="http://forums.fedoraforum.org/showthread.php?t=288020">3</a>] before trying this option.<br/>
+The other option is to build CentOS inside UNL from scratch. This is how you can do it:</p>
+
+<ol>
+<li><p>Create a new directory for Openstack image</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>mkdir -p /opt/unetlab/addons/qemu/openstack-1
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Create a link to CentOS ISO boot image from our new directory</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>ln -s ~/CentOS-7-x86_64-Minimal-1511.iso /opt/unetlab/addons/qemu/openstack-1/cdrom.iso
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Create a blank 6Gb disk image</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>/opt/qemu/bin/qemu-img create -f qcow2 -o <span class="nv">preallocation</span><span class="o">=</span>metadata /opt/unetlab/addons/qemu/openstack-1/virtioa.qcow2 6G
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p> If you want to create <strong>snapshots</strong> at any stage of the process you&rsquo;d need to use a copy of this file under /opt/unetlab/tmp/pod_id/lab_uuid/node_id/ directory</p></li>
+</ol>
+
+
+<p>Now you should be able to successfully create an Openstack node and connect it to Internet. Create a new network that would have Internet connectivity (in my case it&rsquo;s <strong>pnet0</strong>) and connect it to Openstack&rsquo;s <strong>eth0</strong>.  At this stage we have everything ready to start installing Openstack, but before we move on let me take a quick detour to tell you about my ordeals with VNC integration.</p>
+
+<h2>Optional: Integrating TightVNC with UNL</h2>
+
+<p>For some unknown reason UltraVNC does not work well on my laptop. My sessions would often crash or start minimised with the only option to close the window. That&rsquo;s not the only thing not working properly on my laptop thanks to the corporate policies with half of the sh*t locked down for <em>security</em> reasons.<br/>
+So instead of mucking around with <strong>Ultra</strong> I decided to give me old pal <strong>Tight</strong>VNC a go. The setup process is very similar to the <a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/">official VNC integration guide</a> with the following exceptions:</p>
+
+<ol>
+<li><p>The wrapper file simply strips the leading &lsquo;vnc://&rsquo; and trailing &lsquo;/&rsquo; off the passed argument</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='winbatch'><span class='line'>   <span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%1</span>
+</span><span class='line'>   <span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%arg:~6%</span>
+</span><span class='line'>   <span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%arg:~0</span><span class="p">,</span><span class="m">-1</span>%
+</span><span class='line'>   start <span class="s2">&quot;&quot;</span> <span class="s2">&quot;c:\Program Files\TightVNC\tvnviewer.exe&quot;</span> <span class="nv">%arg%</span>
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>The registry entry now points to the TightVNC wrapper</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='registry'><span class='line'>   <span class="k">[</span><span class="nb">HKEY_CLASSES_ROOT</span><span class="k">\vnc\shell\open\command]</span>
+</span><span class='line'>   <span class="na">@</span><span class="o">=</span><span class="s">&quot;\&quot;c:\Program Files\TightVNC\wrapper.bat\&quot; %1&quot;</span>
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+</ol>
+
+
+<h2>Installing CentOS and Openstack</h2>
+
+<p>Finally, we&rsquo;ve got all our ducks lined up in a row and we&rsquo;re ready to shoot. Fire up the Openstack node inside UNL and click on it to open a vnc session. Proceed to install CentOS with default options. You need to confirm which <strong>hard disk</strong> to use and setup the <strong>hostname</strong> and the <strong>root password</strong> during installation process.
+As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all the necessary Openstack components. The whole installation process will be quite simple and can be found on the RDO&rsquo;s <a href="https://www.rdoproject.org/install/quickstart/">quickstart page</a>. Here is my slightly modified version of installation process:</p>
+
+<ol>
+<li><p>Disable Network Manager and SELinux.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>service NetworkManager stop
+</span><span class='line'>    <span class="nv">$ </span>systemctl disable NetworkManager.service
+</span><span class='line'>    <span class="nv">$ </span>setenforce 0
+</span><span class='line'>    <span class="nv">$ </span>sed -i <span class="s1">&#39;s/enforcing/permissive/&#39;</span> /etc/selinux/config
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Configure static IP address <code>192.168.91.10</code> on the network interface. <br/>
+ Assuming your interface name is <code>eth0</code> make sure you /etc/sysconfig/network-scripts/ifcfg-eth0 looks something like this:</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">TYPE</span><span class="o">=</span><span class="s2">&quot;Ethernet&quot;</span>
+</span><span class='line'>    <span class="nv">BOOTPROTO</span><span class="o">=</span><span class="s2">&quot;static&quot;</span>
+</span><span class='line'>    <span class="nv">IPADDR</span><span class="o">=</span>192.168.91.10
+</span><span class='line'>    <span class="nv">PREFIX</span><span class="o">=</span>24
+</span><span class='line'>    <span class="nv">GATEWAY</span><span class="o">=</span>192.168.91.2
+</span><span class='line'>    <span class="nv">DNS1</span><span class="o">=</span>192.168.91.2
+</span><span class='line'>    <span class="nv">NAME</span><span class="o">=</span><span class="s2">&quot;eth0&quot;</span>
+</span><span class='line'>    <span class="nv">DEVICE</span><span class="o">=</span><span class="s2">&quot;eth0&quot;</span>
+</span><span class='line'>    <span class="nv">ONBOOT</span><span class="o">=</span><span class="s2">&quot;yes&quot;</span>
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>  Issue a <code>service network restart</code> and reconnect to the new static IP address. Make sure that you still have access to Internet after making this change.</p></li>
+<li><p>Setup RDO repositories</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>sudo yum install -y <a href="https://rdoproject.org/repos/rdo-release.rpm">https://rdoproject.org/repos/rdo-release.rpm</a>
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Update your current packages</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>sudo yum update -y
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Install Packstack</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>sudo yum install -y openstack-packstack
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>  That&rsquo;s where it&rsquo;d make sense to take a snapshot with <code>qemu-img snapshot -c pre-install virtioa.qcow2</code> command</p></li>
+<li><p>Deploy a single-node Openstack environment</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>packstack <span class="se">-</span>-allinone <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-os-cinder-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-os-ceilometer-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-os-trove-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-os-ironic-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-nagios-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-os-swift-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-os-neutron-ovs-bridge-mappings<span class="o">=</span>extnet:br-ex <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-os-neutron-ovs-bridge-interfaces<span class="o">=</span>br-ex:eth0 <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-os-neutron-ml2-type-drivers<span class="o">=</span>vxlan,flat <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-provision-demo<span class="o">=</span>n
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>  Here we&rsquo;re overriding some of the default Packstack options. We&rsquo;re not installing some of the components we&rsquo;re not going to use and setting up a name (<strong>extnet</strong>) for our external physical segment, which we&rsquo;ll use in the next section.</p></li>
+</ol>
+
+
+<p>At the end of these 4 steps you should be able to navigate to Horizon (Openstack&rsquo;s dashboard) by typing <code>http://192.168.91.10</code> in your browser. You can find login credentials in the <code>~/keystonerc_admin</code> file.</p>
+
+<h2>Configuring Openstack networking</h2>
+
+<p>At this stage we need to setup virtual networking infrastructure inside Openstack. This will be almost the same as described in RDO&rsquo;s external network <a href="https://www.rdoproject.org/networking/neutron-with-existing-external-network/">setup guide</a>. The only exceptions will be the <a href="https://www.rdoproject.org/networking/difference-between-floating-ip-and-private-ip/">floating IP range</a>, which will match our existing environment, and the fact that we&rsquo;re no going to setup any additional tenants yet. This is how our topology will look like:</p>
+
+<p><img class="center" src="http://networkop.github.io/images/os-net-1.png"></p>
+
+<ol>
+<li><p>Switch to Openstack&rsquo;s <code>admin</code> user
+ <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span><span class="nb">source</span> ~/keystonerc_admin
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Create external network
+ <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    neutron net-create external_network <span class="se">-</span>-provider:network_type flat <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-provider:physical_network extnet  <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-router:external <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-shared
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Create a public subnet</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    neutron subnet-create <span class="se">-</span>-name public_subnet <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-enable_dhcp<span class="o">=</span>False <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-allocation-pool<span class="o">=</span><span class="nv">start</span><span class="o">=</span>192.168.91.90,end<span class="o">=</span>192.168.91.126 <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-gateway<span class="o">=</span>192.168.91.2 external_network 192.168.91.0/24
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>  Default gateway is VMware&rsquo;s NAT IP address</p></li>
+<li><p>Create a private network and subnet</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    neutron net-create private_network
+</span><span class='line'>    neutron subnet-create <span class="se">-</span>-name private_subnet private_network 10.0.0.0/24 <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-dns-nameserver 8.8.8.8
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>   This network non-routable outside of Openstack and is used for inter-VM communication</p></li>
+<li><p>Create a virtual router and attach it to both networks</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    neutron router-create router
+</span><span class='line'>    neutron router-gateway-set router external_network
+</span><span class='line'>    neutron router-interface-add router private_subnet
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+</ol>
+
+
+<p>Make sure to check out the visualisation of our newly created network topology in Horizon, it&rsquo;s amazing.</p>
+
+<h2>Spinning up a VM</h2>
+
+<p>There&rsquo;s no point in installing Openstack just for the sake of it. Our final step would be to create a working virtual machine that would be able to connect to Internet.</p>
+
+<ol>
+<li><p>Download a test linux image</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    curl <a href="http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img">http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img</a> <span class="p">|</span> glance <span class="se">\</span>
+</span><span class='line'>    image-create <span class="se">-</span>-name<span class="o">=</span><span class="s1">&#39;cirros image&#39;</span> <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-visibility<span class="o">=</span>public <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-container-format<span class="o">=</span>bare <span class="se">\</span>
+</span><span class='line'>    <span class="se">-</span>-disk-format<span class="o">=</span>qcow2
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>From Horizon&rsquo;s home page navigate to Project -> Compute -> Images.</p></li>
+<li><p>Click on <code>Launch Instance</code> and give the new VM a name.</p></li>
+<li><p>Make sure it&rsquo;s attached to <code>private_network</code> under the Networking tab.</p></li>
+<li><p>Less then a minute later the status should change to <code>Active</code> and you can navigate to VM&rsquo;s console by clicking on its name and going to <code>Console</code> tab.</p></li>
+<li><p>Login using the default credentials (<strong>cirros/cubswin:)</strong>) and verify Internet access by pinging google.com.</p></li>
+</ol>
+
+
+<p>Congratulations, we have successfully created a VM running inside a KVM inside a KVM inside a VMWare Workstation inside Windows!</p>
+
+<h2>What to expect next</h2>
+
+<p>Unlike my other post series, I don&rsquo;t have a clear goal at this stage so I guess I&rsquo;ll continue playing around with different underlays for multi-node Openstack and then move on to various SDN solutions available like OpenDayLight and OpenContrail. Unless I lose interest half way through, which happened in the past. But until that happens, stay tuned for more.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC]]></title>
@@ -83,7 +425,7 @@
 </span></code></pre></td></tr></table></div></figure>
 
 
-<p>We expect all traffic to flow through active devices, even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS links and a complete outage of the primary core switch.</p>
+<p>We expect all traffic to flow through active devices even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS link and a complete outage of the primary core switch.</p>
 
 <h2>Workflow example</h2>
 
@@ -97,7 +439,7 @@
 <li>Review the <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/topology.py">topology definition file</a> to make sure it reflects our physical diagram</li>
 <li>Review the UNL <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/unetlab.yml">configuration file</a> to make sure it points to the correct IP address assigned to your network-ci VM</li>
 <li>Kick-off topology build inside UNL by running <code>./0_built_topo.py</code> script</li>
-<li>Verify the traffic flows as expected with <code>2_test.py</code> script</li>
+<li>Verify that traffic flows as expected with <code>2_test.py</code> script</li>
 <li>Start the real-time monitoring with <code>1_monitor.py</code> script</li>
 <li>Implement required changes on individual devices (all required changes can be found in <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/ospf-bgp.txt">ospf-bgp.txt</a> file)</li>
 <li>Make sure that the network still behaves as before by running <code>2_test.py</code> script</li>
@@ -4972,61 +5314,6 @@ Once respository is created, Github will provide instructions to setup repositor
 
 <p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.
 In the next post I will show how to setup Ansible to work with Cisco devices.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Building a Simple Network TDD Framework]]></title>
-    <link href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/"/>
-    <updated>2015-06-15T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/06/15/simple-tdd-framework</id>
-    <content type="html"><![CDATA[<p>In the following series of posts I will show how to build a simple Test-Driven Development framework
-for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of <a href="http://docs.ansible.com/list_of_files_modules.html">Ansible</a> <em>modules</em> and <em>playbooks</em>. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. <abbr title="Software-Defined Network">SDN</abbr>. The reader is assumed to have only a basic networking, linux and python programming skills.</p>
-
-<!--more-->
-
-
-<h2>Before we begin (optional section)</h2>
-
-<p>Before we go on, I&rsquo;d like to put a little disclaimer about terms being used in this post. <abbr title="Test-Driven Development">TDD</abbr>, and its counterpart <abbr title="Behaviour-Driven Development">BDD</abbr>,
-are well-known and accepted practices in development world. Both rely on the assumption that tests will be written
-before the code and will <em>drive</em> code development. This seemingly unnatural approach became extremely popular with the advent of <a href="http://agilemanifesto.org/">Agile</a> and is still being widely used, specifically in web development. What I will be developing will look more like a BDD rather than TDD, since it will be testing overall system behaviour rather than small self-contained portions of configuration. However, I still prefer to use the term TDD, firstly, because it&rsquo;s easier to understand for people from a non-dev background, secondly, because it&rsquo;s very hard/impossible to test small portions of network configuration (like routing protocol configuration), and lastly, since my tests will rely heavily on traceroutes, TDD may as well stand for Traceroute-Driven Development.</p>
-
-<h2>How will it work?</h2>
-
-<p>Traffic flow patterns, a.k.a. traffic paths is one bit of information that even higher-level management is able to comprehend. With a nice network diagram it is easy to show how low-latency traffic from Network_A will flow to Network_B through private VPN link on Router_X, while an internet-bound traffic will traverse a low-cost, high-latency Internet link on Router_Y. The TDD framework will use the same idea but in a text format</p>
-
-<figure class='code'><figcaption><span>TDD scenario file example</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>1. Testing of Primary Link
-</span><span class='line'>  1. From Router1 to Router2 via Router4, Router5
-</span><span class='line'>  2. From Router2 to Router1 via Router5, Router4
-</span><span class='line'>2. Testing of Backup Link
-</span><span class='line'>  1. From Router4 to Router1 via Router3
-</span><span class='line'>  2. From Router4 to Router2 via Router7
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>This format can be understood by both network engineers and their clients and can be used as a basis for network acceptance and verification testing. At the same time it follows a strictly defined format which can be parsed, processed and actioned by a program. I&rsquo;ll show how to write an Ansible module that parses this text, runs a traceroute and checks if the test was successful.<br/>
-These tests can also be used during regression testing of the network each time network configuration changes. This kind of verification offers a much more reliable result compared to visual examination of traceroute results and routing tables.</p>
-
-<h2>Step-by-step procedure</h2>
-
-<p>This is how I see the whole development process now (before I started). Some section may get added/removed in the process. I&rsquo;ll try to write at least one post a week aiming to complete the series in under one month.</p>
-
-<ol>
-<li><a href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">Development environment setup</a></li>
-<li><a href="http://networkop.github.io/blog/2015/06/24/ansible-intro/">Getting started with Ansible for Cisco IOS</a></li>
-<li><a href="http://networkop.github.io/blog/2015/07/03/parser-modules/">Developing Ansible library to gather facts from Cisco devices</a></li>
-<li><a href="http://networkop.github.io/blog/2015/07/10/test-verification/">Developing Ansible library to verify test scenarios</a></li>
-</ol>
-
-
-<p>A <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">quickstart guide</a> for those interested to see the final product in action.</p>
 ]]></content>
   </entry>
   

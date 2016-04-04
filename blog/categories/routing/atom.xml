@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Routing | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/routing/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-03-23T03:24:51-07:00</updated>
+  <updated>2016-04-04T04:20:44-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -76,7 +76,7 @@
   From Cloud-2 to MPLS-DMVPN via Primary-WAN, Primary-MPLS
 </code></pre>
 
-<p>We expect all traffic to flow through active devices, even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS links and a complete outage of the primary core switch.</p>
+<p>We expect all traffic to flow through active devices even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS link and a complete outage of the primary core switch.</p>
 
 <h2>Workflow example</h2>
 
@@ -90,7 +90,7 @@
 <li>Review the <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/topology.py">topology definition file</a> to make sure it reflects our physical diagram</li>
 <li>Review the UNL <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/unetlab.yml">configuration file</a> to make sure it points to the correct IP address assigned to your network-ci VM</li>
 <li>Kick-off topology build inside UNL by running <code>./0_built_topo.py</code> script</li>
-<li>Verify the traffic flows as expected with <code>2_test.py</code> script</li>
+<li>Verify that traffic flows as expected with <code>2_test.py</code> script</li>
 <li>Start the real-time monitoring with <code>1_monitor.py</code> script</li>
 <li>Implement required changes on individual devices (all required changes can be found in <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/ospf-bgp.txt">ospf-bgp.txt</a> file)</li>
 <li>Make sure that the network still behaves as before by running <code>2_test.py</code> script</li>
