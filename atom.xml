@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-04-04T04:28:04-07:00</updated>
+  <updated>2016-04-17T18:37:16-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,273 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Building a Multi-node OpenStack Lab in UNetLab]]></title>
+    <link href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/"/>
+    <updated>2016-04-18T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/04/18/os-unl-lab</id>
+    <content type="html"><![CDATA[<p>In the <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a> I&rsquo;ve demonstrated how to get a working instance of a single-node OpenStack inside <a href="http://www.unetlab.com/">UNetLab</a>. In this post we&rsquo;ll continue building on that by adding two new compute nodes and redesigning our network to resemble something you might actually see in a real life.</p>
+
+<!--more-->
+
+
+<h2>OpenStack network requirements</h2>
+
+<p>Depending on the number of deployed <a href="https://www.openstack.org/software/project-navigator/">components</a>, OpenStack physical network requirements could be different. In our case we&rsquo;re not going to deploy any storage solution and simply use the <strong>ephemeral</strong> storage, i.e. hard disk that&rsquo;s a part of a virtual machine. However, even in minimal installations, there are a number of networks that should be considered individually due to different connectivity requirements:</p>
+
+<ul>
+<li><p>Server <abbr title=" Out-Of-Band">OOB</abbr> <strong>management</strong> network - this is usually a dedicated physical network used mainly for server bootstrapping and OS deployment. It is a Layer 3 network with DHCP relays configured at each edge L3 interface and access to Internet package repositories.</p></li>
+<li><p><strong>API</strong> network - used for internal communication between various OpenStack services. This can be a routed network without Internet access. The only requirement is any-to-any reachability within a single OpenStack environment.</p></li>
+<li><p><strong>External</strong> network - used for public access to internal OpenStack virtual machines. This is the <em>outside</em> of OpenStack, with a pool of IP addresses used to NAT the internal IPs of public-facing virtual machines. This network <strong>must</strong> be Layer 2 adjacent <strong>only</strong> with a network control node.</p></li>
+<li><p><strong>Tenant</strong> network - used for communication between virtual machines within OpenStack environment. Thanks to the use of VXLAN overlay, this can be a simple routed network that has any-to-any reachability between all Compute and Network nodes.</p></li>
+</ul>
+
+
+<h2>Building a lab network</h2>
+
+<p>For labbing purposes it&rsquo;s possible to relax some of the above network requirements without seriously affecting the outcomes of our simulation. For example, it&rsquo;s possible to combine some of the networks and still satisfy the requirements stated above. These are the networks that will be configured inside UNetLab:</p>
+
+<ul>
+<li><p><strong>Management</strong> - this network will combine the functions of OOB and API networks. To isolate it from our data centre underlay I&rsquo;ll be using separate interfaces on virtual machines and connect them directly to Workstation&rsquo;s NAT interface (192.168.91.0/24 in my case)  to give them direct access to Internet.</p></li>
+<li><p><strong>External</strong> - this network will be connected to Workstation&rsquo;s host-only NIC (192.168.247.0/24) through Vlan300 configured on one of the leaf switches. Since it must be L2 adjacent with the network control node our leaf switch will not perform any routing for this subnet.</p></li>
+<li><p><strong>Tenant</strong> - this will be a routed leaf/spine <a href="https://en.wikipedia.org/wiki/Clos_network">Clos</a> fabric comprised of 3 leaf and 2 spine switches running a single-area OSPF process on all their links. Each server will have its own unique tenant subnet (Vlan100) terminated on the leaf switch and subnet injected into OSPF. The subnet used for this Vlan is going to be <code>10.0.X.0/24</code>, where X is the number of the leaf switch terminating the vlan.</p>
+
+<p>  The links between switches are all L3 point-to-point with addresses borrowed from 169.254.0.0/16 range specifically to emphasize the fact that the internal addressing does not need to be known or routed outside of the fabric. The <strong>sole function of the fabric</strong> is to provide multiple equal cost paths between any pair of leafs, thereby achieving maximum link utilisation. Here&rsquo;s an example of a traceroute between Vlan100&rsquo;s of Leaf #1 and Leaf #3.</p></li>
+</ul>
+
+
+<figure class='code'><figcaption><span>Traceroute inside an ECMP routed Clos fabric</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>L3#traceroute 10.0.1.1 source 10.0.3.1
+</span><span class='line'>Type escape sequence to abort.
+</span><span class='line'>Tracing the route to 10.0.1.1
+</span><span class='line'>VRF info: (vrf in name/id, vrf out name/id)
+</span><span class='line'>  1 169.254.31.111 1 msec
+</span><span class='line'>    169.254.32.222 0 msec
+</span><span class='line'>    169.254.31.111 0 msec
+</span><span class='line'>  2 169.254.12.1 1 msec
+</span><span class='line'>    169.254.11.1 1 msec *
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p></p>
+
+<h2>Building lab servers</h2>
+
+<p>Based on my experience a standard server would have at least 3 physical interfaces - one for OOB management and a pair of interfaces for application traffic. The two application interfaces will normally be combined in a single <abbr title=" Link Aggregation Group">LAG</abbr> and connected to a pair of MLAG-capable TOR switches. Multi-chassis LAG or <a href="http://blog.ipspace.net/2010/10/multi-chassis-link-aggregation-basics.html">MLAG</a> is a pretty old and well-understood technology so I&rsquo;m not going to try and simulate it in the lab. Instead I&rsquo;ll simply assume that a server will be connected to a TOR switch via a single physical link. That link will be setup as a dot1q trunk to allow for multiple subnets to share it.</p>
+
+<h2>Physical lab topology</h2>
+
+<p>All the above requirements and assumptions result in the following topology that we need to build inside UNetLab:</p>
+
+<p><img class="center" src="http://networkop.github.io/images/neutron-native.png"></p>
+
+<p>For servers I&rsquo;ll be using OpenStack node type that I&rsquo;ve described in my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a>. The two compute nodes do not need as much RAM as the control node, so I&rsquo;ll reduce it to just 2GB.</p>
+
+<p>For switches I&rsquo;ll be using a Cisco&rsquo;s <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">L2 IOU</a> image for now, mainly due to the low resource requirements. In the future I&rsquo;ll try and swap it for something else. As you can see from the sample config below, fabric configuration is very basic and can be easily replaced by any other solution:</p>
+
+<figure class='code'><figcaption><span>Leaf 1 configuration</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>interface Ethernet0/0
+</span><span class='line'> no switchport
+</span><span class='line'> ip address 169.254.11.1 255.255.255.0
+</span><span class='line'> ip ospf network point-to-point
+</span><span class='line'> duplex auto
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/1
+</span><span class='line'> no switchport
+</span><span class='line'> ip address 169.254.12.1 255.255.255.0
+</span><span class='line'> ip ospf network point-to-point
+</span><span class='line'> duplex auto
+</span><span class='line'>!
+</span><span class='line'>interface Ethernet0/2
+</span><span class='line'> switchport trunk allowed vlan 100
+</span><span class='line'> switchport trunk encapsulation dot1q
+</span><span class='line'> switchport mode trunk
+</span><span class='line'>!
+</span><span class='line'>interface Vlan100
+</span><span class='line'> ip address 10.0.1.1 255.255.255.0
+</span><span class='line'>!
+</span><span class='line'>router ospf 1
+</span><span class='line'> network 0.0.0.0 255.255.255.255 area 0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Server configuration and OpenStack installation</h2>
+
+<p>Refer to my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a> for instructions on how to install OpenStack and follow the first 5 steps from &ldquo;Installing CentOS and Openstack&rdquo; section. Before doing the final step, we need to configure our VMs' new interfaces:</p>
+
+<ul>
+<li>Remove any IP configuration from <strong>eth1</strong> interface to make it look like this:</li>
+</ul>
+
+
+<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/ifcfg-eth1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='ini'><span class='line'><span class="na">TYPE</span><span class="o">=</span><span class="s">Ethernet</span>
+</span><span class='line'><span class="na">BOOTPROTO</span><span class="o">=</span><span class="s">none</span>
+</span><span class='line'><span class="na">DEVICE</span><span class="o">=</span><span class="s">eth1</span>
+</span><span class='line'><span class="na">ONBOOT</span><span class="o">=</span><span class="s">yes</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<ul>
+<li>Configure <strong>Tenant network</strong>:</li>
+</ul>
+
+
+<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/ifcfg-eth1.100</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='ini'><span class='line'><span class="na">VLAN</span><span class="o">=</span><span class="s">yes</span>
+</span><span class='line'><span class="na">DEVICE</span><span class="o">=</span><span class="s">eth1.100</span>
+</span><span class='line'><span class="na">BOOTPROTO</span><span class="o">=</span><span class="s">none</span>
+</span><span class='line'><span class="na">IPADDR</span><span class="o">=</span><span class="s">10.0.X.10</span>
+</span><span class='line'><span class="na">PREFIX</span><span class="o">=</span><span class="s">24</span>
+</span><span class='line'><span class="na">ONBOOT</span><span class="o">=</span><span class="s">yes</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<ul>
+<li>Setup a <strong>static route</strong> to all other leaf nodes:</li>
+</ul>
+
+
+<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/route-eth1.100</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='ini'><span class='line'><span class="err">10.0.0.0/8</span> <span class="err">via</span> <span class="err">10.0.X.1</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<ul>
+<li>On Control node setup <strong>External network</strong> interface</li>
+</ul>
+
+
+<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/route-eth1.300</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='ini'><span class='line'><span class="na">DEVICE</span><span class="o">=</span><span class="s">eth1.300</span>
+</span><span class='line'><span class="na">IPADDR</span><span class="o">=</span><span class="s">192.168.247.100</span>
+</span><span class='line'><span class="na">PREFIX</span><span class="o">=</span><span class="s">24</span>
+</span><span class='line'><span class="na">ONBOOT</span><span class="o">=</span><span class="s">yes</span>
+</span><span class='line'><span class="na">BOOTPROTO</span><span class="o">=</span><span class="s">none</span>
+</span><span class='line'><span class="na">VLAN</span><span class="o">=</span><span class="s">yes</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now we&rsquo;re ready to kick off OpenStack installation. This can be done with a single command that needs to be executed on the Control node. Note that <code>eth1.100</code> interface is spelled as <code>eth1_100</code> in the last line.</p>
+
+<figure class='code'><figcaption><span>Controller</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>packstack --allinone <span class="se">\</span>
+</span><span class='line'>    --os-cinder-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --os-ceilometer-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --os-trove-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --os-ironic-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --nagios-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --os-swift-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --os-gnocchi-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --os-aodh-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --os-neutron-ovs-bridge-mappings<span class="o">=</span>extnet:br-ex <span class="se">\</span>
+</span><span class='line'>    --os-neutron-ovs-bridge-interfaces<span class="o">=</span>br-ex:eth1.300 <span class="se">\</span>
+</span><span class='line'>    --os-neutron-ml2-type-drivers<span class="o">=</span>vxlan,flat <span class="se">\</span>
+</span><span class='line'>    --provision-demo<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'>    --os-compute-hosts<span class="o">=</span>192.168.91.10,192.168.91.11,192.168.91.12 <span class="se">\</span>
+</span><span class='line'>    --os-neutron-ovs-tunnel-if<span class="o">=</span>eth1_100
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Creating a virtual network for a pair of VMs</h2>
+
+<p>Once again, follow all steps from &ldquo;Configuring Openstack networking&rdquo; section of my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a>. Only this time when setting up a public subnet, update the subnet details to match our current environment:</p>
+
+<figure class='code'><figcaption><span>Step 3 - Creating a public subnet</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>  neutron subnet-create --name public_subnet <span class="se">\</span>
+</span><span class='line'>    --enable_dhcp<span class="o">=</span>False <span class="se">\</span>
+</span><span class='line'>    --allocation-pool<span class="o">=</span><span class="nv">start</span><span class="o">=</span>192.168.247.90,end<span class="o">=</span>192.168.247.126 <span class="se">\</span>
+</span><span class='line'>    --gateway<span class="o">=</span>192.168.247.1 external_network 192.168.247.0/24
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Nova-scheduler and setting up host aggregates</h2>
+
+<p>OpenStack&rsquo;s Nova project is responsible for managing virtual machines. Nova controller views all available compute nodes as a single pool of resources. When a new VM is to be instantiated, a special process called nova-scheduler examines all available compute nodes and selects the &ldquo;best&rdquo; one based on a special algorithm, which normally takes into account amount of RAM, CPU and other host capabilities.</p>
+
+<p>To make our host selection a little bit more deterministic, we can define a group of compute servers via <strong>host aggregates</strong>, which will be used by nova-scheduler in its selection algorithm. Normally it could include all servers in a single rack or a row of racks. In our case we&rsquo;ll setup two host aggregates each with a single compute host. This way we&rsquo;ll be able to select exactly which compute host to use when instantiating a new virtual machine.</p>
+
+<p>To setup it up, from Horizon&rsquo;s dashboard navigate to Admin -> System and create two host aggregates <strong>comp-1</strong> and <strong>comp-2</strong>, each including a single compute host.</p>
+
+<h2>Creating workloads and final testing</h2>
+
+<p>Using a process described in &ldquo;Spinning up a VM&rdquo; section of my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a>, create a couple of virtual machines assigning them to different host aggregates created earlier.</p>
+
+<h2>Security and Remote access</h2>
+
+<p>To access these virtual machines we need to give them a <a href="https://www.rdoproject.org/networking/floating-ip-range/">floating</a> ip address from the External subnet range. To do that navigate to Project -> Compute -> Instances and select <strong>Associate Floating IP</strong> from the Actions drop-down menu.</p>
+
+<p>The final steps is to allow remote SSH access. Each new VM inherits ACLs from a default security group. So the easiest way to allow SSH is to go to Project -> Compute -> Access &amp; Security and add a rule to allow inbound SSH connections for the default security group.</p>
+
+<h2>Verification</h2>
+
+<p>At this stage you should be able to SSH into the floating IP addresses assigned to the two new VMs using the default credentials. Feel free to poke around and explore Horizon&rsquo;s interface a bit more. For example, try setting up an SSH key pair and re-build our two VMs to allow passwordless SSH access.</p>
+
+<h2>What to expect next</h2>
+
+<p>In the next post we&rsquo;ll explore some of the basic concepts of OpenStack&rsquo;s SDN. We&rsquo;ll peak inside the internal implementation of virtual networks and see what are some of their limitations and drawbacks.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack on UNetlab]]></title>
@@ -5076,244 +5343,6 @@ file syncing app called <a href="https://syncthing.net/">Syncthing</a>. Why is i
 <hr />
 
 <p>How can you not love open-source after that?</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Development Environment Setup]]></title>
-    <link href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/"/>
-    <updated>2015-06-17T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/06/17/dev-env-setup</id>
-    <content type="html"><![CDATA[<p>Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:</p>
-
-<ul>
-<li>Network Simulation Environment</li>
-<li>Ansible Development Environment</li>
-</ul>
-
-
-<p>To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use <a href="http://www.unetlab.com/">UnetLab</a>, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on <a href="http://www.unetlab.com/download/">the website</a>. To simulate network devices I will run <abbr title="IOS on Unix">IOU</abbr> which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.</p>
-
-<!--more-->
-
-
-<h2>UnetLab setup</h2>
-
-<p>UnetLab is a network simulation environment very similar to GNS3. The biggest advantage for me, personally, is that it runs as a single entity and doesn&rsquo;t require a separate front-end like GNS3. That being said, the only requirement for this project is for the test network to have remote connectivity to a machine running Ansible, so having UnetLab specifically is not required and any network simulator would do, including a real (non-virtual) lab. One of the side effects of choosing UnetLab is that all development will have to be done on Ubuntu which is the OS pre-installed in the OVA.<br/>
-Here are the steps required to get the network environment setup:</p>
-
-<ol>
-<li><a href="http://www.unetlab.com/download/">Download</a> and import OVA file into the hypervisor of your choice.</li>
-<li>Download and <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">import</a> Cisco L3 IOU file.</li>
-<li>Create a simple 4-device network (<a href="http://www.unetlab.com/2014/11/create-the-first-lab/">example</a>) and <a href="http://www.unetlab.com/2014/11/using-cloud-devices/">connect it to the network of host machine</a>.</li>
-<li><a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/">Configure</a> your favourite terminal program to work with UnetLab&rsquo;s web interface</li>
-</ol>
-
-
-<p>This is the topology I will be using for testing:
-<img class="center" src="http://networkop.github.io/images/lab-topo.png" title="'Test Topology'" ></p>
-
-<p>Each device will have a Loopback interface in <code>10.0.0.0/24</code> subnet which I will statically point to <code>interface Eth0/2</code> of R1 on the host machine. Here&rsquo;s the example of R1&rsquo;s configuration:</p>
-
-<figure class='code'><figcaption><span>Sample Router Configuration - R1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>! Configure hostname, domain and RSA key to enable SSH
-</span><span class='line'>hostname R1
-</span><span class='line'>ip domain name tdd.lab
-</span><span class='line'>crypto key generate rsa modulus 1024
-</span><span class='line'>! Point AAA to local database
-</span><span class='line'>aaa new-model
-</span><span class='line'>aaa authentication login default local
-</span><span class='line'>aaa authorization exec default local
-</span><span class='line'>username cisco privilege 15 secret cisco
-</span><span class='line'>! Enable remote ssh connections
-</span><span class='line'>line vty 0 4
-</span><span class='line'> transport input ssh
-</span><span class='line'>! Configure interfaces
-</span><span class='line'>interface Loopback0
-</span><span class='line'> ip address 10.0.0.1 255.255.255.255
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/0
-</span><span class='line'> ip address 12.12.12.1 255.255.255.0
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/1
-</span><span class='line'> ip address 14.14.14.1 255.255.255.0
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/2
-</span><span class='line'> description connection to host machine
-</span><span class='line'> ip address 192.168.247.25 255.255.255.0
-</span><span class='line'>! Enable dynamic routing
-</span><span class='line'>router eigrp 100
-</span><span class='line'> network 0.0.0.0
-</span><span class='line'>!
-</span><span class='line'>end
-</span><span class='line'>write
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<p>All other devices will have similar configuration with the end goal of having connectivity between any pair of Loopback interfaces.</p>
-
-<p>In order to to have connectivity to devices from a host machine we need to add a static route for <code>10.0.0.0/24</code> network:</p>
-
-<figure class='code'><figcaption><span>Adding a static route to test topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>route add -net 10.0.0.0 netmask 255.255.255.0 gw 192.168.247.25
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<p>At this point host machine should be able to ping each one of those Loopbacks:</p>
-
-<figure class='code'><figcaption><span>Testing connectivity to test devices</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span><span class="k">for</span> i in <span class="o">{</span>1..4<span class="o">}</span><span class="p">;</span> <span class="k">do</span> ping -c <span class="m">1</span> 10.0.0.<span class="nv">$i</span><span class="p">;</span> <span class="k">done</span> <span class="p">|</span> grep packets
-</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
-</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
-</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
-</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Dev environment setup</h2>
-
-<p>Ansible is one of the most popular automation and orchestration tools in IT industry. Part of its popularity is due to the &ldquo;clientless&rdquo; architecture where
-the only requirement to a managed system is to have ssh access and Python execution environment. The latter pretty much rules out the biggest part of common
-networking infrastructure. However it is still possible to use Ansible in a &ldquo;raw&rdquo; mode and write modules of our own. That&rsquo;s exactly what we&rsquo;re gonna do in this exercise.
-Due to the fact that Ansible is written in Python, it has better support for modules written in the same language, therefore all modules will be written in Python.<br/>
-One important tool every developer uses is version control. It allows to track changes made to the code and enables collaboration between multiple
-people working on the same project. For beginners it always makes sense to stick to the most popular tools, that&rsquo;s why I&rsquo;ll be using git for version control and store all my code on Github.</p>
-
-<p>This is what&rsquo;s needed to setup the development environment:</p>
-
-<figure class='code'><figcaption><span>1. Install Python and git packages</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo apt-get update <span class="o">&amp;&amp;</span> sudo apt-get install python git-core
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<figure class='code'><figcaption><span>2. Initialise global git settings</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>git config --global user.name <span class="s2">&quot;Network-oriented programming&quot;</span>
-</span><span class='line'><span class="nv">$ </span>git config --global user.email <span class="s2">&quot;networkop@example.com&quot;</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<figure class='code'><figcaption><span>3. Install Ansible</span><a href='http://docs.ansible.com/intro_installation.html'>Ansible Installation</a></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo apt-get install software-properties-common
-</span><span class='line'><span class="nv">$ </span>sudo apt-add-repository ppa:ansible/ansible
-</span><span class='line'><span class="nv">$ </span>sudo apt-get update
-</span><span class='line'><span class="nv">$ </span>sudo apt-get install ansible
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<figure class='code'><figcaption><span>4. Test Ansible connectivity to our network topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo <span class="nb">echo</span> <span class="s2">&quot;R1 ansible_ssh_host=10.0.0.1&quot;</span> &gt;&gt; /etc/ansible/hosts
-</span><span class='line'><span class="nv">$ </span><span class="nb">printf</span> <span class="s2">&quot;[defaults]\nhost_key_checking=False\n&quot;</span> &gt;&gt; ansible.cfg
-</span><span class='line'><span class="nv">$ </span>ansible R1 -u cisco --ask-pass -m <span class="s2">&quot;raw&quot;</span> -a <span class="s2">&quot;show version | include IOS&quot;</span>
-</span><span class='line'>SSH password:
-</span><span class='line'>R3 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>Cisco IOS Software, Linux Software <span class="o">(</span>I86BI_LINUX-ADVENTERPRISEK9-M<span class="o">)</span>, Version 15.4<span class="o">(</span>1<span class="o">)</span>T, DEVELOPMENT TEST SOFTWARE
-</span><span class='line'>Connection to 10.0.0.1 closed by remote host.
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>The above script first populates Ansible <code>inventory</code> file with an ip address of R1, then disables ssh key checking,
- and finally runs an <code>ad-hoc</code> command <code>show version | include IOS</code> which should prompt for a password and return a result of command execution on R1.
- I will explain about inventory and configuration files in a bit more detail in the next post. At this stage all what&rsquo;s required is a meaningful response from a Cisco router.</p>
-
-<p><figure class='code'><figcaption><span>
-5. Create a free Github account and setup a new repository
-</span><a href='https://github.com/join'>Join Github</a></figcaption><div class="highlight">
-</figure>
-For my blog I will be using <code>networkop</code> as a Github username and <code>simple-cisco-tdd</code> as a repository name.
-Once respository is created, Github will provide instructions to setup repository on a local machine which will be done in the next step.</p>
-
-<p><figure class='code'><figcaption><span>6. Setup a project directory and initialise git</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>mkdir ~/tdd_ansible <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/tdd_ansible
-</span><span class='line'><span class="nv">$ </span>eacho <span class="s2">&quot;simple-cisco-tdd&quot;</span> &gt;&gt; README.md
-</span><span class='line'><span class="nv">$ </span>git init
-</span><span class='line'><span class="nv">$ </span>git add README.md
-</span><span class='line'><span class="nv">$ </span>git commit -m <span class="s2">&quot;first commit&quot;</span>
-</span><span class='line'><span class="nv">$ </span>git remote add origin <a href="https://github.com/networkop/simple-cisco-tdd.git">https://github.com/networkop/simple-cisco-tdd.git</a>
-</span><span class='line'><span class="nv">$ </span>git push -u origin master
-</span><span class='line'>Username <span class="k">for</span> <a href="https://github.com:">https://github.com:</a> networkop
-</span><span class='line'>Password <span class="k">for</span> <a href="https://networkop@github.com:">https://networkop@github.com:</a>
-</span><span class='line'>Counting objects: 3, <span class="k">done</span>.
-</span><span class='line'>Writing objects: 100% <span class="o">(</span>3/3<span class="o">)</span>, <span class="m">206</span> bytes <span class="p">|</span> <span class="m">0</span> bytes/s, <span class="k">done</span>.
-</span><span class='line'>Total <span class="m">3</span> <span class="o">(</span>delta 0<span class="o">)</span>, reused <span class="m">0</span> <span class="o">(</span>delta 0<span class="o">)</span>
-</span><span class='line'>To <a href="https://github.com/networkop/simple-cisco-tdd.git">https://github.com/networkop/simple-cisco-tdd.git</a>
-</span><span class='line'> * <span class="o">[</span>new branch<span class="o">]</span>      master -&gt; master
-</span><span class='line'>Branch master <span class="nb">set </span>up to track remote branch master from origin.
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>The above result indicates that <code>README.md</code> file has been pushed to Github successfully. Needless to say that all pushed local files can be also viewed from Github&rsquo;s web page.</p>
-
-<hr />
-
-<p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.
-In the next post I will show how to setup Ansible to work with Cisco devices.</p>
 ]]></content>
   </entry>
   
