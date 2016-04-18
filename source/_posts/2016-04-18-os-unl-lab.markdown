@@ -1,0 +1,201 @@
+---
+layout: post
+title: "Building a multi-node OpenStack lab in UNetLab"
+date: 2016-04-18
+comments: true
+sharing: true
+footer: true
+categories: [openstack, unetlab]
+description: Building a 3-node OpenStack environment with L3 Leaf/Spine underlay
+---
+
+In the [previous post][OpenStack-post-1] I've demonstrated how to get a working instance of a single-node OpenStack inside [UNetLab][unl]. In this post we'll continue building on that by adding two new compute nodes and redesigning our network to resemble something you might actually see in a real life.
+
+<!--more-->
+
+## OpenStack network requirements
+
+Depending on the number of deployed [components][os-projects], OpenStack physical network requirements could be different. In our case we're not going to deploy any storage solution and simply use the **ephemeral** storage, i.e. hard disk that's a part of a virtual machine. However, even in minimal installations, there are a number of networks that should be considered individually due to different connectivity requirements:
+
+* Server [OOB](abbr: Out-Of-Band) **management** network - this is usually a dedicated physical network used mainly for server bootstrapping and OS deployment. It is a Layer 3 network with DHCP relays configured at each edge L3 interface and access to Internet package repositories.
+
+* **API** network - used for internal communication between various OpenStack services. This can be a routed network without Internet access. The only requirement is any-to-any reachability within a single OpenStack environment.
+
+* **External** network - used for public access to internal OpenStack virtual machines. This is the *outside* of OpenStack, with a pool of IP addresses used to NAT the internal IPs of public-facing virtual machines. This network **must** be Layer 2 adjacent **only** with a network control node.
+
+* **Tenant** network - used for communication between virtual machines within OpenStack environment. Thanks to the use of VXLAN overlay, this can be a simple routed network that has any-to-any reachability between all Compute and Network nodes.
+
+## Building a lab network
+
+For labbing purposes it's possible to relax some of the above network requirements without seriously affecting the outcomes of our simulation. For example, it's possible to combine some of the networks and still satisfy the requirements stated above. These are the networks that will be configured inside UNetLab:
+
+* **Management** - this network will combine the functions of OOB and API networks. To isolate it from our data centre underlay I'll be using separate interfaces on virtual machines and connect them directly to Workstation's NAT interface (192.168.91.0/24 in my case)  to give them direct access to Internet.
+
+* **External** - this network will be connected to Workstation's host-only NIC (192.168.247.0/24) through Vlan300 configured on one of the leaf switches. Since it must be L2 adjacent with the network control node our leaf switch will not perform any routing for this subnet.
+
+* **Tenant** - this will be a routed leaf/spine [Clos][clos] fabric comprised of 3 leaf and 2 spine switches running a single-area OSPF process on all their links. Each server will have its own unique tenant subnet (Vlan100) terminated on the leaf switch and subnet injected into OSPF. The subnet used for this Vlan is going to be `10.0.X.0/24`, where X is the number of the leaf switch terminating the vlan.
+
+    The links between switches are all L3 point-to-point with addresses borrowed from 169.254.0.0/16 range specifically to emphasize the fact that the internal addressing does not need to be known or routed outside of the fabric. The **sole function of the fabric** is to provide multiple equal cost paths between any pair of leafs, thereby achieving maximum link utilisation. Here's an example of a traceroute between Vlan100's of Leaf #1 and Leaf #3.
+
+```text Traceroute inside an ECMP routed Clos fabric
+L3#traceroute 10.0.1.1 source 10.0.3.1
+Type escape sequence to abort.
+Tracing the route to 10.0.1.1
+VRF info: (vrf in name/id, vrf out name/id)
+  1 169.254.31.111 1 msec
+    169.254.32.222 0 msec
+    169.254.31.111 0 msec
+  2 169.254.12.1 1 msec
+    169.254.11.1 1 msec *
+``` 
+
+## Building lab servers
+
+Based on my experience a standard server would have at least 3 physical interfaces - one for OOB management and a pair of interfaces for application traffic. The two application interfaces will normally be combined in a single [LAG](abbr: Link Aggregation Group) and connected to a pair of MLAG-capable TOR switches. Multi-chassis LAG or [MLAG][mlag] is a pretty old and well-understood technology so I'm not going to try and simulate it in the lab. Instead I'll simply assume that a server will be connected to a TOR switch via a single physical link. That link will be setup as a dot1q trunk to allow for multiple subnets to share it.
+
+## Physical lab topology
+
+All the above requirements and assumptions result in the following topology that we need to build inside UNetLab:
+
+{% img center /images/neutron-native.png %}  
+
+For servers I'll be using OpenStack node type that I've described in my [previous post][OpenStack-post-1]. The two compute nodes do not need as much RAM as the control node, so I'll reduce it to just 2GB.
+
+For switches I'll be using a Cisco's [L2 IOU][unl-iou] image for now, mainly due to the low resource requirements. In the future I'll try and swap it for something else. As you can see from the sample config below, fabric configuration is very basic and can be easily replaced by any other solution:
+
+```text Leaf 1 configuration
+interface Ethernet0/0
+ no switchport
+ ip address 169.254.11.1 255.255.255.0
+ ip ospf network point-to-point
+ duplex auto
+!
+interface Ethernet0/1
+ no switchport
+ ip address 169.254.12.1 255.255.255.0
+ ip ospf network point-to-point
+ duplex auto
+!
+interface Ethernet0/2
+ switchport trunk allowed vlan 100
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+!
+interface Vlan100
+ ip address 10.0.1.1 255.255.255.0
+!
+router ospf 1
+ network 0.0.0.0 255.255.255.255 area 0
+```
+
+
+
+## Server configuration and OpenStack installation
+
+Refer to my [previous blogpost][OpenStack-post-1] for instructions on how to install OpenStack and follow the first 5 steps from "Installing CentOS and Openstack" section. Before doing the final step, we need to configure our VMs' new interfaces:
+
+* Remove any IP configuration from **eth1** interface to make it look like this:
+
+```ini /etc/sysconfig/network-scripts/ifcfg-eth1
+TYPE=Ethernet
+BOOTPROTO=none
+DEVICE=eth1
+ONBOOT=yes
+```
+
+* Configure **Tenant network**:
+
+```ini /etc/sysconfig/network-scripts/ifcfg-eth1.100
+VLAN=yes
+DEVICE=eth1.100
+BOOTPROTO=none
+IPADDR=10.0.X.10
+PREFIX=24
+ONBOOT=yes
+```
+
+* Setup a **static route** to all other leaf nodes:
+
+```ini /etc/sysconfig/network-scripts/route-eth1.100
+10.0.0.0/8 via 10.0.X.1
+```
+
+
+* On Control node setup **External network** interface
+
+```ini /etc/sysconfig/network-scripts/route-eth1.300
+DEVICE=eth1.300
+IPADDR=192.168.247.100
+PREFIX=24
+ONBOOT=yes
+BOOTPROTO=none
+VLAN=yes
+```
+
+Now we're ready to kick off OpenStack installation. This can be done with a single command that needs to be executed on the Control node. Note that `eth1.100` interface is spelled as `eth1_100` in the last line.
+
+```bash Controller
+packstack --allinone \
+    --os-cinder-install=n \
+    --os-ceilometer-install=n \
+    --os-trove-install=n \
+    --os-ironic-install=n \
+    --nagios-install=n \
+    --os-swift-install=n \
+    --os-gnocchi-install=n \
+    --os-aodh-install=n \
+    --os-neutron-ovs-bridge-mappings=extnet:br-ex \
+    --os-neutron-ovs-bridge-interfaces=br-ex:eth1.300 \
+    --os-neutron-ml2-type-drivers=vxlan,flat \
+    --provision-demo=n \
+    --os-compute-hosts=192.168.91.10,192.168.91.11,192.168.91.12 \
+    --os-neutron-ovs-tunnel-if=eth1_100
+```
+
+
+
+## Creating a virtual network for a pair of VMs
+
+Once again, follow all steps from "Configuring Openstack networking" section of my [previous blogpost][OpenStack-post-1]. Only this time when setting up a public subnet, update the subnet details to match our current environment:
+
+```bash Step 3 - Creating a public subnet
+  neutron subnet-create --name public_subnet \
+    --enable_dhcp=False \
+    --allocation-pool=start=192.168.247.90,end=192.168.247.126 \
+    --gateway=192.168.247.1 external_network 192.168.247.0/24
+
+```
+
+## Nova-scheduler and setting up host aggregates
+
+OpenStack's Nova project is responsible for managing virtual machines. Nova controller views all available compute nodes as a single pool of resources. When a new VM is to be instantiated, a special process called nova-scheduler examines all available compute nodes and selects the "best" one based on a special algorithm, which normally takes into account amount of RAM, CPU and other host capabilities.  
+
+To make our host selection a little bit more deterministic, we can define a group of compute servers via **host aggregates**, which will be used by nova-scheduler in its selection algorithm. Normally it could include all servers in a single rack or a row of racks. In our case we'll setup two host aggregates each with a single compute host. This way we'll be able to select exactly which compute host to use when instantiating a new virtual machine.  
+
+To setup it up, from Horizon's dashboard navigate to Admin -> System and create two host aggregates **comp-1** and **comp-2**, each including a single compute host.
+
+## Creating workloads and final testing
+
+Using a process described in "Spinning up a VM" section of my [previous blogpost][OpenStack-post-1], create a couple of virtual machines assigning them to different host aggregates created earlier. 
+
+## Security and Remote access
+
+To access these virtual machines we need to give them a [floating][floating-ip] ip address from the External subnet range. To do that navigate to Project -> Compute -> Instances and select **Associate Floating IP** from the Actions drop-down menu.  
+
+The final steps is to allow remote SSH access. Each new VM inherits ACLs from a default security group. So the easiest way to allow SSH is to go to Project -> Compute -> Access & Security and add a rule to allow inbound SSH connections for the default security group.
+
+## Verification
+
+At this stage you should be able to SSH into the floating IP addresses assigned to the two new VMs using the default credentials. Feel free to poke around and explore Horizon's interface a bit more. For example, try setting up an SSH key pair and re-build our two VMs to allow passwordless SSH access.
+
+## What to expect next
+
+In the next post we'll explore some of the basic concepts of OpenStack's SDN. We'll peak inside the internal implementation of virtual networks and see what are some of their limitations and drawbacks.
+
+[OpenStack-post-1]: http://networkop.github.io/blog/2016/04/04/openstack-unl/
+[unl]: http://www.unetlab.com/
+[mlag]: http://blog.ipspace.net/2010/10/multi-chassis-link-aggregation-basics.html
+[clos]: https://en.wikipedia.org/wiki/Clos_network
+[os-projects]: https://www.openstack.org/software/project-navigator/
+[unl-iou]: http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/
+[floating-ip]: https://www.rdoproject.org/networking/floating-ip-range/
