@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Bgp | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/bgp/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-04-25T16:43:40-07:00</updated>
+  <updated>2016-04-26T00:42:48-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -29,7 +29,8 @@ look for specific host routes representing neighbor&rsquo;s loopbacks and will t
 <!--more-->
 
 
-<p><div class="highlight"><pre><code class="language-text" data-lang="text">!
+<p>{% highlight text %}
+!
 router bgp 100
  neighbor 1.1.1.1 remote-as 100
  neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER-1
@@ -45,7 +46,8 @@ route-map RM-BGP-FALLOVER-1 permit 10
 !
 route-map RM-BGP-FALLOVER-2 permit 10
  match ip address prefix-list PL-ROUTER-2
-!</code></pre></div></p>
+!
+{% endhighlight %}</p>
 
 <p>It&rsquo;s obvious that this configuration is not very scalable as it requires a separate route-map and a separate prefix-list for each of the iBGP neighbors which,
 on a device like a route-reflector, can easily turn into dozens of lines of code.</p>
@@ -61,7 +63,8 @@ bits in the prefix effectively making it match ALL prefixes, while the second pa
 only host-specific routes.<br/>
 With that in mind, it is possible to re-write the former
 config in a much more concise format so that all iBGP neighbors would use a single route-map with a single prefix-list.
- <div class="highlight"><pre><code class="language-text" data-lang="text">!
+ {% highlight text %}
+!
 router bgp 100
  neighbor 1.1.1.1 remote-as 100
  neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER
@@ -72,7 +75,8 @@ ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32
 !
 route-map RM-BGP-FALLOVER permit 10
  match ip address prefix-list PL-ALL-LOOPBACKS
-!</code></pre></div></p>
+!
+{% endhighlight %}</p>
 
 <p>What happens now is that Cisco router, when bringing up the neighbor, scans it&rsquo;s own routing table looking for a /32 host-route that matches the ip address of that neighbor and
 attaches a listener to this route. If the neighbor goes down, the IGP will detect it a lot sooner than BGP and will withdraw that host-route; our router&rsquo;s bgp process will get notified
