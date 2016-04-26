@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Network Engineering Analysis of OpenStack SDN - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="Exploring the control and data planes of OpenStack networking">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2016/04/22/neutron-native/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2016/04/22/neutron-native/">
+  <meta property="og:title" content="Network Engineering Analysis of OpenStack SDN - Network-oriented programming">
+  <meta property="og:description" content="Exploring the control and data planes of OpenStack networking">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li>
+                    <a href="blog/categories/automation/index.html">Network Automation</a>
+                </li>
+                <li>
+                    <a href="blog/categories/sdn/index.html">SDN</a>
+                </li>
+                <li >
+                    <a href="/blog/archives">Archives</a>
+                </li>
+				<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-04-22T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">22/04/2016</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Network Engineering Analysis of OpenStack SDN
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>Now that we have our 3-node OpenStack lab <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">up and running</a> we can start exploring how virtual networks are implemented under the hood.</p>
+
+<!--more-->
+
+
+<h2>Intro</h2>
+
+<p>This is going to be quite a lengthy blogpost so I&rsquo;ll try to explain its structure first. I&rsquo;ll start with a high level overview of components used to build virtual networks by examining 3 types of traffic:</p>
+
+<ul>
+<li>Unicast traffic between VM1 and VM2</li>
+<li>Unicast traffic between VM1 and the outside world (represented by an external subnet)</li>
+<li>Broadcast, Unknown unicast and Multicast or BUM traffic from VM1</li>
+</ul>
+
+
+<p>Following that I&rsquo;ll give a brief overview of how to interpret the configuration and dynamic state of OpenvSwitch to manually trace the path of a packet. This will be required for the next section where I&rsquo;ll go over the same 3 types of traffic but this time corroborating every step with the actual outputs collected from the virtual switches. For the sake of brevity I&rsquo;ll abridge a lot of the output to only contain the relevant information.</p>
+
+<h2>High Level Overview</h2>
+
+<p><a href="http://www.innervoice.in/blogs/2015/03/31/openstack-neutron-plugins-and-agents/">Neutron</a> server, residing in a control node, is responsible for orchestrating and provisioning of all virtual networks within an OpenStack environment. Its goal is to enable end-to-end reachability among the VMs and between the VMs and external subnets. To do that, Neutron uses concepts that should be very familiar to every network engineer like subnet, router, firewall, DHCP and NAT. In the <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a> we&rsquo;ve seen how to create a virtual router and attach it to public and private networks. We&rsquo;ve also attached both of our VMs to a newly created private network and verified connectivity by logging into those virtual machines. Now let&rsquo;s see how exactly these VMs communicate with each other and the outside world.</p>
+
+<p><img class="center" src="/images/neutron-high-level.png"></p>
+
+<h3>Unicast frame between VM1 and VM2</h3>
+
+<ol>
+<li><p>As soon as the frame leaves the vNIC of VM1 it hits the firewall. The firewall is implemented on a <a href="http://www.innervoice.in/blogs/2013/12/08/tap-interfaces-linux-bridge/">tap interface</a> of the integration bridge. A set of <abbr title="Access Control List">ACL</abbr> rules, defined in a <strong>Security Group</strong> that VM belongs to, gets translated into Linux <a href="https://www.frozentux.net/iptables-tutorial/iptables-tutorial.html#TRAVERSINGOFTABLES">iptables</a> rules and attached to this tap interface. These simple reflexive access lists are what VMware and Cisco are calling microsegmentation and touting as one of the main use case of their SDN solutions.</p></li>
+<li><p>Next our frame enters the integration bridge implemented using <a href="http://openvswitch.org/">OpenvSwitch</a>. Its primary function is to interconnect all virtual machines running on the host. Its secondary function is to provide isolation between different subnets and tenants by keeping them in different VLANs. VLAN IDs used for this are locally significant and don&rsquo;t propagate outside of the physical host.</p></li>
+<li><p>A dot1q-tagged packet is forwarded down a layer 2 trunk to the tunnel bridge, also implemented using OpenvSwitch. It is programmed to strip the dot1q tags, replace them with VXLAN headers and forward an IP/UDP packet with VXLAN payload on to the physical network.</p></li>
+<li><p>Our simple routed underlay delivers the packets to the destination host, where the tunnel bridge swaps the <abbr title=" VXLAN Network ID">VNI</abbr> with a dot1q tag and forwards the packet up to the integration bridge.</p></li>
+<li><p>Integration bridge consults the local MAC table, finds the output interface, clears the dot1q tag and send the frame up to the VM.</p></li>
+<li><p>The frame gets screened by incoming iptables rules and gets delivered to the VM2.</p></li>
+</ol>
+
+
+<h3>Unicast frame between VM1 and External host</h3>
+
+<ol>
+<li><p>The first 3 steps will still be the same. VM1 sends a frame with destination MAC address of a virtual router. This packet will get encapsulated in a VXLAN header and forwarded to the Network node.</p></li>
+<li><p>The tunnel and integration bridges of the network node deliver the packet to the private interface of a virtual router. This virtual router lives in a <a href="http://blog.scottlowe.org/2013/09/04/introducing-linux-network-namespaces/">linux network namespaces</a> (similar to <abbr title="Virtual Routing and Forwarding">VRF</abbr>s) used to provide isolation between OpenStack tenants.</p></li>
+<li><p>The router finds the outgoing interface (a port attached to the external bridge), and a next-hop IP which we have set when we configured a public subnet <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">earlier</a>.</p></li>
+<li><p>The router then performs a source NAT on the packet before forwarding it out. This way the private IP of the VM stays completely hidden and hosts outside of OpenStack can talk back to the VM by sending packets to (publicly routable) external subnet.</p></li>
+<li><p>External bridge (also an OpenvSwitch) receives the packet and forwards it out the attached physical interface (eth1.300).</p></li>
+</ol>
+
+
+<h3>BUM frame from VM1 for MAC address of VM2</h3>
+
+<ol>
+<li><p>VM1 sends a multicast frame, which gets examined by the iptables rules and enters the integration bridge.</p></li>
+<li><p>The integration bridge follows the same process as for the unicast frame to assign the dot1q tag and floods the frame to the tunnel bridge.</p></li>
+<li><p>The tunnel bridge sees the multicast bit in the destination MAC address and performs source replication by sending a duplicate copy of the frame to both compute host #2 and the network node.</p></li>
+<li><p>Tunnel bridges of both receiving hosts strip the VXLAN header, add the dot1q tag and flood the frame to their respective integration bridges.</p></li>
+<li><p>Integration bridges flood the frame within the VLAN identified by the dot1q header.</p></li>
+<li><p>The response from VM2 follows the same process as the unicast frame.</p></li>
+</ol>
+
+
+<p>One thing worth noting is when an ARP packet enters the integration bridge, its source IP address (in case of IPv4) or source MAC address (in case of IPv6) gets examined to make sure it belong to that VM. This is how <strong>ARP spoofing protection</strong> is implemented in OpenStack.</p>
+
+<h2>OpenvSwitch quick intro</h2>
+
+<p>Before we dive deeper into the details of the packet flows inside OVS let me give a brief overview of how it works. There are two main protocols to configure OVS:</p>
+
+<ul>
+<li><p>OVSDB - a management protocol used to configure bridges, ports, VLANs, QoS, monitoring etc.</p></li>
+<li><p>OpenFlow - used to install flow entries for traffic switching, similar to how you would configure a static route but allowing you to match on most of the L2-L4 protocol headers.</p></li>
+</ul>
+
+
+<p>Control node instructs all <a href="http://www.innervoice.in/blogs/2015/03/31/openstack-neutron-plugins-and-agents/">local OVS agents</a> about how to configure virtual networks. Each local OVS agent then uses these two protocols to configure OVS and install all the required forwarding entries. Each entry contains a set of matching fields (e.g. incoming port, MAC/IP addresses) and an action field which determines what to do with the packet. These forwarding entries are implemented as <a href="https://wiki.openstack.org/wiki/Ovs-flow-logic">tables</a>. This is how a packet traverses these tables:</p>
+
+<ol>
+<li><p>First packet always hits table 0. The entries are examined in order of their priority (highest first) to find the first match. Note that it&rsquo;s the first and not necessarily the more specific match. It&rsquo;s the responsibility of a controller to build tables so that more specific flows are matched first. Normally this is done by assigning a higher priority to a more specific flow. Exact matches (where all L2-L4 fields are specified) implicitly have the highest priority value of 65535.</p></li>
+<li><p>When a flow is matched, the <strong>action</strong> field of that flow is examined. Here are some of the most commonly used actions:</p>
+
+<table>
+<thead>
+<tr>
+<th> Action </th>
+<th></th>
+<th> Description </th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> resubmit(X,) </td>
+<td></td>
+<td> Resubmit a packet to table X </td>
+</tr>
+<tr>
+<td> output:Y </td>
+<td></td>
+<td> Send a packet out port Y </td>
+</tr>
+<tr>
+<td> NORMAL </td>
+<td></td>
+<td> Use a standard flood-and-learn behaviour of a switch to populate a local dynamic MAC address table </td>
+</tr>
+<tr>
+<td> learn(table=Z) </td>
+<td></td>
+<td> Create an exact-match entry for the matched flow in table Z (we&rsquo;ll see how its used later on) </td>
+</tr>
+</tbody>
+</table>
+
+
+<p> These actions can be combined in a sequence to create complex behaviours like sending the same packet to multiple ports for multicast source replication.</p></li>
+<li><p>OVS also <a href="https://networkheresy.com/2014/11/13/accelerating-open-vswitch-to-ludicrous-speed/">implements</a> what Cisco calls <strong>Fast switching</strong>, where the first packet lookup triggers a cache entry to be installed in the kernel-space process to be used by all future packets from the same flow.</p></li>
+</ol>
+
+
+<h2>Detailed packet flow analysis</h2>
+
+<p>Let&rsquo;s start by recapping what we know about our private virtual network. All these values can be obtained from Horizon GUI by examining the private network configuration under Project -> Network -> Networks -> private_network:</p>
+
+<ul>
+<li>VM1, IP=10.0.0.8, MAC=fa:16:3e:19:e4:91, port id = <strong>258336bc-4f</strong>38-4bec-9229-4bc76e27f568</li>
+<li>VM2, IP=10.0.0.9, MAC=fa:16:3e:ab:1a:bf, port id = <strong>e5f7eaca-1a</strong>36-4b08-aa9b-14e9787f80b0</li>
+<li>Router, IP=10.0.0.1, MAC=fa:16:3e:cf:89:47, port id = <strong>96dfc1d3-d2</strong>3f-4d28-a461-fa2404767df2</li>
+</ul>
+
+
+<p>The first 11 characters of port id will be used inside an integration bridge to build the port names, e.g.:</p>
+
+<ul>
+<li>tap258336bc-4f - interface connected to VM1</li>
+<li>qr-96dfc1d3-d2 - interface connected to the router</li>
+</ul>
+
+
+<h3>Enumerating OVS ports</h3>
+
+<p>In its forwarding entries OVS uses internal port numbers a lot, therefore it would make sense to collect all port number information before we start. This is how it can be done:</p>
+
+<ul>
+<li>Use <code>ovs-vsctl show</code> command to collect information about existing port names and their attributes (e.g. dot1q tag, VXLAN tunnel IPs, etc). This is the output collected on compute host #1:</li>
+</ul>
+
+
+<figure class='code'><figcaption><span>ovs-vsctl show | grep -E "Bridge|Port|tag|options"</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>Bridge br-tun
+</span><span class='line'>    Port br-tun
+</span><span class='line'>    Port patch-int
+</span><span class='line'>            options: <span class="o">{</span><span class="nv">peer</span><span class="o">=</span>patch-tun<span class="o">}</span>
+</span><span class='line'>    Port <span class="s2">&quot;vxlan-0a00020a&quot;</span>
+</span><span class='line'>            options: <span class="o">{</span><span class="nv">df_default</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>, <span class="nv">in_key</span><span class="o">=</span>flow, <span class="nv">local_ip</span><span class="o">=</span><span class="s2">&quot;10.0.1.10&quot;</span>, <span class="nv">out_key</span><span class="o">=</span>flow, <span class="nv">remote_ip</span><span class="o">=</span><span class="s2">&quot;10.0.2.10&quot;</span><span class="o">}</span>
+</span><span class='line'>    Port <span class="s2">&quot;vxlan-0a00030a&quot;</span>
+</span><span class='line'>            options: <span class="o">{</span><span class="nv">df_default</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>, <span class="nv">in_key</span><span class="o">=</span>flow, <span class="nv">local_ip</span><span class="o">=</span><span class="s2">&quot;10.0.1.10&quot;</span>, <span class="nv">out_key</span><span class="o">=</span>flow, <span class="nv">remote_ip</span><span class="o">=</span><span class="s2">&quot;10.0.3.10&quot;</span><span class="o">}</span>
+</span><span class='line'>Bridge br-int
+</span><span class='line'>    Port br-int
+</span><span class='line'>    Port <span class="s2">&quot;tap258336bc-4f&quot;</span>
+</span><span class='line'>        tag: 5
+</span><span class='line'>    Port patch-tun
+</span><span class='line'>            options: <span class="o">{</span><span class="nv">peer</span><span class="o">=</span>patch-int<span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<ul>
+<li>Use <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> command to correlate port names and numbers. Example below is for integration bridge of compute host #1:</li>
+</ul>
+
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-ports-desc br-int | grep addr</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> 2<span class="o">(</span>patch-tun<span class="o">)</span>: addr:5a:c5:44:fc:ac:72
+</span><span class='line'> 7<span class="o">(</span>tap258336bc-4f<span class="o">)</span>: addr:fe:16:3e:19:e4:91
+</span><span class='line'> LOCAL<span class="o">(</span>br-int<span class="o">)</span>: addr:46:fe:10:de:1b:4f
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>I&rsquo;ve put together a diagram showing all the relevant integration bridge (<strong>br-int</strong>) and tunnel bridge (<strong>br-tun</strong>) ports on all 3 hosts.</p>
+
+<p><img class="center" src="/images/neutron-port-details.png"></p>
+
+<h3>Unicast frame between VM1 and VM2</h3>
+
+<ol>
+<li> Frame enters the br-int on port 7. Default iptables rules allow all outbound traffic from a VM.</li>
+
+<li> Inside the br-int our frame is matched by the "catch-all" rule which triggers the flood-and-learn behaviour:
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>10,arp,in_port<span class="o">=</span><span class="m">7</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,24<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span><span class="m">0</span> <span class="nv">actions</span><span class="o">=</span>NORMAL
+</span></code></pre></td></tr></table></div></figure></li>
+
+<li> Since it's a unicast frame the MAC address table is already populated by ARP:
+
+<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
+</span><span class='line'>    <span class="m">2</span>     <span class="m">5</span>  fa:16:3e:ab:1a:bf    1
+</span></code></pre></td></tr></table></div></figure></li>
+
+Target IP address is behind port 2 which is where the frame gets forwarded next.
+
+<li> Inside the tunnel bridge the frame will match three different tables. The first table simply matches the incoming port and resubmits the frame to table 2. Table 2 will match the unicast bit of the MAC address (the least significant bit of the first byte) and resubmit the frame to unicast table 20:
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1, <span class="nv">in_port</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0, <span class="nv">dl_dst</span><span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>20, <span class="nv">priority</span><span class="o">=</span>1, <span class="nv">vlan_tci</span><span class="o">=</span>0x0005/0x0fff,dl_dst<span class="o">=</span>fa:16:3e:ab:1a:bf <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x54-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:2
+</span></code></pre></td></tr></table></div></figure>
+
+The final match is done on a VLAN tag and destination MAC address. Resulting action is a combination of three consecutive steps:
+<ol>
+  <li> Clear the dot1q tag - load:0->NXM_OF_VLAN_TCI[]</li>
+  <li> Tag the frame with VNI 0x54 - load:0x54->NXM_NX_TUN_ID[]</li>
+  <li> Send the frame to compute host 2 - output:2</li>
+</ol>
+This last match entry is quite interesting in a way that it contains the destination MAC address of VM2, which means this entry was created <b>after</b> the ARP process. In fact, as we'll see in the next step, this entry is populated by a <b>learn</b> action triggered by the ARP response coming from VM2.
+</li>
+
+<li>A VXLAN packet arrives at compute host 2 and enters the tunnel bridge through port 2. It's matched on the incoming port and resubmitted to a table where it is assigned with an internal VLAN ID 3 based on the matched tunnel id 0x54. 
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">2</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>4, <span class="nv">priority</span><span class="o">=</span>1,tun_id<span class="o">=</span>0x54 <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:3,resubmit<span class="o">(</span>,10<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>10, <span class="nv">priority</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
+</span></code></pre></td></tr></table></div></figure>
+
+The last match does two things:
+<ol>
+  <li> Creates a mirroring entry in table 20 for the reverse packet flow. This is the entry similar to the one we've just seen in step 4.  </li>
+  <li> Sends the packet towards the integration bridge.</li>
+</ol>
+</li>  
+<li>The integration bridge checks the local dynamic MAC address table to find the MAC address of VM2(1a:bf).
+
+<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>port  VLAN  MAC                Age
+</span><span class='line'>  <span class="m">5</span>     <span class="m">3</span>  fa:16:3e:ab:1a:bf    0
+</span></code></pre></td></tr></table></div></figure>
+</li>
+
+<li>The frame is checked against the iptables rules configured on port 5 and gets sent up to VM2</li>
+</ol>
+
+
+<h3>Unicast frame to external host (192.168.247.1)</h3>
+
+<ol>
+  <li>
+    The first 5 steps will be similar to the previous section. The only exception will be that the tunnel bridge of compute host 1 will send the VXLAN packet out port 3 towards the network node.
+  </li>
+  <li>
+    The integration bridge of the network node consults the MAC address table to find the location of the virtual router (89:47) and forwards the packet out port 6.
+<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
+</span><span class='line'>    <span class="m">6</span>     <span class="m">1</span>  fa:16:3e:cf:89:47    1
+</span></code></pre></td></tr></table></div></figure>
+  </li>
+  <li> The virtual router does the route lookup to find the outgoing interface (qg-18bff97b-57)
+<figure class='code'><figcaption><span>ip route get 192.168.247.1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>192.168.247.1 dev qg-18bff97b-57  src 192.168.247.90
+</span></code></pre></td></tr></table></div></figure>
+Remember that since our virtual router resides in a network namespace all commands must be prepended with <code>ip netns exec qrouter-uuid</code>
+  
+  </li>
+  <li> The virtual router performs the source IP translation to hide the private IP address: 
+<figure class='code'><figcaption><span>iptables -t nat -S | grep qg-18bff97b-57</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>-A neutron-l3-agent-POSTROUTING ! -i qg-18bff97b-57 ! -o qg-18bff97b-57 -m conntrack ! --ctstate DNAT -j ACCEPT
+</span><span class='line'>-A neutron-l3-agent-snat -o qg-18bff97b-57 -j SNAT --to-source 192.168.247.90
+</span></code></pre></td></tr></table></div></figure>
+By default all packets will get translated to the external address of the router. For each assigned floating IP address there will be a pair of source/destination NAT entries created in the same table. 
+
+  </li>
+  <li> The router consults its local ARP table to find the MAC address of the next hop:
+<figure class='code'><figcaption><span>ip neigh show 192.168.247.1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>192.168.247.1 dev qg-18bff97b-57 lladdr 00:50:56:c0:00:01 DELAY
+</span></code></pre></td></tr></table></div></figure>
+  </li>
+  <li> External bridge receives the frame from the virtual router on port 4, consults its own MAC address table built by ARP and forwards the packet to the final destination.
+<figure class='code'><figcaption><span>ovs-appctl fdb/show br-ex</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
+</span><span class='line'>    <span class="m">4</span>     <span class="m">0</span>  fa:16:3e:5c:90:e0    1
+</span><span class='line'>    <span class="m">1</span>     <span class="m">0</span>  00:50:56:c0:00:01    1
+</span></code></pre></td></tr></table></div></figure></li>
+</ol>
+
+
+<h3>BUM frame from VM1 for MAC address of VM2</h3>
+
+<ol>
+  <li>The integration bridge of the sending host will check the source IP of the ARP packet to make sure it hasn't been spoofed before flooding the packet within the local broadcast domain (VLAN 5).
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>10,arp,in_port<span class="o">=</span><span class="m">7</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,24<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>24, <span class="nv">priority</span><span class="o">=</span>2,arp,in_port<span class="o">=</span>7,arp_spa<span class="o">=</span>10.0.0.8 <span class="nv">actions</span><span class="o">=</span>NORMAL
+</span></code></pre></td></tr></table></div></figure>
+</li>
+<li> The flooded packet reaches the tunnel bridge where it goes through 3 different tables. The first table matches the incoming interface, the second table matches the multicast bit of the MAC address.
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>01:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>22, <span class="nv">dl_vlan</span><span class="o">=</span><span class="m">5</span> <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x54,output:3,output:2
+</span></code></pre></td></tr></table></div></figure>
+
+The final table swaps the dot1q and VXLAN identifiers and does the source replication by forwarding the packet out ports 2 and 3.
+</li>
+<li> The following steps are similar to the unicast frame propagation with the exception that the local MAC table of the integration bridges will flood the packet to all interfaces in the same broadcast domain. That means that duplicate ARP requests will reach both the private interface of the virtual router and VM2. The latter, recognising its own IP, will send a unicast ARP response whose source IP will be verified by the ARP spoofing rule of the integration bridge. As the result of that process, both integration bridges on compute host 1 and 2 will populate their local MAC tables with addresses of VM1 and VM2.
+</li>
+</ol>
+
+
+<h2>Native OpenStack SDN advantages and limitation</h2>
+
+<p>Current implementation of OpenStack networking has several advantages compared to the traditional SDN solutions:</p>
+
+<ul>
+<li>Data-plane learning allows network to function even in the absence of the controller node</li>
+<li>Multicast source replication does not rely on multicast support in the underlay network</li>
+<li>ARP spoofing protection is the default security setting</li>
+</ul>
+
+
+<p>However at this point it should also be clear that there a number of limitations that can impact the overall network scalability and performance:</p>
+
+<ul>
+<li>Multicast source replication creates unnecessary overhead by flooding ARP packets to all hosts</li>
+<li>All routed traffic has to go through the network node which becomes a bottleneck for the whole network</li>
+<li>There is no ability to control physical devices, even the ones that support OVSDB/Openflow</li>
+<li>Network node must be layer 2 adjacent with the external network segment</li>
+</ul>
+
+
+<h2>Things to explore next</h2>
+
+<p>In the following posts I&rsquo;ll continue poking around Neutron and explore a number of features designed to address some of the limitations described above:</p>
+
+<ul>
+<li><a href="https://wiki.openstack.org/wiki/L2population_blueprint">L2 population</a></li>
+<li><a href="https://wiki.openstack.org/wiki/Neutron/DVR">Distributed Virtual Router</a></li>
+<li><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 hardware gateway</a></li>
+<li><a href="https://wiki.openstack.org/wiki/Neutron/L3_High_Availability_VRRP">Network High Availability</a></li>
+<li><a href="https://wiki.openstack.org/wiki/Neutron/LBaaS">Load-Balancing-as-a-Service</a></li>
+<li><a href="https://github.com/openstack/networking-ovn">Open Virtual Network for OVS</a></li>
+<li><a href="http://specs.openstack.org/openstack/neutron-specs/specs/mitaka/bgp-dynamic-routing.html">Neutron&rsquo;s dynamic BGP routing</a></li>
+</ul>
+
+
+<h2>C<sub>2</sub>O</h2>
+
+<p>While writing this post I&rsquo;ve compiled a list of commands most useful to query the state of OpenvSwitch. So now, inspired by a similar  IOS to JUNOS (I2J) command <a href="http://www.net-gyver.com/?page_id=1166">conversion tables</a>, I&rsquo;ve put together my own Cisco to OVS conversion table, just for fun.</p>
+
+<table>
+<thead>
+<tr>
+<th> Action </th>
+<th> Cisco </th>
+<th> OpenvSwitch </th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> Show MAC address table </td>
+<td> show mac address-table dynamic   </td>
+<td> <code>ovs-appctl fdb/show &lt;bridge_id&gt;</code> </td>
+</tr>
+<tr>
+<td> Show port numbers </td>
+<td> show interface status </td>
+<td> <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> </td>
+</tr>
+<tr>
+<td> Show OVS configuration </td>
+<td> show run </td>
+<td> <code>ovs-vsctl show</code> </td>
+</tr>
+<tr>
+<td> Show packet forwarding rules </td>
+<td> show ip route  </td>
+<td> <code>ovs-ofctl dump-flows &lt;bridge_id&gt;</code> </td>
+</tr>
+<tr>
+<td> Simulate packet flow </td>
+<td> packet-tracer   </td>
+<td> <code>ovs-appctl ofproto/trace &lt;bridge_id&gt; in_port=1</code> </td>
+</tr>
+<tr>
+<td> View command history </td>
+<td> show archive log config </td>
+<td> <code>ovsdb-tool show-log -m</code> </td>
+</tr>
+</tbody>
+</table>
+
+
+<h2>References</h2>
+
+<p>In this post I have glossed over some details like iptables and DHCP for the sake of brevity and readability. However this post wouldn&rsquo;t be complete if I didn&rsquo;t include references to other resources that contain a more complete, even if at times outdated, overview of OpenStack networking. This is also a way to pay tribute to blogs where I&rsquo;ve learned most of what I was writing about here:</p>
+
+<ul>
+<li><a href="https://www.rdoproject.org/networking/networking-in-too-much-detail/">Networking in too much detail</a></li>
+<li><a href="http://www.opencloudblog.com/?p=300">Neutron using VXLAN</a></li>
+<li><a href="http://docs.ocselected.org/openstack-manuals/kilo/networking-guide/content/under_the_hood_openvswitch.html">Under the hood of OVS</a></li>
+<li><a href="https://kimizhang.wordpress.com/2014/04/01/how-ml2vxlan-works/">How ML2/VXLAN works</a></li>
+<li><a href="http://docs.openstack.org/openstack-ops/content/network_troubleshooting.html">Official network troubleshooting guide</a></li>
+<li><a href="http://therandomsecurityguy.com/openvswitch-cheat-sheet/">OVS commands cheat sheet</a></li>
+</ul>
+
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-04-22T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">22/04/2016</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/04/22/neutron-native/" data-via="" data-counturl="http://networkop.github.io/blog/2016/04/22/neutron-native/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+	
+	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/04/22/neutron-native/" data-counter="right"></script>
+	
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2016/04/18/os-unl-lab/" title="Previous Post: Building a multi-node OpenStack lab in UNetLab">&laquo; Building a multi-node OpenStack lab in UNetLab</a></li>
+            
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item active" href="/blog/2016/04/22/neutron-native/">Network Engineering Analysis of OpenStack SDN</a>
+    
+    <a class="list-group-item " href="/blog/2016/04/18/os-unl-lab/">Building a Multi-node OpenStack Lab in UNetLab</a>
+    
+    <a class="list-group-item " href="/blog/2016/04/04/openstack-unl/">Openstack on UNetlab</a>
+    
+    <a class="list-group-item " href="/blog/2016/03/23/network-ci-demo-large/">Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC</a>
+    
+    <a class="list-group-item " href="/blog/2016/03/03/network-ci-demo-small/">Network-CI Part 2 - Small Network Demo</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/automation/index.html">
+        <span class="badge">10</span>
+        automation
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/network/index.html">
+        <span class="badge">10</span>
+        network
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">5</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">5</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/devops/index.html">
+        <span class="badge">4</span>
+        devops
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/rest/index.html">
+        <span class="badge">4</span>
+        rest
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/cisco/index.html">
+        <span class="badge">4</span>
+        cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">3</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/openstack/index.html">
+        <span class="badge">3</span>
+        openstack
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">2</span>
+        routing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/howto/index.html">
+        <span class="badge">1</span>
+        howto
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
+        <span class="badge">1</span>
+        syncthing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/git/index.html">
+        <span class="badge">1</span>
+        git
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
+        <span class="badge">1</span>
+        pycharm
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">1</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/sdn/index.html">
+        <span class="badge">1</span>
+        sdn
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2016 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2016/04/22/neutron-native/';
+        var disqus_url = 'http://networkop.github.io/blog/2016/04/22/neutron-native/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>
