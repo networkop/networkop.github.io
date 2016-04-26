@@ -1,7 +1,7 @@
 ---
 layout: post
 title: "Network Engineering analysis of OpenStack SDN"
-date: 2016-04-26
+date: 2016-04-22
 comments: true
 sharing: true
 footer: true
