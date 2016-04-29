@@ -44,7 +44,7 @@ of their geographical location. This rule, like any, has its' exceptions and spe
 to links prone to flapping (e.g. aerial links). However, both EIGRP and OSPF have proven to be quite stable and scalable even with *not-so-good* designs.  
 I follow the these rules when designing an IGP:
 
-* Advertise all routers' networks, i.e. `network 0.0.0.0 0.0.0.0` command
+* Advertise all routers' networks, i.e. `network 0.0.0.0 255.255.255.255` command
 
 > ideally within a single AS there will be a full-mesh reachability between the devices
 
