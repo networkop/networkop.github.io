@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Sdn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/sdn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-04-26T01:26:50-07:00</updated>
+  <updated>2016-05-05T21:16:04-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,118 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - L2 Population and ARP Proxy]]></title>
+    <link href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/"/>
+    <updated>2016-05-06T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/05/06/neutron-l2pop</id>
+    <content type="html"><![CDATA[<p>In the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a> we&rsquo;ve had a look at how native OpenStack SDN works and what are some of its limitations. In this post we&rsquo;ll tackle the first one of them - overhead created by multicast source replication.</p>
+
+<!--more-->
+
+
+<h2>MAC learning in a controller-less VXLAN overlay</h2>
+
+<p>VXLAN <a href="https://tools.ietf.org/html/rfc7348">standard</a> does not specify any control plane protocol to exchange MAC-IP bindings between VTEPs. Instead it relies on data plane flood-and-learn behaviour, just like a normal switch. To force this behaviour in an underlay, the standard stipulates that each VXLAN network should be mapped to its own multicast address and each VTEP participating in a network should join the corresponding multicast group. That multicast group would be used to flood the <abbr title="Broadcast Unknown unicast and Multicast">BUM</abbr> traffic in an underlay to all subscribed VTEPs thereby populating dynamic MAC address tables.</p>
+
+<p>Default OpenvSwitch implementation <a href="https://github.com/openvswitch/ovs/blob/master/FAQ.md#q-how-much-of-the-vxlan-protocol-does-open-vswitch-currently-support">does not support</a> VXLAN multicast flooding and uses unicast source replication instead. This decision comes with a number of tradeoffs:</p>
+
+<ul>
+<li>Duplicate packets consume additional bandwidth. Extra 100 bytes exchanged every 3 minutes in a 100-nodes environment generate around 500 kbit/s of traffic on average. This can be considered negligible inside modern high-speed DC fabrics.</li>
+<li>Hardware VTEP gateways rely on multicast for MAC learning and VTEP discovery. As we&rsquo;ll see later in the series, these gateways can now be controlled by Neutron just like a normal OVS inside a compute host.</li>
+<li>Duplicate packets are processed by hosts that do not need them, e.g. ARP request is processed by tunnel and integration bridges of all hosts that have VMs in the same broadcast domain. This presents some serious scaling limitation and is addressed by the L2 population feature described in this post.</li>
+</ul>
+
+
+<p>Despite all the tradeoffs, OVS with unicast source replication has become a de-facto standard in most recent OpenStack implementations. The biggest advantage of such approach is the lack of requirement for multicast in the underlay network.</p>
+
+<h2>VXLAN MAC learning with an SDN controller</h2>
+
+<p>Neutron server is aware of all active MAC and IP addresses within the environment. This information can be used to prepopulate forwarding entries on all tunnel bridges. This is accomplished by a <a href="https://github.com/openstack/neutron/tree/master/neutron/plugins/ml2/drivers/l2pop">L2 population</a> driver. However that in itself isn&rsquo;t enough. Whenever a VM doesn&rsquo;t know the destination MAC address, it will send a broadcast ARP request which needs to be intercepted and responded by a local host to stop it from being flooded in the network. The latter is accomplished by a feature called <a href="https://assafmuller.com/2014/05/21/ovs-arp-responder-theory-and-practice/">ARP responder</a> which simulates the functionality commonly known as <strong>ARP proxy</strong> inside the tunnel bridge.</p>
+
+<p><img class="center" src="/images/neutron-l2-arp.png"></p>
+
+<h3>Configuration</h3>
+
+<p>Configuration of these two features is <a href="https://kimizhang.wordpress.com/2014/04/01/how-ml2vxlan-works/">fairly straight-forward</a>. First, we need to add L2 population to the list of supported mechanism drivers on our control node and restart the neutron server.</p>
+
+<pre><code class="bash Update on control node">$ sed -ri 's/(mechanism_drivers.*)/\1,l2population/' /etc/neutron/plugin.ini
+$ service neutron-server restart  
+</code></pre>
+
+<p>Next we need to enable L2 population and ARP responder features on all 3 compute nodes.</p>
+
+<pre><code class="bash Updates on all 3 compute nodes">$ sed -ri 's/.*(arp_responder).*/\1 = true/' /etc/neutron/plugins/ml2/openvswitch_agent.ini
+$ sed -ri 's/.*(l2_population).*/\1 = true/' /etc/neutron/plugins/ml2/openvswitch_agent.ini
+$ service neutron-openvswitch-agent restart
+</code></pre>
+
+<p>Since L2 population is triggered by the <a href="https://assafmuller.com/2014/02/23/ml2-address-population/">port_up</a> messages, we might need to restart both our VMs for the change to take effect.</p>
+
+<h3>BUM frame from VM-1 for MAC address of VM-2 (Revisited)</h3>
+
+<p>Now let&rsquo;s once again examine what happens when VM-1 issues an ARP request for VM-2&rsquo;s MAC address (1a:bf).</p>
+
+<p>First, the frame hits the flood-and-learn rule of the integration bridge and gets flooded down to the tunnel bridge as desribed in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>. Once in the br-tun, the frames gets matched by the incoming port and resubmitted to table 2. In addition to a default unicast/multicast bit match, table 2 now also matches all ARP requests and resubmitts them to the new table 21. Note how the ARP entry has a higher priority to always match before the default catch-all multicast rule.</p>
+
+<pre><code class="bash ovs-ofctl dump-flows br-tun">table=0, priority=1,in_port=1 actions=resubmit(,2)
+table=2, priority=1,arp,dl_dst=ff:ff:ff:ff:ff:ff actions=resubmit(,21)
+table=2, priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,20)
+table=2, priority=0,dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,22)
+</code></pre>
+
+<p>Inside table 21 are the entries created by the ARP responder feature. The following is an example entry that matches all ARP requests where target IP address field equals the IP of VM-2(10.0.0.9).</p>
+
+<pre><code class="bash ovs-ofctl dump-flows br-tun"> table=21, priority=1,arp,dl_vlan=1,arp_tpa=10.0.0.9 
+ actions=move:NXM_OF_ETH_SRC[]-&gt;NXM_OF_ETH_DST[],
+ mod_dl_src:fa:16:3e:ab:1a:bf,
+ load:0x2-&gt;NXM_OF_ARP_OP[],
+ move:NXM_NX_ARP_SHA[]-&gt;NXM_NX_ARP_THA[],
+ move:NXM_OF_ARP_SPA[]-&gt;NXM_OF_ARP_TPA[],
+ load:0xfa163eab1abf-&gt;NXM_NX_ARP_SHA[],
+ load:0xa000009-&gt;NXM_OF_ARP_SPA[],
+ IN_PORT
+</code></pre>
+
+<p>The resulting action builds an ARP response by modifying the fields and headers on the original ARP request message, specifically OVS:</p>
+
+<ol>
+<li>Copies the source MAC address (VM-1) to the destination MAC address header</li>
+<li>Spoofs the source MAC address to make it look like it comes from VM-2</li>
+<li>Modifies the operation code of ARP message to 0x2, meaning <strong>reply</strong></li>
+<li>Overwrites the target IP and MAC address fields inside the ARP packet with VM-1&rsquo;s values</li>
+<li>Overwrites the source hardware address with VM-2&rsquo;s MAC</li>
+<li>Overwrites the source IP address with the address of VM-2(0xa000009)</li>
+<li>Sends the packet out the port from which it was received</li>
+</ol>
+
+
+<h3>Unicast frame from VM-1 to VM-2 (Revisited)</h3>
+
+<p>Now that VM-1 has learned the MAC address of VM-2 it can start sending the unicast frames. The first few steps will again be the same. The frame hits the tunnel bridge, gets classified as a unicast and resubmitted to table 20. Table 20 will still have an entry generated by a <strong>learn</strong> action triggered by a packet coming from VM-2, however now it also has and identical entry with a higher priority(priority=2), which was preconfigured by a L2 population feature.</p>
+
+<pre><code class="bash">table=0, priority=1,in_port=1 actions=resubmit(,2)
+table=2, priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,20)
+table=20, priority=2,dl_vlan=1,dl_dst=fa:16:3e:ab:1a:bf actions=strip_vlan,set_tunnel:0x54,output:2
+table=20, priority=1,vlan_tci=0x0001/0x0fff,dl_dst=fa:16:3e:ab:1a:bf actions=load:0-&gt;NXM_OF_VLAN_TCI[],load:0x54-&gt;NXM_NX_TUN_ID[],output:2
+</code></pre>
+
+<h2>Other BUM traffic</h2>
+
+<p>The two features described in this post only affect the ARP traffic to VMs <strong>known</strong> to the Neutron server. All the other BUM traffic will still be flooded as described in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>.</p>
+
+<h2>Results</h2>
+
+<p>As the result of enabling L2 population and ARP responder features we were able to reduce the amount of BUM traffic in the overlay network and reduce the eliminate processing on compute hosts incurred by ARP request flooding.</p>
+
+<p>However one downside of this approach is the increased number of flow entries in tunnel bridges of compute hosts. Specifically, for each known VM there now will be two entries in the tunnel bridge with different priorities. This may have negative impact on performance and is something to keep in mind when designing OpenStack solutions for scale.</p>
+
+<h2>Coming Up</h2>
+
+<p>In the next post I&rsquo;ll show how to overcome the requirement of a direct L2 adjacency between the network node and external subnet. Specifically, I&rsquo;ll use Arista switch to extend a L2 provider network over a L3 leaf-spine Cisco fabric.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network Engineering Analysis of OpenStack SDN]]></title>
@@ -362,7 +474,7 @@ The final table swaps the dot1q and VXLAN identifiers and does the source replic
 <p>In the following posts I&rsquo;ll continue poking around Neutron and explore a number of features designed to address some of the limitations described above:</p>
 
 <ul>
-<li><a href="https://wiki.openstack.org/wiki/L2population_blueprint">L2 population</a></li>
+<li><a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">L2 population</a></li>
 <li><a href="https://wiki.openstack.org/wiki/Neutron/DVR">Distributed Virtual Router</a></li>
 <li><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 hardware gateway</a></li>
 <li><a href="https://wiki.openstack.org/wiki/Neutron/L3_High_Availability_VRRP">Network High Availability</a></li>

@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Openstack SDN - L2 Population and ARP Proxy - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="Eliminating unnecessary ARP flooding inside a Neutron subnet">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">
+  <meta property="og:title" content="Openstack SDN - L2 Population and ARP Proxy - Network-oriented programming">
+  <meta property="og:description" content="Eliminating unnecessary ARP flooding inside a Neutron subnet">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/automation/index.html">Network Automation</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/sdn/index.html">SDN</a>
+                </li>
+                <li>
+                    <a href="/blog/archives">Archives</a>
+                </li>
+				<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-05-06T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">06/05/2016</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Openstack SDN - L2 Population and ARP Proxy
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>In the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a> we&rsquo;ve had a look at how native OpenStack SDN works and what are some of its limitations. In this post we&rsquo;ll tackle the first one of them - overhead created by multicast source replication.</p>
+
+<!--more-->
+
+
+<h2>MAC learning in a controller-less VXLAN overlay</h2>
+
+<p>VXLAN <a href="https://tools.ietf.org/html/rfc7348">standard</a> does not specify any control plane protocol to exchange MAC-IP bindings between VTEPs. Instead it relies on data plane flood-and-learn behaviour, just like a normal switch. To force this behaviour in an underlay, the standard stipulates that each VXLAN network should be mapped to its own multicast address and each VTEP participating in a network should join the corresponding multicast group. That multicast group would be used to flood the <abbr title="Broadcast Unknown unicast and Multicast">BUM</abbr> traffic in an underlay to all subscribed VTEPs thereby populating dynamic MAC address tables.</p>
+
+<p>Default OpenvSwitch implementation <a href="https://github.com/openvswitch/ovs/blob/master/FAQ.md#q-how-much-of-the-vxlan-protocol-does-open-vswitch-currently-support">does not support</a> VXLAN multicast flooding and uses unicast source replication instead. This decision comes with a number of tradeoffs:</p>
+
+<ul>
+<li>Duplicate packets consume additional bandwidth. Extra 100 bytes exchanged every 3 minutes in a 100-nodes environment generate around 500 kbit/s of traffic on average. This can be considered negligible inside modern high-speed DC fabrics.</li>
+<li>Hardware VTEP gateways rely on multicast for MAC learning and VTEP discovery. As we&rsquo;ll see later in the series, these gateways can now be controlled by Neutron just like a normal OVS inside a compute host.</li>
+<li>Duplicate packets are processed by hosts that do not need them, e.g. ARP request is processed by tunnel and integration bridges of all hosts that have VMs in the same broadcast domain. This presents some serious scaling limitation and is addressed by the L2 population feature described in this post.</li>
+</ul>
+
+
+<p>Despite all the tradeoffs, OVS with unicast source replication has become a de-facto standard in most recent OpenStack implementations. The biggest advantage of such approach is the lack of requirement for multicast in the underlay network.</p>
+
+<h2>VXLAN MAC learning with an SDN controller</h2>
+
+<p>Neutron server is aware of all active MAC and IP addresses within the environment. This information can be used to prepopulate forwarding entries on all tunnel bridges. This is accomplished by a <a href="https://github.com/openstack/neutron/tree/master/neutron/plugins/ml2/drivers/l2pop">L2 population</a> driver. However that in itself isn&rsquo;t enough. Whenever a VM doesn&rsquo;t know the destination MAC address, it will send a broadcast ARP request which needs to be intercepted and responded by a local host to stop it from being flooded in the network. The latter is accomplished by a feature called <a href="https://assafmuller.com/2014/05/21/ovs-arp-responder-theory-and-practice/">ARP responder</a> which simulates the functionality commonly known as <strong>ARP proxy</strong> inside the tunnel bridge.</p>
+
+<p><img class="center" src="/images/neutron-l2-arp.png"></p>
+
+<h3>Configuration</h3>
+
+<p>Configuration of these two features is <a href="https://kimizhang.wordpress.com/2014/04/01/how-ml2vxlan-works/">fairly straight-forward</a>. First, we need to add L2 population to the list of supported mechanism drivers on our control node and restart the neutron server.</p>
+
+<figure class='code'><figcaption><span>Update on control node</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sed -ri <span class="s1">&#39;s/(mechanism_drivers.*)/\1,l2population/&#39;</span> /etc/neutron/plugin.ini
+</span><span class='line'><span class="nv">$ </span>service neutron-server restart
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Next we need to enable L2 population and ARP responder features on all 3 compute nodes.</p>
+
+<figure class='code'><figcaption><span>Updates on all 3 compute nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sed -ri <span class="s1">&#39;s/.*(arp_responder).*/\1 = true/&#39;</span> /etc/neutron/plugins/ml2/openvswitch_agent.ini
+</span><span class='line'><span class="nv">$ </span>sed -ri <span class="s1">&#39;s/.*(l2_population).*/\1 = true/&#39;</span> /etc/neutron/plugins/ml2/openvswitch_agent.ini
+</span><span class='line'><span class="nv">$ </span>service neutron-openvswitch-agent restart
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Since L2 population is triggered by the <a href="https://assafmuller.com/2014/02/23/ml2-address-population/">port_up</a> messages, we might need to restart both our VMs for the change to take effect.</p>
+
+<h3>BUM frame from VM-1 for MAC address of VM-2 (Revisited)</h3>
+
+<p>Now let&rsquo;s once again examine what happens when VM-1 issues an ARP request for VM-2&rsquo;s MAC address (1a:bf).</p>
+
+<p>First, the frame hits the flood-and-learn rule of the integration bridge and gets flooded down to the tunnel bridge as desribed in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>. Once in the br-tun, the frames gets matched by the incoming port and resubmitted to table 2. In addition to a default unicast/multicast bit match, table 2 now also matches all ARP requests and resubmitts them to the new table 21. Note how the ARP entry has a higher priority to always match before the default catch-all multicast rule.</p>
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>1,arp,dl_dst<span class="o">=</span>ff:ff:ff:ff:ff:ff <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,21<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>01:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Inside table 21 are the entries created by the ARP responder feature. The following is an example entry that matches all ARP requests where target IP address field equals the IP of VM-2(10.0.0.9).</p>
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">table</span><span class="o">=</span>21, <span class="nv">priority</span><span class="o">=</span>1,arp,dl_vlan<span class="o">=</span>1,arp_tpa<span class="o">=</span>10.0.0.9
+</span><span class='line'> <span class="nv">actions</span><span class="o">=</span>move:NXM_OF_ETH_SRC<span class="o">[]</span>-&gt;NXM_OF_ETH_DST<span class="o">[]</span>,
+</span><span class='line'> mod_dl_src:fa:16:3e:ab:1a:bf,
+</span><span class='line'> load:0x2-&gt;NXM_OF_ARP_OP<span class="o">[]</span>,
+</span><span class='line'> move:NXM_NX_ARP_SHA<span class="o">[]</span>-&gt;NXM_NX_ARP_THA<span class="o">[]</span>,
+</span><span class='line'> move:NXM_OF_ARP_SPA<span class="o">[]</span>-&gt;NXM_OF_ARP_TPA<span class="o">[]</span>,
+</span><span class='line'> load:0xfa163eab1abf-&gt;NXM_NX_ARP_SHA<span class="o">[]</span>,
+</span><span class='line'> load:0xa000009-&gt;NXM_OF_ARP_SPA<span class="o">[]</span>,
+</span><span class='line'> IN_PORT
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The resulting action builds an ARP response by modifying the fields and headers on the original ARP request message, specifically OVS:</p>
+
+<ol>
+<li>Copies the source MAC address (VM-1) to the destination MAC address header</li>
+<li>Spoofs the source MAC address to make it look like it comes from VM-2</li>
+<li>Modifies the operation code of ARP message to 0x2, meaning <strong>reply</strong></li>
+<li>Overwrites the target IP and MAC address fields inside the ARP packet with VM-1&rsquo;s values</li>
+<li>Overwrites the source hardware address with VM-2&rsquo;s MAC</li>
+<li>Overwrites the source IP address with the address of VM-2(0xa000009)</li>
+<li>Sends the packet out the port from which it was received</li>
+</ol>
+
+
+<h3>Unicast frame from VM-1 to VM-2 (Revisited)</h3>
+
+<p>Now that VM-1 has learned the MAC address of VM-2 it can start sending the unicast frames. The first few steps will again be the same. The frame hits the tunnel bridge, gets classified as a unicast and resubmitted to table 20. Table 20 will still have an entry generated by a <strong>learn</strong> action triggered by a packet coming from VM-2, however now it also has and identical entry with a higher priority(priority=2), which was preconfigured by a L2 population feature.</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>20, <span class="nv">priority</span><span class="o">=</span>2,dl_vlan<span class="o">=</span>1,dl_dst<span class="o">=</span>fa:16:3e:ab:1a:bf <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x54,output:2
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>20, <span class="nv">priority</span><span class="o">=</span>1,vlan_tci<span class="o">=</span>0x0001/0x0fff,dl_dst<span class="o">=</span>fa:16:3e:ab:1a:bf <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x54-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Other BUM traffic</h2>
+
+<p>The two features described in this post only affect the ARP traffic to VMs <strong>known</strong> to the Neutron server. All the other BUM traffic will still be flooded as described in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>.</p>
+
+<h2>Results</h2>
+
+<p>As the result of enabling L2 population and ARP responder features we were able to reduce the amount of BUM traffic in the overlay network and reduce the eliminate processing on compute hosts incurred by ARP request flooding.</p>
+
+<p>However one downside of this approach is the increased number of flow entries in tunnel bridges of compute hosts. Specifically, for each known VM there now will be two entries in the tunnel bridge with different priorities. This may have negative impact on performance and is something to keep in mind when designing OpenStack solutions for scale.</p>
+
+<h2>Coming Up</h2>
+
+<p>In the next post I&rsquo;ll show how to overcome the requirement of a direct L2 adjacency between the network node and external subnet. Specifically, I&rsquo;ll use Arista switch to extend a L2 provider network over a L3 leaf-spine Cisco fabric.</p>
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-05-06T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">06/05/2016</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/" data-via="" data-counturl="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+	
+	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/" data-counter="right"></script>
+	
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2016/04/22/neutron-native/" title="Previous Post: Network Engineering analysis of OpenStack SDN">&laquo; Network Engineering analysis of OpenStack SDN</a></li>
+            
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item active" href="/blog/2016/05/06/neutron-l2pop/">Openstack SDN - L2 Population and ARP Proxy</a>
+    
+    <a class="list-group-item " href="/blog/2016/04/22/neutron-native/">Network Engineering Analysis of OpenStack SDN</a>
+    
+    <a class="list-group-item " href="/blog/2016/04/18/os-unl-lab/">Building a Multi-node OpenStack Lab in UNetLab</a>
+    
+    <a class="list-group-item " href="/blog/2016/04/04/openstack-unl/">Openstack on UNetlab</a>
+    
+    <a class="list-group-item " href="/blog/2016/03/23/network-ci-demo-large/">Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/automation/index.html">
+        <span class="badge">11</span>
+        automation
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/network/index.html">
+        <span class="badge">10</span>
+        network
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">5</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">5</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/devops/index.html">
+        <span class="badge">4</span>
+        devops
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/rest/index.html">
+        <span class="badge">4</span>
+        rest
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/cisco/index.html">
+        <span class="badge">4</span>
+        cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/openstack/index.html">
+        <span class="badge">4</span>
+        openstack
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">2</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/sdn/index.html">
+        <span class="badge">2</span>
+        sdn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">2</span>
+        routing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
+        <span class="badge">1</span>
+        syncthing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/git/index.html">
+        <span class="badge">1</span>
+        git
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
+        <span class="badge">1</span>
+        pycharm
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">1</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/howto/index.html">
+        <span class="badge">1</span>
+        howto
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2016 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2016/05/06/neutron-l2pop/';
+        var disqus_url = 'http://networkop.github.io/blog/2016/05/06/neutron-l2pop/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>

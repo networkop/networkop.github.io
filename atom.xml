@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-04-26T01:26:50-07:00</updated>
+  <updated>2016-05-05T21:16:04-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,145 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - L2 Population and ARP Proxy]]></title>
+    <link href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/"/>
+    <updated>2016-05-06T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/05/06/neutron-l2pop</id>
+    <content type="html"><![CDATA[<p>In the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a> we&rsquo;ve had a look at how native OpenStack SDN works and what are some of its limitations. In this post we&rsquo;ll tackle the first one of them - overhead created by multicast source replication.</p>
+
+<!--more-->
+
+
+<h2>MAC learning in a controller-less VXLAN overlay</h2>
+
+<p>VXLAN <a href="https://tools.ietf.org/html/rfc7348">standard</a> does not specify any control plane protocol to exchange MAC-IP bindings between VTEPs. Instead it relies on data plane flood-and-learn behaviour, just like a normal switch. To force this behaviour in an underlay, the standard stipulates that each VXLAN network should be mapped to its own multicast address and each VTEP participating in a network should join the corresponding multicast group. That multicast group would be used to flood the <abbr title="Broadcast Unknown unicast and Multicast">BUM</abbr> traffic in an underlay to all subscribed VTEPs thereby populating dynamic MAC address tables.</p>
+
+<p>Default OpenvSwitch implementation <a href="https://github.com/openvswitch/ovs/blob/master/FAQ.md#q-how-much-of-the-vxlan-protocol-does-open-vswitch-currently-support">does not support</a> VXLAN multicast flooding and uses unicast source replication instead. This decision comes with a number of tradeoffs:</p>
+
+<ul>
+<li>Duplicate packets consume additional bandwidth. Extra 100 bytes exchanged every 3 minutes in a 100-nodes environment generate around 500 kbit/s of traffic on average. This can be considered negligible inside modern high-speed DC fabrics.</li>
+<li>Hardware VTEP gateways rely on multicast for MAC learning and VTEP discovery. As we&rsquo;ll see later in the series, these gateways can now be controlled by Neutron just like a normal OVS inside a compute host.</li>
+<li>Duplicate packets are processed by hosts that do not need them, e.g. ARP request is processed by tunnel and integration bridges of all hosts that have VMs in the same broadcast domain. This presents some serious scaling limitation and is addressed by the L2 population feature described in this post.</li>
+</ul>
+
+
+<p>Despite all the tradeoffs, OVS with unicast source replication has become a de-facto standard in most recent OpenStack implementations. The biggest advantage of such approach is the lack of requirement for multicast in the underlay network.</p>
+
+<h2>VXLAN MAC learning with an SDN controller</h2>
+
+<p>Neutron server is aware of all active MAC and IP addresses within the environment. This information can be used to prepopulate forwarding entries on all tunnel bridges. This is accomplished by a <a href="https://github.com/openstack/neutron/tree/master/neutron/plugins/ml2/drivers/l2pop">L2 population</a> driver. However that in itself isn&rsquo;t enough. Whenever a VM doesn&rsquo;t know the destination MAC address, it will send a broadcast ARP request which needs to be intercepted and responded by a local host to stop it from being flooded in the network. The latter is accomplished by a feature called <a href="https://assafmuller.com/2014/05/21/ovs-arp-responder-theory-and-practice/">ARP responder</a> which simulates the functionality commonly known as <strong>ARP proxy</strong> inside the tunnel bridge.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/neutron-l2-arp.png"></p>
+
+<h3>Configuration</h3>
+
+<p>Configuration of these two features is <a href="https://kimizhang.wordpress.com/2014/04/01/how-ml2vxlan-works/">fairly straight-forward</a>. First, we need to add L2 population to the list of supported mechanism drivers on our control node and restart the neutron server.</p>
+
+<figure class='code'><figcaption><span>Update on control node</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sed -ri <span class="s1">&#39;s/(mechanism_drivers.*)/\1,l2population/&#39;</span> /etc/neutron/plugin.ini
+</span><span class='line'><span class="nv">$ </span>service neutron-server restart
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Next we need to enable L2 population and ARP responder features on all 3 compute nodes.</p>
+
+<figure class='code'><figcaption><span>Updates on all 3 compute nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sed -ri <span class="s1">&#39;s/.*(arp_responder).*/\1 = true/&#39;</span> /etc/neutron/plugins/ml2/openvswitch_agent.ini
+</span><span class='line'><span class="nv">$ </span>sed -ri <span class="s1">&#39;s/.*(l2_population).*/\1 = true/&#39;</span> /etc/neutron/plugins/ml2/openvswitch_agent.ini
+</span><span class='line'><span class="nv">$ </span>service neutron-openvswitch-agent restart
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Since L2 population is triggered by the <a href="https://assafmuller.com/2014/02/23/ml2-address-population/">port_up</a> messages, we might need to restart both our VMs for the change to take effect.</p>
+
+<h3>BUM frame from VM-1 for MAC address of VM-2 (Revisited)</h3>
+
+<p>Now let&rsquo;s once again examine what happens when VM-1 issues an ARP request for VM-2&rsquo;s MAC address (1a:bf).</p>
+
+<p>First, the frame hits the flood-and-learn rule of the integration bridge and gets flooded down to the tunnel bridge as desribed in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>. Once in the br-tun, the frames gets matched by the incoming port and resubmitted to table 2. In addition to a default unicast/multicast bit match, table 2 now also matches all ARP requests and resubmitts them to the new table 21. Note how the ARP entry has a higher priority to always match before the default catch-all multicast rule.</p>
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>1,arp,dl_dst<span class="o">=</span>ff:ff:ff:ff:ff:ff <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,21<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>01:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Inside table 21 are the entries created by the ARP responder feature. The following is an example entry that matches all ARP requests where target IP address field equals the IP of VM-2(10.0.0.9).</p>
+
+<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">table</span><span class="o">=</span>21, <span class="nv">priority</span><span class="o">=</span>1,arp,dl_vlan<span class="o">=</span>1,arp_tpa<span class="o">=</span>10.0.0.9
+</span><span class='line'> <span class="nv">actions</span><span class="o">=</span>move:NXM_OF_ETH_SRC<span class="o">[]</span>-&gt;NXM_OF_ETH_DST<span class="o">[]</span>,
+</span><span class='line'> mod_dl_src:fa:16:3e:ab:1a:bf,
+</span><span class='line'> load:0x2-&gt;NXM_OF_ARP_OP<span class="o">[]</span>,
+</span><span class='line'> move:NXM_NX_ARP_SHA<span class="o">[]</span>-&gt;NXM_NX_ARP_THA<span class="o">[]</span>,
+</span><span class='line'> move:NXM_OF_ARP_SPA<span class="o">[]</span>-&gt;NXM_OF_ARP_TPA<span class="o">[]</span>,
+</span><span class='line'> load:0xfa163eab1abf-&gt;NXM_NX_ARP_SHA<span class="o">[]</span>,
+</span><span class='line'> load:0xa000009-&gt;NXM_OF_ARP_SPA<span class="o">[]</span>,
+</span><span class='line'> IN_PORT
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The resulting action builds an ARP response by modifying the fields and headers on the original ARP request message, specifically OVS:</p>
+
+<ol>
+<li>Copies the source MAC address (VM-1) to the destination MAC address header</li>
+<li>Spoofs the source MAC address to make it look like it comes from VM-2</li>
+<li>Modifies the operation code of ARP message to 0x2, meaning <strong>reply</strong></li>
+<li>Overwrites the target IP and MAC address fields inside the ARP packet with VM-1&rsquo;s values</li>
+<li>Overwrites the source hardware address with VM-2&rsquo;s MAC</li>
+<li>Overwrites the source IP address with the address of VM-2(0xa000009)</li>
+<li>Sends the packet out the port from which it was received</li>
+</ol>
+
+
+<h3>Unicast frame from VM-1 to VM-2 (Revisited)</h3>
+
+<p>Now that VM-1 has learned the MAC address of VM-2 it can start sending the unicast frames. The first few steps will again be the same. The frame hits the tunnel bridge, gets classified as a unicast and resubmitted to table 20. Table 20 will still have an entry generated by a <strong>learn</strong> action triggered by a packet coming from VM-2, however now it also has and identical entry with a higher priority(priority=2), which was preconfigured by a L2 population feature.</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>20, <span class="nv">priority</span><span class="o">=</span>2,dl_vlan<span class="o">=</span>1,dl_dst<span class="o">=</span>fa:16:3e:ab:1a:bf <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x54,output:2
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>20, <span class="nv">priority</span><span class="o">=</span>1,vlan_tci<span class="o">=</span>0x0001/0x0fff,dl_dst<span class="o">=</span>fa:16:3e:ab:1a:bf <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x54-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Other BUM traffic</h2>
+
+<p>The two features described in this post only affect the ARP traffic to VMs <strong>known</strong> to the Neutron server. All the other BUM traffic will still be flooded as described in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>.</p>
+
+<h2>Results</h2>
+
+<p>As the result of enabling L2 population and ARP responder features we were able to reduce the amount of BUM traffic in the overlay network and reduce the eliminate processing on compute hosts incurred by ARP request flooding.</p>
+
+<p>However one downside of this approach is the increased number of flow entries in tunnel bridges of compute hosts. Specifically, for each known VM there now will be two entries in the tunnel bridge with different priorities. This may have negative impact on performance and is something to keep in mind when designing OpenStack solutions for scale.</p>
+
+<h2>Coming Up</h2>
+
+<p>In the next post I&rsquo;ll show how to overcome the requirement of a direct L2 adjacency between the network node and external subnet. Specifically, I&rsquo;ll use Arista switch to extend a L2 provider network over a L3 leaf-spine Cisco fabric.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network Engineering Analysis of OpenStack SDN]]></title>
@@ -381,7 +520,7 @@ The final table swaps the dot1q and VXLAN identifiers and does the source replic
 <p>In the following posts I&rsquo;ll continue poking around Neutron and explore a number of features designed to address some of the limitations described above:</p>
 
 <ul>
-<li><a href="https://wiki.openstack.org/wiki/L2population_blueprint">L2 population</a></li>
+<li><a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">L2 population</a></li>
 <li><a href="https://wiki.openstack.org/wiki/Neutron/DVR">Distributed Virtual Router</a></li>
 <li><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 hardware gateway</a></li>
 <li><a href="https://wiki.openstack.org/wiki/Neutron/L3_High_Availability_VRRP">Network High Availability</a></li>
@@ -5273,317 +5412,6 @@ Now if we simply shutdown Ethernet0/0 of R1 to simulate a link failure and re-ru
 <hr />
 
 <p>The next post, final in a series, will show how to write an Ansible play to validate TDD scenarios and produce a meaningful error message in case it fails.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Getting Started With Ansible for Cisco IOS]]></title>
-    <link href="http://networkop.github.io/blog/2015/06/24/ansible-intro/"/>
-    <updated>2015-06-24T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/06/24/ansible-intro</id>
-    <content type="html"><![CDATA[<p>Ansible is well-known for it&rsquo;s low entry threshold. All what&rsquo;s required to get started is just one inventory file. However Cisco IOS devices require special considerations.
-Passwordless SSH RSA-based authentication is still a novelty and in most cases users are authenticated based on their passwords. Another problem is the lack of Python execution
-environment on IOS devices, which seriously limits the choice of Ansible modules that can be used. In this post I will show how to setup Ansible
-environment to control Cisco IOS devices</p>
-
-<!--more-->
-
-
-<h2>Ansible overview</h2>
-
-<p>There&rsquo;s been a lot written about what Ansible is and what it was built to accomplish. I will just provide a brief summary of its features focusing on what we&rsquo;re gonna be using it for, leaving an in-depth explanation to the official <a href="http://docs.ansible.com/">Ansible documentation</a>.</p>
-
-<ul>
-<li>What is it?</li>
-</ul>
-
-
-<blockquote><p>Ansible is an IT automation and orchestration framework</p></blockquote>
-
-<ul>
-<li>What was it built to accomplish?</li>
-</ul>
-
-
-<blockquote><p>Ansible was designed to automate routine tasks like server/application deployment and configuration</p></blockquote>
-
-<ul>
-<li>How does it work?</li>
-</ul>
-
-
-<blockquote><p>It connects to several hosts at the same time and executes small programs called &ldquo;modules&rdquo; in the order specified in a file called &ldquo;playbook&rdquo;</p></blockquote>
-
-<p>To build what we&rsquo;ve set out to accomplish I&rsquo;m gonna be using the latter feature. I am not gonna be using Ansible for system provisioning or service orchestration. Instead, I will be exploiting Ansible&rsquo;s ability to run multiple parallel connections to remote hosts, execute commands on them and return their result. Due to that, I will diverge from some of the <a href="https://docs.ansible.com/playbooks_best_practices.html">Ansible&rsquo;s best practices</a> of splitting functions into roles and I will use one flat playbook file segregating different functions with tags.</p>
-
-<h2>Ansible configuration file</h2>
-
-<p>Ansible configuration file <code>ansible.cfg</code> contains <a href="http://docs.ansible.com/intro_configuration.html">application-wide settings</a> like default timeouts, port numbers and other flags. The default Ansible configuration file is located in <code>/etc/ansible/</code> directory. However, instead of overwriting the defaults it is possible to create a configuration file in a local directory with only the settings that need to be overridden. To better work with Cisco devices the following settings will need to be modified:</p>
-
-<ul>
-<li>Default SSH library (transport) needs to be set to <code>paramiko</code> which is more stable than its alternative, OpenSSH, when working with Cisco IOS.</li>
-<li>For a small project it is easier to maintain a local copy of inventory file which is configured with <code>hostfile</code> setting.</li>
-<li>Strict SSH key checking is a MUST in every production environment, however, for development environment an exception can be made.</li>
-<li>Default SSH timeout is decreased to 5 seconds reflecting a small size of the testing environment.</li>
-</ul>
-
-
-<figure class='code'><figcaption><span>~/tdd_ansible/ansible.cfg</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>defaults<span class="o">]</span>
-</span><span class='line'><span class="nv">transport</span><span class="o">=</span>paramiko
-</span><span class='line'><span class="nv">hostfile</span> <span class="o">=</span> ./myhosts
-</span><span class='line'><span class="nv">host_key_checking</span><span class="o">=</span>False
-</span><span class='line'><span class="nv">timeout</span> <span class="o">=</span> 5
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Inventory file</h2>
-
-<p>Inventory contains the list of hosts to be managed by Ansible. Hosts are normally combined into groups (<code>cisco-devices</code> in our case) and Ansible performs actions on all hosts in the group in parallel.</p>
-
-<figure class='code'><figcaption><span>~/tdd_ansible/myhosts</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>cisco-devices<span class="o">]</span>
-</span><span class='line'>R1
-</span><span class='line'>R2
-</span><span class='line'>R3
-</span><span class='line'>R4
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>It is considered a <a href="https://docs.ansible.com/playbooks_best_practices.html#group-and-host-variables">best practice</a> to keep all variables in separate folders and files. We need to define additional host variables to let Ansible know which IP address to use to connect to a remote device. I will also add SSH password to a host variable file which is a VERY bad practice, however this will prevent me from typing password every time I run a playbook. If I ever did this in production, I&rsquo;d add host variables directory to <code>.gitignore</code> file so that it doesn&rsquo;t get uploaded to Github. Host variables files must follow YAML formatting, must be stored in a <code>./host_vars</code> directory and must match the name of the host they are being assigned to.</p>
-
-<figure class='code'><figcaption><span>~/tdd_ansible/host_vars/R1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_host</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">10.0.0.1</span>
-</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_pass</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Similar files need to be created for R2, R3 and R4.</p>
-
-<h2>Run a test traceroute commands</h2>
-
-<p>Now it is time to finally see Ansible in action. Let&rsquo;s first see if we can run a standalone traceroute command. I will manually define SSH username with <code>-u</code> flag and use a module called <code>raw</code> passing traceroute command as an argument with <code>-a</code> option.</p>
-
-<figure class='code'><figcaption><span>Ad-hoc traceroute command</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ansible cisco-devices -u cisco -m raw -a <span class="s2">&quot;traceroute 10.0.0.4 source Loopback0 probe 1 numeric&quot;</span>
-</span><span class='line'>SSH password:
-</span><span class='line'>R1 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.0.4
-</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
-</span><span class='line'>  <span class="m">1</span> 14.14.14.4 <span class="m">0</span> msec *  <span class="m">0</span> msec
-</span><span class='line'>
-</span><span class='line'>R2 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.0.4
-</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
-</span><span class='line'>  <span class="m">1</span> 12.12.12.1 <span class="m">0</span> msec <span class="m">0</span> msec <span class="m">0</span> msec
-</span><span class='line'>  <span class="m">2</span>  *  *
-</span><span class='line'>    14.14.14.4 <span class="m">0</span> msec
-</span><span class='line'>
-</span><span class='line'>R3 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.0.4
-</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
-</span><span class='line'>  <span class="m">1</span> 34.34.34.4 <span class="m">0</span> msec <span class="m">0</span> msec *
-</span><span class='line'>
-</span><span class='line'>R4 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.0.4
-</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
-</span><span class='line'>  <span class="m">1</span> 10.0.0.4 <span class="m">0</span> msec <span class="m">0</span> msec *
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<p>Ansible ad-hoc commands are a good way to quickly test something out and learn how things work. Next step would be to create a playbook file which will contain several of those commands in a more structured way. Playbooks use YAML syntax and follow strict formatting rules. At the top of the file there&rsquo;s a name of the play along with the target hosts group. Following that are a list of tasks, each of which calls its own module and passes arguments to it. In this example playbook does the following:</p>
-
-<ol>
-<li>Defines a <code>loopbacks</code> variable which stores in a hash a list of devices along with their loopback IP addresses.</li>
-<li>Uses <code>raw</code> module to run traceroute commands. This is the only module that doesn&rsquo;t require Python to be installed on a target machine.</li>
-<li>For each host in <code>cisco-devices</code> group runs traceroute to every other hosts' loopback IP</li>
-<li>Stores the result in a <code>trace_result</code> variable</li>
-</ol>
-
-
-<figure class='code'><figcaption><span>~/tdd_ansible/cisco-trace-run.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Run traceroute commands</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco-devices</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">remote_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">vars</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">loopbacks</span><span class="p-Indicator">:</span> <span class="p-Indicator">{</span>
-</span><span class='line'>    <span class="s">&quot;R1&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.1&quot;</span><span class="p-Indicator">,</span>
-</span><span class='line'>    <span class="s">&quot;R2&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.2&quot;</span><span class="p-Indicator">,</span>
-</span><span class='line'>    <span class="s">&quot;R3&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.3&quot;</span><span class="p-Indicator">,</span>
-</span><span class='line'>    <span class="s">&quot;R4&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.4&quot;</span><span class="p-Indicator">,</span>
-</span><span class='line'>    <span class="p-Indicator">}</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">run traceroute to every other host</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">raw</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">traceroute {{ item.value }} source Loopback0 probe 1 numeric</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">item.key != inventory_hostname</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">with_dict</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">loopbacks</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">register</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">trace_result</span>
-</span><span class='line'>
-</span><span class='line'><span class="c1">#    - name: Debug registered variables</span>
-</span><span class='line'><span class="c1">#      debug: var=trace_result</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>In this Playbook I use several useful Ansible features:</p>
-
-<ul>
-<li><a href="https://docs.ansible.com/playbooks_variables.html#variables-defined-in-a-playbook">Variables defined in playbooks</a></li>
-<li><a href="https://docs.ansible.com/playbooks_loops.html#looping-over-hashes">Looping over hashes</a></li>
-<li><a href="https://docs.ansible.com/playbooks_conditionals.html">Conditionals</a></li>
-<li><a href="https://docs.ansible.com/playbooks_variables.html#registered-variables">Registered variables</a></li>
-</ul>
-
-
-<p>The end result of this task is that traceroute is run 12 times - one time from each of the hosts to each other host except for when source and destination are equal.</p>
-
-<figure class='code'><figcaption><span>Running the playbook</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ansible-playbook cisco-trace-run.yml
-</span><span class='line'>
-</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
-</span><span class='line'>
-</span><span class='line'>TASK: <span class="o">[</span>run traceroute to every other host<span class="o">]</span> ************************************
-</span><span class='line'>skipping: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
-</span><span class='line'>skipping: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
-</span><span class='line'>skipping: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
-</span><span class='line'>skipping: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
-</span><span class='line'>
-</span><span class='line'>PLAY RECAP ********************************************************************
-</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>The above shows that all 12 tasks were completed successfully, meaning the command was executed and result was stored in a registered variable. To view the actual output of <code>traceroute</code> commands uncomment the two debug lines at the end of the playbook and rerun it.</p>
-
-<hr />
-
-<p>Now that the goal of running commands on multiple devices in parallel is achieved, the next step would be to decide how to make use of the received output. In the next posts I will attempt to tackle the following problems:</p>
-
-<ul>
-<li>Parse textual output of traceroute command and extract transit IP addresses.</li>
-<li>Find a way to convert these transit IP addresses into hostnames without relying on DNS.</li>
-<li>Verify TDD scenarios against traceroute outputs and produce an intelligible result of this verification.</li>
-</ul>
-
 ]]></content>
   </entry>
   
