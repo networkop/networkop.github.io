@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Sdn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/sdn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-05-05T21:16:04-07:00</updated>
+  <updated>2016-05-10T23:08:19-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,153 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - Extending L2 Provider Network Over a L3 Fabric]]></title>
+    <link href="http://networkop.github.io/blog/2016/05/11/neutron-routed-extnet/"/>
+    <updated>2016-05-11T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/05/11/neutron-routed-extnet</id>
+    <content type="html"><![CDATA[<p>In the this post we&rsquo;ll tackle yet another Neutron scalability problem identified in my <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">earlier post</a> - a requirement to have a direct L2 adjacency between the external provider network and the network node.</p>
+
+<!--more-->
+
+
+<h2>Provider vs Tenant networks</h2>
+
+<p>Before we start, let&rsquo;s recap the difference between the <a href="http://docs.openstack.org/mitaka/networking-guide/intro-os-networking-overview.html">two major</a> Neutron network types:</p>
+
+<ul>
+<li>Tenant networks are:
+
+<ul>
+<li>provisioned by tenants</li>
+<li>used for inter-VM (east-west) communication</li>
+<li>use Neutron virtual router as their default gateway</li>
+</ul>
+</li>
+<li>Provider networks are:
+
+<ul>
+<li>provisioned by OpenStack administrator(for use by tenants)</li>
+<li>match existing physical networks</li>
+<li>can be either flat (untagged VLAN) or VLAN-based (multiple VLANs)</li>
+<li>need to be L2 adjacent to network and/or compute nodes</li>
+</ul>
+</li>
+</ul>
+
+
+<p>These two network types are not mutually exclusive. In our case the <strong>admin tenant</strong> network is implemented as a VXLAN-based overlay whose only requirement is to have a layer-3 reachability in the underlay. However tenant network could also have been implemented using a VLAN-based provider network in which case a set of dot1Q tags pre-provisioned in the underlay would have been used for tenant network segregation.</p>
+
+<h2>External provider network</h2>
+
+<p>External network is used by VMs to communicate with the outside world (north-south). Since default gateway is located outside of OpenStack environment this, by definition, is a provider network. Normally, tenant networks will use the non-routable address space and will rely on a Neutron virtual router to perform some form of NAT translation. As we&rsquo;ve seen in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">earlier post</a>, Neutron virtual router is directly connected to the external bridge which allows it to &ldquo;borrow&rdquo; ip address from the external provider network to use for two types of NAT operations:</p>
+
+<ul>
+<li>SNAT - a source-based port address translation performed by the Neutron virtual router</li>
+<li>DNAT - a static NAT created for every <a href="https://www.rdoproject.org/networking/difference-between-floating-ip-and-private-ip/">floating ip address</a> configured for a VM</li>
+</ul>
+
+
+<p>In default deployments all NATing functionality is performed by a network node, so external provider network only needs to be L2 adjacent with a limited number of physical hosts. In deployments where <abbr title=" Distributed Virtual Router">DVR</abbr> is used, the virtual router and NAT functionality gets distributed among all compute hosts which means that they, too, now need to be layer-2 adjacent to the external network.</p>
+
+<h2>Solutions overview</h2>
+
+<p>The direct adjacency requirement presents a big problem for deployments where layer-3 routed underlay is used for the tenant networks. There is a limited number of ways to satisfy this requirements, for example:</p>
+
+<ul>
+<li>Span a L2 segment across the whole DC fabric. This means that the fabric needs to be converted to layer-2, reintroducing spanning-tree and all the unique vendor solutions to overcome STP limitations(e.g. TRILL, Fabripath, SPB).</li>
+<li>Build a dedicated physical network. This may not always be feasible, especially considering that it needs to be delivered to all compute hosts.</li>
+<li>Extend the provider network over an existing L3 fabric with VXLAN overlay. This can easily be implemented with just a few commands, however it requires a border leaf switch capable of performing VXLAN-VLAN translation.</li>
+</ul>
+
+
+<h2>Detailed design</h2>
+
+<p>As I&rsquo;ve said in my <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">earlier post</a>, I&rsquo;ve built the leaf-spine fabric out of Cisco IOU virtual switches, however the plan was to start introducing other vendors later in the series. So this time for the border leaf role I&rsquo;ve chosen Arista vEOS switch, however, technically, it could have been any other vendor capable of doing VXLAN-VLAN bridging (e.g. any hardware switch with <a href="http://blog.ipspace.net/2014/06/trident-2-chipset-and-nexus-9500.html">Trident 2</a> or similar ASIC).</p>
+
+<p><img class="center" src="/images/neutron-extnet-l3.png"></p>
+
+<h3>Arista vEOS configuration</h3>
+
+<p>Configuration of Arista switches is very similar to Cisco IOS. In fact, I was able to complete all interface and OSPF routing configuration only with the help of CLI context help. The only bit that was new to me and that I had to lookup in the official guide was the <a href="https://eos.arista.com/vxlan-with-mlag-configuration-guide/">VXLAN configuration</a>. These similarities makes the transition from Cisco to Arista very easy and I can understand (but not approve!) why Cisco would file a lawsuit against Arista for copying its &ldquo;industry-standard CLI&rdquo;.</p>
+
+<pre><code class="text L4 configuration">interface Ethernet1
+   description SPINE-1:Eth0/3
+   no switchport
+   ip address 169.254.41.4/24
+   ip ospf network point-to-point
+!
+interface Ethernet2
+   description SPINE-2:Eth0/3
+   no switchport
+   ip address 169.254.42.4/24
+   ip ospf network point-to-point
+!
+interface Ethernet3
+   description VM-HOST-ONLY:PNET1
+   switchport access vlan 100
+   spanning-tree portfast
+!
+interface Loopback0
+   ip address 10.0.0.4/32
+!
+interface Vxlan1
+   vxlan source-interface Loopback0
+   vxlan udp-port 4789
+   vxlan vlan 100 vni 1000
+   vxlan vlan 100 flood vtep 10.0.3.10
+!
+router ospf 1
+   router-id 10.0.0.4
+   passive-interface default
+   no passive-interface Ethernet1
+   no passive-interface Ethernet2
+   network 0.0.0.0/0 area 0.0.0.0
+!
+</code></pre>
+
+<p>Interface VXLAN1 sets up VXLAN-VLAN bridging between VNI 1000 and VLAN 100. VLAN 100 is used to connect to VMware Workstation&rsquo;s host-only interface, the one that was <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">previously</a> connected directly to the L3 leaf switch. VXLAN interface does the multicast source replication by flooding unknown packets over the layer 3 fabric to the network node (10.0.3.10).</p>
+
+<h3>OpenStack network node configuration</h3>
+
+<p>Since we don&rsquo;t yet have the distributed routing feature enabled, the only OpenStack component that requires any changes is the network node. First, let&rsquo;s remove the physical interface from the external bridge, since it will no longer be used to connect to the external provider network.</p>
+
+<pre><code class="bash Remove the physical interface from the external bridge">$ ovs-vsctl del-port br-ex eth1.300
+</code></pre>
+
+<p>Next let&rsquo;s add the VXLAN interface towards the Loopback IP address of the Arista border leaf switch. The key option sets the VNI which must be equal to the VNI defined on the border leaf.</p>
+
+<pre><code class="bash add the VXLAN interface towards the Arista switch">$ ovs-vsctl add-port br-ex vxlan1 \
+-- set interface vxlan1 \
+type=vxlan \
+options:remote_ip=10.0.0.4 \
+options:key=1000
+</code></pre>
+
+<p>Without any physical interfaces attached to the external bridge, the OVS will use the Linux network stack to find the outgoing interface. When a packet hits the <strong>vxlan1</strong> interface of the br-ex, it will get encapsulated in a VXLAN header and passed on to the OS network stack where it will follow the <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">pre-configured</a> static route forwarding all 10/8 traffic towards the leaf-spine fabric. Check out <a href="http://blog.scottlowe.org/2013/05/15/examining-open-vswitch-traffic-patterns/">this article</a> if you want to learn more about different types of interfaces and traffic forwarding behaviours in OpenvSwitch.</p>
+
+<h3>Cleanup</h3>
+
+<p>In order to make changes persistent and prevent the static interface configuration from interfering with OVS, remove all OVS-related configuration and shutdown interface eth1.300.</p>
+
+<pre><code class="bash /etc/sysconfig/network-scripts/ifcfg-eth1.300">ONBOOT=no
+VLAN=yes
+</code></pre>
+
+<h2>Change in the packet flow</h2>
+
+<p>None of the packet flows have changed as the result of this modification. All VMs will still use NAT to break out of the private environment, the NAT&rsquo;d packets will reach the external bridge <strong>br-ex</strong> as described in my <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">earlier post</a>. However this time <strong>br-ex</strong> will forward the packets out the <strong>vxlan1</strong> port which will deliver them to the Arista switch over the same L3 fabric used for east-west communication.</p>
+
+<p>If we did a capture on the fabric-facing interface <strong>eth1</strong> of the control node while running a ping from one of the VMs to the external IP address, we would see a VXLAN-encapsulated packet destined for the Loopback IP of L4 leaf switch.</p>
+
+<p><img class="center" src="/images/neutron-provider-vxlan.png"></p>
+
+<h2>Coming Up</h2>
+
+<p>In the next post we&rsquo;ll examine the L2 gateway feature that allows tenant networks to communicate with physical servers through yet another VXLAN-VLAN hardware gateway.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack SDN - L2 Population and ARP Proxy]]></title>
@@ -501,6 +648,11 @@ The final table swaps the dot1q and VXLAN identifiers and does the source replic
 <td> Show MAC address table </td>
 <td> show mac address-table dynamic   </td>
 <td> <code>ovs-appctl fdb/show &lt;bridge_id&gt;</code> </td>
+</tr>
+<tr>
+<td> Clear MAC address table </td>
+<td> clear mac address-table dynamic </td>
+<td> <code>ovs-appctl fdb/flush &lt;bridge_id&gt;</code> </td>
 </tr>
 <tr>
 <td> Show port numbers </td>
