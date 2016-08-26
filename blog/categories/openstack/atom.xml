@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Openstack | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/openstack/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-05-10T23:16:51-07:00</updated>
+  <updated>2016-08-26T11:46:46-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,707 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 1)]]></title>
+    <link href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/"/>
+    <updated>2016-08-26T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/08/26/os-lab-p1</id>
+    <content type="html"><![CDATA[<p>In this post we will explore what&rsquo;s required to perform a zero-touch deployment of an OpenStack cloud. We&rsquo;ll get a 3-node lab up and running inside UNetLab with just a few commands.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>Now that I&rsquo;m finally beginning to settle down at my new place of residence I can start spending more time on research and blogging. I have left off right before I was about to start exploring the native OpenStack distributed virtual routing function. However as I&rsquo;d started rebuilding my OpenStack lab from scratch I realised that I was doing a lot of repetitive tasks which can be easily automated. Couple that with the fact that I needed to learn Chef for my new work and you&rsquo;ve got this blogpost describing a few Chef <a href="https://github.com/networkop/chef-unl-os.git">cookbooks</a> (similar to Ansible&rsquo;s playbook) automating all those manual steps described in my earlier blogposts <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">1</a> and <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">2</a>.<br/>
+In addition to that in this post I&rsquo;ll show how to build a very simple OpenStack baremetal provisioner and installer. Some examples of production-grade baremetal provisioners are <a href="https://wiki.openstack.org/wiki/Ironic">Ironic</a>, <a href="http://crowbar.github.io/">Crowbar</a> and <a href="http://maas.io/">MAAS</a>. In our case we&rsquo;ll turn UNetLab VM into an <strong>undercloud</strong>, a server used to provision and deploy our OpenStack lab, an <strong>overcloud</strong>. To do that we&rsquo;ll first install and configure DHCP, TFTP and Apache servers to PXE-boot our UNL OpenStack nodes. Once all the nodes are bootstrapped, we&rsquo;ll use Chef to configure the server networking and kickoff the packstack OpenStack installer.</p>
+
+<p><img class="center" src="/images/os-lab-chef.png"></p>
+
+<p>In this post I&rsquo;ll try to use Chef recipes that I&rsquo;ve written as much as possible, therefore you won&rsquo;t see the actual configuration commands, e.g. how to configure Apache or DHCP servers. However I will try to describe everything that happens at each step and hopefully that will provide enough incentive for the curious to look into the Chef code and see how it&rsquo;s done. To help with the Chef code understanding let me start with a brief overview of what to look for in a cookbook.</p>
+
+<h2>How to read a Chef cookbook (Optional)</h2>
+
+<p>A cookbook directory (<strong>/cookbooks/[cookbook_name]</strong>) contains all its configuration scripts in <strong>/recipes</strong>. Each file inside a recipe contains a list of steps to be performed on a server. Each step is an operation (add/delete/update) on a <strong>resource</strong>. Here are some of the common Chef resources:</p>
+
+<ul>
+<li>Package - allows you to add, remove or update a package</li>
+<li>Template - creates a file from an <strong>erb</strong>-formatted template</li>
+<li>Execute - runs an ad-hoc CLI command</li>
+</ul>
+
+
+<p>Just these three basic resources allow you to do 95% of administrative tasks on any server. Most importantly they do it in platform-independent (any flavour of Linux) and idempotent (only make changes if current state is different from a desired state) way. Other directories you might want to explore are:</p>
+
+<ul>
+<li>/templates - contains all the <strong>erb</strong>-formatted templates</li>
+<li>/attributes - contains recipe variables (file paths, urls etc.)</li>
+<li>/files - contains the non-template files, i.e. files with static content</li>
+</ul>
+
+
+<h2>Bootstrapping the OpenStack nodes</h2>
+
+<ol>
+<li><p>If you haven&rsquo;t done it yet, download a copy of the <strong>UNetLab VM</strong> from the <a href="http://www.unetlab.com/">official website</a>. Set it up inside your hypervisor so that you can access Internet through the first interface <strong>pnet0</strong> (i.e. connect the first NIC of the VM to hypervisor&rsquo;s NAT interface). Make sure the VM has got at least 6GB of RAM and VT-x support enabled for nested virtualization.</p></li>
+<li><p>Follow the official <a href="https://downloads.chef.io/chef-dk/">installation instructions</a> to <strong>install Chef Development Kit</strong> inside UNetLab VM.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>wget &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.16.28-1_amd64.deb&quot;</span>&gt;https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.16.28-1_amd64.deb&lt;/a&gt;
+</span><span class='line'>dpkg -i chefdk_0.16.28-1_amd64.deb
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p><strong>Install git</strong> and clone <a href="https://github.com/networkop/chef-unl-os.git">chef cookbooks</a>.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>apt-get -y update
+</span><span class='line'>apt-get -y install git
+</span><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
+</span><span class='line'><span class="nb">cd </span>chef-unl-os
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Examine the lab <strong>environment settings</strong> to see what values are going to be used. You can modify that file to your liking.</p>
+
+<blockquote><p>Note that the OpenStack node IDs (keys of <em>os_lab</em> hash) MUST have one to one correspondence with the UNL node IDs which will be created at step 5</p></blockquote>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat environment/lab.rb
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Run Chef against a local server to setup the <strong>baremetal provisioner</strong>. This step installs and configures DHCP, TFTP and Apache servers. It also creates all the necessary PXE-boot and kickstart files based on our environment settings. Note that a part of the process is the download of a 700MB CentOS image so it might take a while to complete.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>chef-client -z -E lab -o pxe
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>At the start of the PXE-boot process, DCHP server sends an OFFER which, along with the standard IP information, includes the name of the PXE boot image and the IP address of TFTP server where to get it from. A server loads this image and then searches the TFTP server for the boot configuration file which tells it what kernel to load and where to get a kickstart file. Both kickstart and the actual installation files are accessed via HTTP and served by the same Apache server that runs UNL GUI.</p></li>
+<li><p>From <strong>UNL GUI</strong> create a new lab, add 3 OpenStack nodes and connect them all to <strong>pnet10</strong> interface as described in <a href="http://www.unetlab.com/2014/11/using-cloud-devices/">this guide</a>. Note that the <strong>pnet10</strong> interface has already been created by Chef so you don&rsquo;t have to re-create it again.</p>
+
+<blockquote><p>Make sure that the UNL node IDs match the ones defined in the environment setting file</p></blockquote></li>
+<li><p>Fire-up the nodes and watch them being bootstrapped by our UNL VM.</p></li>
+</ol>
+
+
+<h2>Server provisioning</h2>
+
+<p>Next step is to configure the server networking and kickoff the OpenStack installer. These steps will also be done with a single command:</p>
+
+<p>   <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   chef-client -z -E lab lab.rb
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure>
+The first part of this script will connect to each prospective OpenStack node and setup its network interfaces and hostnames. The second part of this script will generate a packstack answer file and modify its settings to exclude some of the components we&rsquo;re not going to use (like Nagios, Ceph and Ceilometer). Have a look at <strong>cookbooks/packstack/recipe/default.rb</strong> for the list of modifications. The final step is a command to kickoff the packstack installer which will use another configuration management system, Puppet, to install and configure OpenStack according to the provided answer file.</p>
+
+<p>At the end of these steps you should have a fully functional 3-node OpenStack environment.</p>
+
+<h2>To be continued&hellip;</h2>
+
+<p>This is a part of a 2-post series. In the next post we&rsquo;ll look into how to use the same tools to perform the baremetal provisioning of our physical underlay network.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway]]></title>
+    <link href="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/"/>
+    <updated>2016-05-21T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/05/21/neutron-l2gw</id>
+    <content type="html"><![CDATA[<p>One of the basic function of any data centre network is the ability to communicate with baremetal servers. In this post we&rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</p>
+
+<!--more-->
+
+
+<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/">downloaded</a> and imported into my lab.</p>
+
+<p><img class="center" src="/images/neutron-l2gw-overview.png"></p>
+
+<p>To simulate the baremetal server (10.0.0.100) I&rsquo;ve VRF&rsquo;d an interface on Arista &ldquo;L4&rdquo; switch and connected it directly to a &ldquo;swp3&rdquo; interface of the Cumulus VX. This is not shown on the diagram.</p>
+
+<h2>Solution overview</h2>
+
+<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that compose this solution:</p>
+
+<ul>
+<li><strong>Hardware switch</strong> implementing the OVSDB hardware vtep schema. This is a special &ldquo;flavour&rdquo; of OVSDB designed specifically to enable connectivity between logical (VXLAN VTEP) and physical (switchport) interfaces.</li>
+<li><strong>L2GW agent</strong> running on a network node. This is the process responsible for connecting to OVSDB server running on a hardware switch and updating that database based on instructions received from a L2GW service plugin.</li>
+<li><strong>L2GW Service Plugin</strong> residing on a control node. The task of this plugin is to notify the L2GW agent and normal L2 OVS agents running on compute hosts about network events and distribute VTEP IP address information between them.</li>
+</ul>
+
+
+<p>Note that in our case both network and control nodes are running on the same VM.</p>
+
+<h2>Cumulux VX configuration</h2>
+
+<p>Cumulux is a debian-based linux distribution, therefore most of the basic networking configuration will be similar to how things are done in Ubuntu. First, let&rsquo;s start by configuring basic IP addressing on Loopback (VTEP IP), Eth0 (OOB management), swp1 and swp2 (fabric) interfaces.</p>
+
+<pre><code class="bash /etc/network/interfaces">iface lo inet loopback
+        address 10.0.0.5/32
+
+auto eth0
+iface eth0 inet static
+        address 192.168.91.21/24
+
+auto swp1
+iface swp1 inet static
+        address 169.254.51.5/24
+
+auto swp2
+iface swp2 inet static
+        address 169.254.52.5/24
+
+auto swp3
+iface swp3
+</code></pre>
+
+<p>Next, let&rsquo;s enable OSPF</p>
+
+<pre><code class="bash Enable OSPF process">sudo sed -i s/zebra=no/zebra=yes/ /etc/quagga/daemons
+sudo sed -i s/ospfd=no/ospfd=yes/ /etc/quagga/daemons
+sudo service quagga restart
+</code></pre>
+
+<p>Once OSPFd is running, we can use <code>sudo vtysh</code> to connect to local quagga shell and finalise the configuration.</p>
+
+<pre><code class="bash show run">interface lo
+ ip ospf area 0.0.0.0
+ link-detect
+!
+interface swp1
+ ip ospf area 0.0.0.0
+ ip ospf network point-to-point
+ link-detect
+!
+interface swp2
+ ip ospf area 0.0.0.0
+ ip ospf network point-to-point
+ link-detect
+!
+router ospf
+ ospf router-id 10.0.0.5
+ passive-interface default
+ no passive-interface swp1
+ no passive-interface swp2
+</code></pre>
+
+<p>At this stage our Cumulus VX switch should be fully adjacent to both spines and its loopback IP (10.0.0.5) should be reachable from all OpenStack nodes.</p>
+
+<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack">process</a> is fairly simple and involves only a few commands.</p>
+
+<pre><code class="bash">$ sudo sed -i s/START=no/START=yes/g /etc/default/openvswitch-vtep
+$ sudo service openvswitch-vtep start
+$ sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
+</code></pre>
+
+<p>The last command runs a bootstrap script that does the following things:</p>
+
+<ul>
+<li>Creates a hardware VTEP OVSDB schema</li>
+<li>Inside that schema creates a new physical switch called &ldquo;L5&rdquo;</li>
+<li>Sets the VTEP IP to 10.0.0.5</li>
+<li>Starts listening to incoming OVSDB connections on 192.168.91.21</li>
+</ul>
+
+
+<h2>Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h2>
+
+<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that <a href="https://tools.ietf.org/html/rfc7047">OVSDB</a> is just a database and OVSDB protocol is just a set of JSON RPC calls to work with that database. Information that can be stored in the database is defined by a schema - a structure that represents tables and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
+
+<ul>
+<li><strong><a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf">Open_vSwitch schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
+<li><strong><a href="http://openvswitch.org/docs/vtep.5.pdf">Hardware_vtep schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
+</ul>
+
+
+<p>The information from these databases is later consumed by another process that sets up the actual bridges and ports. The first schema is used by the <strong>ovs-vswitchd</strong> process running on all compute hosts to configure ports and flows of integration and tunnel bridges. In case of a Cumulus switch, the information from <strong>hardware_vtep</strong> OVSDB is used by a process called <strong>ovs-vtepd</strong> that is responsible for settings up VXLAN VTEP interfaces, provisioning of VLANs on physical switchports and interconnecting them with a Linux bridge.</p>
+
+<p>If you want to learn more, check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html">awesome post</a> about hardware VTEP and OVS.</p>
+
+<h2>OpenStack Control node configuration</h2>
+
+<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/">another blog</a>. It&rsquo;s included it this post because I had to do some modifications and also for the sake of completeness.</p>
+
+<ol>
+<li><p>Clone the L2GW repository</p>
+
+<pre><code class="`"> git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
+</code></pre></li>
+<li><p>Use pip to install the plugin</p>
+
+<pre><code class="`"> pip install ./networking-l2gw/
+</code></pre></li>
+<li><p>Enable the L2GW service plugin</p>
+
+<pre><code class="`"> sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' \
+ /etc/neutron/neutron.conf
+</code></pre></li>
+<li><p>Copy L2GW configuration files into the neutron configuration directory</p>
+
+<pre><code class="`"> cp  /usr/etc/neutron/l2g* /etc/neutron/
+</code></pre></li>
+<li><p>Point the L2GW plugin to our Cumulus VX switch</p>
+
+<pre><code class="`"> sudo sed -ri "s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/" /etc/neutron/l2gateway_agent.ini
+</code></pre></li>
+<li><p>Update Neutron database with the new schema required by L2GW plugin</p>
+
+<pre><code class="`"> systemctl stop neutron-server
+ neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
+ systemctl start neutron-server
+</code></pre></li>
+<li><p>Update Neutron startup script to load the L2GW plugin configuration file</p>
+
+<pre><code class="`"> sed -ri "s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /" /usr/lib/systemd/system/neutron-server.service
+</code></pre></li>
+<li><p>Create a L2GW systemd unit file</p>
+
+<pre><code class="`"> cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
+ [Unit]
+ Description=OpenStack Neutron L2 Gateway Agent
+ After=neutron-server.service
+
+ [Service]
+ Type=simple
+ User=neutron
+ ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
+ KillMode=process
+
+ [Install]
+ WantedBy=multi-user.target
+ EOF
+</code></pre></li>
+<li><p>Restart both L2GW and neutron server</p>
+
+<pre><code class="`"> systemctl daemon-reload
+ systemctl restart neutron-server.service
+ systemctl start neutron-l2gateway-agent.service  
+</code></pre></li>
+<li><p>Enter the &ldquo;neutron configuration mode&rdquo;</p>
+
+<pre><code>source ~/keystone_admin
+neutron
+</code></pre></li>
+<li><p>Create a new L2 gateway device</p>
+
+<pre><code>l2-gateway-create --device name="L5",interface_names="swp3" CUMULUS-L2GW
+</code></pre></li>
+<li><p>Create a connection between a &ldquo;private_network&rdquo; and a native vlan (dot1q 0) of swp3 interface</p>
+
+<pre><code>l2-gateway-connection-create --default-segmentation-id 0 CUMULUS-L2GW private_network
+</code></pre></li>
+</ol>
+
+
+<h2>Verification and Traffic Flows</h2>
+
+<p>At this stage everything should be ready for testing. We&rsquo;ll start by examining the following traffic flow:</p>
+
+<ul>
+<li>From VM-2 10.0.0.4/fa:16:3e:d7:0e:14</li>
+<li>To baremetal server 10.0.0.100/50:00:00:6b:2e:70</li>
+</ul>
+
+
+<p><img class="center" src="/images/neutron-l2gw-detailed.png"></p>
+
+<p>The communication starts with VM-2 sending an ARP request for the MAC address of the baremetal server. Packet flow inside the compute host will be exactly the same <a href="/blog/2016/04/22/neutron-native/">as before</a>, with packet being flooded from the VM to the integration and tunnel bridges. Inside the tunnel bridge the packet gets resubmitted to table 22 where head-end replication of ARP request takes place.</p>
+
+<p>The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards the Cumulux VTEP IP. We&rsquo;ll use the <code>ovs-appctl ofproto/trace</code> command to see the full path a packet takes inside OVS, which is similar to <code>packet-tracer</code> command of Cisco ASA. To simulate an ARP packet we need to specify the incoming port(in_port), EtherType(arp), internal VLAN number for our tenant(dl_vlan) and an ARP request target IP address(arp_tpa). You can find the full list of fields that can be matched in <a href="http://openvswitch.org/support/dist-docs/ovs-ofctl.8.txt">this document</a>.</p>
+
+<pre><code class="bash ARP request to the baremetal server">$ ovs-appctl ofproto/trace br-tun in_port=1,arp,dl_vlan=1,arp_tpa=10.0.0.100 | grep -E "Rule|actions="
+Rule: table=0 cookie=0xb3c018296c2aa8a3 priority=1,in_port=1
+OpenFlow actions=resubmit(,2)
+        Rule: table=2 cookie=0xb3c018296c2aa8a3 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
+        OpenFlow actions=resubmit(,20)
+                Rule: table=20 cookie=0xb3c018296c2aa8a3 priority=0
+                OpenFlow actions=resubmit(,22)
+                        Rule: table=22 cookie=0xb3c018296c2aa8a3 dl_vlan=1
+                        OpenFlow actions=strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
+</code></pre>
+
+<p>The packet leaving port 9 will get encapsulated into a VXLAN header with destination IP of 10.0.0.5 and forwarded out the fabric-facing interface eth1.100. When VXLAN packet reaches the <strong>vxln69</strong> interface (10.0.0.5) of the Cumulus switch, the <strong>br-vxlan69</strong> Linux bridge floods the frame out the second connected interface - <strong>swp3</strong>.</p>
+
+<pre><code class="bash brctl show br-vxln69">bridge name        bridge id          STP enabled     interfaces
+br-vxln69          8000.500000070003  no              swp3
+                                                      vxln69
+</code></pre>
+
+<p>The rest of the story is very simple. When ARP packet hits the baremetal server it populates its ARP cache. A unicast response travels all the way back to the Cumulus switch, gets matched by the static MAC (0e:14) entry created based on information provided by the L2GW plugin. This entry points to the VTEP IP of Compute host 2(10.0.2.10) which is where it gets forwarded next.</p>
+
+<pre><code class="bash bridge fdb show">50:00:00:09:00:04 dev swp3 vlan 0 master br-vxln69
+50:00:00:07:00:03 dev swp3 vlan 0 master br-vxln69 permanent
+50:00:00:6b:2e:70 dev swp3 vlan 0 master br-vxln69
+26:21:90:a8:8a:cc dev vxln69 vlan 0 master br-vxln69 permanent
+fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
+fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
+fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan 65535 self permanent
+fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan 65535 self permanent
+</code></pre>
+
+<p>The packet travels through compute host 2, populating the flow entries of all OVS bridges along the way. These entries are then used by subsequent unicast packets travelling from VM-2.</p>
+
+<pre><code class="bash Unicast packet to the baremetal server">$ ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=50:00:00:6b:2e:70 | grep -E "Rule|actions="
+Rule: table=0 cookie=0xb5625033061a8ae5 priority=1,in_port=1
+OpenFlow actions=resubmit(,2)
+        Rule: table=2 cookie=0xb5625033061a8ae5 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
+        OpenFlow actions=resubmit(,20)
+                Rule: table=20 cookie=0xb5625033061a8ae5 priority=1,vlan_tci=0x0001/0x0fff,dl_dst=50:00:00:6b:2e:70
+                OpenFlow actions=load:0-&gt;NXM_OF_VLAN_TCI[],load:0x45-&gt;NXM_NX_TUN_ID[],output:9
+</code></pre>
+
+<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/">service node</a> to perform the head-end replication. The idea is that a switch that needs to flood a multicast packet, would send it to a service node which keeps track of all active VTEPs in the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node, however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
+
+<h2>Programming Network Node as BUM replication service node</h2>
+
+<p>First of all, we need to tell our Cumulus switch to send all multicast packets to the network node. To do that we need to modify OVSDB table called &ldquo;Mcast_Macs_Remote&rdquo;. You can view the contents of the database using the <code>ovsdb-client dump --pretty tcp:192.168.91.21:6632</code> command to make sure that this table is empty. Using the VTEP control command we need to force all <strong>unknown-dst</strong> (BUM) traffic to go to the network node(10.0.3.10). The UUID of the logical switch can be found with <code>sudo vtep-ctl list-ls</code> command.</p>
+
+<pre><code class="bash Forward all BUM traffic to OpenStack network node">sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
+</code></pre>
+
+<p>At this stage all BUM traffic hits the network node and gets flooded to the DHCP and the virtual router namespaces. In order to force this traffic to also be replicated to all compute nodes we can use some of the existing tables of the tunnel bridge. Before we do anything let&rsquo;s have a look at the tables our ARP request has to go through inside the tunnel bridge.</p>
+
+<pre><code class="bash Packet from Cumulus VTEP inside br-tun">table=0, priority=1,in_port=2 actions=resubmit(,4)
+table=4, priority=1,tun_id=0x45 actions=mod_vlan_vid:1,resubmit(,10)
+table=10,priority=1 actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
+</code></pre>
+
+<p>We also have a default head-end replication table 22 which floods all BUM traffic received from the integration bridge to all VTEPs:</p>
+
+<pre><code class="bash BUM replication table">table=22, dl_vlan=1 actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</code></pre>
+
+<p>So what we can do is create a new flow entry that would intercept all ARP packets inside Table 4 and resubmit them to tables 10 and 22. Table 10 will take our packet up to the integration bridge of the network node, since we still need to be able to talk the virtual router and the DHCP. Table 22 will receive a copy of the packet and flood it to all known VXLAN endpoints.</p>
+
+<pre><code class="bash Manipulating OVS flows">ovs-ofctl add-flow br-tun "table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)"
+</code></pre>
+
+<p>We can once again use the trace command to see the ARP request flow inside the tunnel bridge.</p>
+
+<pre><code class="bash ARP request received from the Cumulus switch">$ ovs-appctl ofproto/trace br-tun in_port=2,arp,tun_id=0x45 | grep -E "Rule|actions="
+Rule: table=0 cookie=0x9f3e746b7ee48bbf priority=1,in_port=2
+OpenFlow actions=resubmit(,4)
+        Rule: table=4 cookie=0 priority=2,arp,tun_id=0x45
+        OpenFlow actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)
+                Rule: table=10 cookie=0x9f3e746b7ee48bbf priority=1
+                OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
+                        Rule: table=0 cookie=0x91b1a9a9b6e8d608 priority=0
+                        OpenFlow actions=NORMAL
+                                Rule: table=0 cookie=0xb36f6e358a37bea6 priority=2,in_port=2
+                                OpenFlow actions=drop
+                Rule: table=22 cookie=0x9f3e746b7ee48bbf dl_vlan=1
+                OpenFlow actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</code></pre>
+
+<p><img class="center" src="/images/neutron-l2gw-arp.png"></p>
+
+<p>Now we should be able to clear the ARP cache on baremetal device and successfully ping both VM-2, VM-1 and the virtual router.</p>
+
+<h2>Conclusion</h2>
+
+<p>The workaround presented above is just a temporary solution for the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily, the patch implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c">merged</a> into master OVS branch only a few days ago. So hopefully, this update trickles down to Cumulus package repositories soon.</p>
+
+<p>Despite all the issues, Neutron L2 gateway plugin is a cool project that provides a very important piece of functionality without having to rely on 3rd party SDN controllers. Let&rsquo;s hope it will continue to be supported and developed by the community.</p>
+
+<h2>Coming up</h2>
+
+<p>In the next post I was planning to examine another &ldquo;must have&rdquo; feature of any SDN solution - Distributed Virtual Routing. However due to my current circumstances I may need to take a few weeks' break before going on. Be back soon!</p>
+
+<p><img class="center" src="/images/be-back.jpg"></p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway]]></title>
+    <link href="http://networkop.github.io/blog/2016/05/18/neutron-l2gw/"/>
+    <updated>2016-05-18T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/05/18/neutron-l2gw</id>
+    <content type="html"><![CDATA[<p>One of the basic function of any data centre network is the ability to communicate with baremetal workloads. In this post we&rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</p>
+
+<!--more-->
+
+
+<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/">downloaded</a> and imported into my lab.</p>
+
+<p><img class="center" src="/images/neutron-l2gw-overview.png"></p>
+
+<p>To simulate the baremetal server (10.0.0.100) I&rsquo;ve VRF&rsquo;d an interface on Arista &ldquo;L4&rdquo; switch and connected it directly to a &ldquo;swp3&rdquo; interface of the Cumulus VX. This is not shown on the diagram.</p>
+
+<h2>Solution overview</h2>
+
+<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that comprise this solution:</p>
+
+<ul>
+<li><strong>Hardware switch</strong> implementing the OVSDB hardware vtep schema. This is a special &ldquo;flavour&rdquo; of OVSDB designed specifically to enable connectivity between logical (VXLAN VTEP) and physical (switchport) interfaces.</li>
+<li><strong>L2GW agent</strong> running on a network node. This is the process responsible for connecting to OVSDB server running on a hardware switch and updating that database based on instructions received from a L2GW service plugin.</li>
+<li><strong>L2GW Service Plugin</strong> residing on a control node. The task of this plugin is to notify the L2GW agent and normal L2 OVS agents running on compute hosts about network events and distribute VTEP IP address information between them.</li>
+</ul>
+
+
+<p>Note that in our case both network and control nodes are running on the same VM.</p>
+
+<h2>Cumulux VX configuration</h2>
+
+<p>Cumulux is a debian-based linux distribution, therefore most of the basic networking configuration will be similar to how things are done in Ubuntu. First, let&rsquo;s start by configuring basic IP addressing on Loopback (VTEP IP), Eth0 (OOB management), swp1 and swp2 (fabric) interfaces.</p>
+
+<pre><code class="bash /etc/network/interfaces">iface lo inet loopback
+        address 10.0.0.5/32
+
+auto eth0
+iface eth0 inet static
+        address 192.168.91.21/24
+
+auto swp1
+iface swp1 inet static
+        address 169.254.51.5/24
+
+auto swp2
+iface swp2 inet static
+        address 169.254.52.5/24
+
+auto swp3
+iface swp3
+</code></pre>
+
+<p>Next, let&rsquo;s enable OSPF</p>
+
+<pre><code class="bash Enable OSPF process">sudo sed -i s/zebra=no/zebra=yes/ /etc/quagga/daemons
+sudo sed -i s/ospfd=no/ospfd=yes/ /etc/quagga/daemons
+sudo service quagga restart
+</code></pre>
+
+<p>Once OSPFd is running, we can use <code>sudo vtysh</code> to connect to local quagga shell and finalise the configuration.</p>
+
+<pre><code class="bash show run">interface lo
+ ip ospf area 0.0.0.0
+ link-detect
+!
+interface swp1
+ ip ospf area 0.0.0.0
+ ip ospf network point-to-point
+ link-detect
+!
+interface swp2
+ ip ospf area 0.0.0.0
+ ip ospf network point-to-point
+ link-detect
+!
+router ospf
+ ospf router-id 10.0.0.5
+ passive-interface default
+ no passive-interface swp1
+ no passive-interface swp2
+</code></pre>
+
+<p>At this stage our Cumulus VX switch should be fully adjacent to both spines and its loopback IP (10.0.0.5) should be reachable from all OpenStack nodes.</p>
+
+<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack">process</a> is faily simple and involves only a few commands.</p>
+
+<pre><code class="bash">$ sudo sed -i s/START=no/START=yes/g /etc/default/openvswitch-vtep
+$ sudo service openvswitch-vtep start
+$ sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
+</code></pre>
+
+<p>The last commands runs a bootstrap script that does the following things:</p>
+
+<ul>
+<li>Creates a hardware VTEP OVSDB schema</li>
+<li>Inside that schema creates a new physical switch called &ldquo;L5&rdquo;</li>
+<li>Sets the VTEP IP to 10.0.0.5</li>
+<li>Starts listening to incoming OVSDB connections on 192.168.91.21.</li>
+</ul>
+
+
+<h2>Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h2>
+
+<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that OVSDB is just a database and the OVSDB protocol is just a set of JSON RPC <a href="https://tools.ietf.org/html/rfc7047">calls</a> to work with that database. As it is with any database, an information that can be stored in it is defined by a schema - a structure that represents tables, columns and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
+
+<ul>
+<li><strong>Open_vSwitch <a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf">schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
+<li><strong>Hardware_vtep <a href="http://openvswitch.org/docs/vtep.5.pdf">schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
+</ul>
+
+
+<p>The information from these databases is later consumed by another process that sets up the actual bridges and ports. The first schema is used by the <strong>ovs-vswitchd</strong> process running on all compute hosts to configure ports for VMs, integration and tunnel bridges and VTEP interfaces. In case of a Cumulus switch, the information from &ldquo;hardware_vtep&rdquo; OVSDB is used by a process called <strong>ovs-vtepd</strong> that is responsible for settings up VXLAN VTEP interfaces, provisioning of VLANs on physical switchports and interconnecting them with a linux bridge.</p>
+
+<p>If you want to learn more check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html">awesome post</a> about hardware VTEP and OVS.</p>
+
+<h2>OpenStack Control node configuration</h2>
+
+<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/">other blogs</a>. I included it here for the sake of completeness and also because I had to do some modifications.</p>
+
+<ol>
+<li><p>Clone the L2GW repository</p>
+
+<pre><code class="`"> git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
+</code></pre></li>
+<li><p>Use pip to install the plugin</p>
+
+<pre><code class="`"> pip install ./networking-l2gw/
+</code></pre></li>
+<li><p>Enable L2GW service plugin</p>
+
+<pre><code class="`"> sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' /etc/neutron/neutron.conf
+</code></pre></li>
+<li><p>Copy L2GW configuration files</p>
+
+<pre><code class="`"> cp  /usr/etc/neutron/l2g* /etc/neutron/
+</code></pre></li>
+<li><p>Point L2GW plugin to our Cumulus VX switch</p>
+
+<pre><code class="`"> sudo sed -ri "s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/" /etc/neutron/l2gateway_agent.ini
+</code></pre></li>
+<li><p>Update Neutron database with tables required for L2GW</p>
+
+<pre><code class="`"> systemctl stop neutron-server
+ neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
+ systemctl start neutron-server
+</code></pre></li>
+<li><p>Update Neutron startup script include L2GW plugin</p>
+
+<pre><code class="`"> sed -ri "s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /" /usr/lib/systemd/system/neutron-server.service
+</code></pre></li>
+<li><p>Create a L2GW systemd unit</p>
+
+<pre><code class="`"> cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
+ [Unit]
+ Description=OpenStack Neutron L2 Gateway Agent
+ After=neutron-server.service
+
+ [Service]
+ Type=simple
+ User=neutron
+ ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
+ KillMode=process
+
+ [Install]
+ WantedBy=multi-user.target
+ EOF
+</code></pre></li>
+<li><p>Restart both L2GW and neutron server</p>
+
+<pre><code class="`"> systemctl daemon-reload
+ systemctl restart neutron-server.service
+ systemctl start neutron-l2gateway-agent.service  
+</code></pre></li>
+<li><p>Enter the &ldquo;neutron configuration mode&rdquo;</p>
+
+<pre><code>source ~/keystone_admin
+neutron
+</code></pre></li>
+<li><p>Create a new L2GW</p>
+
+<pre><code>l2-gateway-create --device name="L5",interface_names="swp3" CUMULUS-L2GW
+</code></pre></li>
+<li><p>Create a connection between a &ldquo;private_network&rdquo; and a native vlan of swp3 interface</p>
+
+<pre><code>l2-gateway-connection-create --default-segmentation-id 0 CUMULUS-L2GW private_network
+</code></pre></li>
+</ol>
+
+
+<h2>Verficiation and Traffic Flows</h2>
+
+<p>At this stage everything should be ready for testing. We&rsquo;ll start by examining the traffic flow from a VM-2 (10.0.0.4) to the baremetal server (10.0.0.100).</p>
+
+<p><img class="center" src="/images/neutron-l2gw-detailed.png"></p>
+
+<p>The communication starts with VM-2 sending an ARP request for the MAC address of the baremetal server. Packet flow inside the compute host will be exactly the same <a href="/blog/2016/04/22/neutron-native/">as before</a>, with packet being flooded from the VM to the intergration and tunnel bridges. Inside the tunnel bridge the packet gets resubmitted to table 22 where head-end replication of ARP request takes place. The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards Cumulux VTEP IP. You can use the <code>ovs-appctl ofproto/trace</code> to see the full path a packet takes inside OVS, similiar to <code>packet-tracer</code> command on Cisco ASA.</p>
+
+<pre><code class="bash ARP request">$ ovs-appctl ofproto/trace br-tun in_port=1,arp,dl_vlan=1,arp_tpa=10.0.0.100 | grep -E "Rule|actions="
+Rule: table=0 cookie=0xb3c018296c2aa8a3 priority=1,in_port=1
+OpenFlow actions=resubmit(,2)
+        Rule: table=2 cookie=0xb3c018296c2aa8a3 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
+        OpenFlow actions=resubmit(,20)
+                Rule: table=20 cookie=0xb3c018296c2aa8a3 priority=0
+                OpenFlow actions=resubmit(,22)
+                        Rule: table=22 cookie=0xb3c018296c2aa8a3 dl_vlan=1
+                        OpenFlow actions=strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
+</code></pre>
+
+<p>The packet leaving port 9 will get encapsulated into a VXLAN header with destination IP of 10.0.0.5 and forwarded out the fabric-facing interface eth1.100. When VXLAN packet reaches the vxln69 interface of the Cumulus switch, the ARP frame will get forwarded to <strong>br-vxlan69</strong> Linux bridge, which will flood the frame out the connected physical interface swp3.</p>
+
+<pre><code class="bash bridge fdb show">50:00:00:09:00:04 dev swp3 vlan 0 master br-vxln69
+50:00:00:07:00:03 dev swp3 vlan 0 master br-vxln69 permanent
+50:00:00:6b:2e:70 dev swp3 vlan 0 master br-vxln69
+26:21:90:a8:8a:cc dev vxln69 vlan 0 master br-vxln69 permanent
+fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
+fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
+fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan 65535 self permanent
+fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan 65535 self permanent
+</code></pre>
+
+<p>The rest of the story is very simple. The ARP packet hits the baremetal server and populates its ARP cache. A unicast response travels all the way back to VM-2, populating the flow entries of all OVS switches along the way. These entries are then used by unicast message travelling from VM-2.</p>
+
+<pre><code class="bash Unicast packet to baremetal server">$ ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=50:00:00:6b:2e:70 | grep -E "Rule|actions="
+Rule: table=0 cookie=0xb5625033061a8ae5 priority=1,in_port=1
+OpenFlow actions=resubmit(,2)
+        Rule: table=2 cookie=0xb5625033061a8ae5 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
+        OpenFlow actions=resubmit(,20)
+                Rule: table=20 cookie=0xb5625033061a8ae5 priority=1,vlan_tci=0x0001/0x0fff,dl_dst=50:00:00:6b:2e:70
+                OpenFlow actions=load:0-&gt;NXM_OF_VLAN_TCI[],load:0x45-&gt;NXM_NX_TUN_ID[],output:9
+</code></pre>
+
+<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/">service node</a> to perform the head-end replication. The idea is that a switch that requires a multicast packet to be replicated to multiple destinations, would send it to a service node, which keeps track of all active VTEPs on the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
+
+<h2>Programming Network Node as BUM replication service node</h2>
+
+<p>First of all, we need to tell our Cumulus switch to send all multicast packets to the network node. To do that we need to modify an OVSDB table called &ldquo;Mcast_Macs_Remote&rdquo;. Let&rsquo;s first make sure that this table is empty:</p>
+
+<pre><code class="bash">ovsdb-client dump --pretty tcp:192.168.91.21:6632
+</code></pre>
+
+<p>Now let&rsquo;s modify OVSDB manually to force all BUM traffic (unknown-dst is the keyword) to go to 10.0.3.10. The UUID of the logical switch can be found with <code>sudo vtep-ctl list-ls</code> command.</p>
+
+<pre><code class="bash">sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
+</code></pre>
+
+<p>At this stage all BUM traffic hits the network node and gets flooded to the DHCP and the virtual router. In order to force this traffic to be replicated to all compute nodes we can use some of the existing tables of the tunnel bridge. Before we do anything let&rsquo;s have a look at the tables our ARP request has to go through inside the tunnel bridge.</p>
+
+<pre><code class="bash ARP from Cumulus VX inside br-tun">table=0, priority=1,in_port=2 actions=resubmit(,4)
+table=4, priority=1,tun_id=0x45 actions=mod_vlan_vid:1,resubmit(,10)
+table=10,priority=1 actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
+</code></pre>
+
+<p>We also have a default head-end replication table 22, which forwards all unmatched BUM traffic to all VTEPs:</p>
+
+<pre><code class="bash BUM replication table">table=22, dl_vlan=1 actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</code></pre>
+
+<p>So what we can do is create a new flow entry that would intercept all ARP packets inside table #4 and resubmit it to tables 10 and 22. Table 10 will take our packet to the intergration bridge of the network node and Table 22 will take a copy of the packet and replicate it to all known VXLAN endpoints.</p>
+
+<pre><code class="bash Manipulating OVS flows">ovs-ofctl add-flow br-tun "table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)"
+</code></pre>
+
+<p>We can once again use the trace command to see the ARP request flow inside the tunnel bridge.</p>
+
+<pre><code>$ ovs-appctl ofproto/trace br-tun in_port=2,arp,tun_id=0x45 | grep -E "Rule|actions="
+Rule: table=0 cookie=0x9f3e746b7ee48bbf priority=1,in_port=2
+OpenFlow actions=resubmit(,4)
+        Rule: table=4 cookie=0 priority=2,arp,tun_id=0x45
+        OpenFlow actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)
+                Rule: table=10 cookie=0x9f3e746b7ee48bbf priority=1
+                OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
+                        Rule: table=0 cookie=0x91b1a9a9b6e8d608 priority=0
+                        OpenFlow actions=NORMAL
+                                Rule: table=0 cookie=0xb36f6e358a37bea6 priority=2,in_port=2
+                                OpenFlow actions=drop
+                Rule: table=22 cookie=0x9f3e746b7ee48bbf dl_vlan=1
+                OpenFlow actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</code></pre>
+
+<p><img class="center" src="/images/neutron-l2gw-arp.png"></p>
+
+<p>Now we should be able to clear the ARP cache on the baremetal device and successfully ping both VM-2, VM-1 and a virtual router.</p>
+
+<h2>Conclusion</h2>
+
+<p>The workaround presented above is just a temporary solution to the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily the patch has been implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c">merged</a> into master OVS branch only a few days ago.
+So hopefully, this update trickles down to Cumulus package respositories.</p>
+
+<p>Nevertheless it&rsquo;s a cool project that provides a very important piece of functionality without having to rely on 3rd party SDN controllers.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack SDN - Extending a L2 Provider Network Over a L3 Fabric]]></title>
@@ -269,951 +970,6 @@ table=20, priority=1,vlan_tci=0x0001/0x0fff,dl_dst=fa:16:3e:ab:1a:bf actions=loa
 <h2>Coming Up</h2>
 
 <p>In the next post I&rsquo;ll show how to overcome the requirement of a direct L2 adjacency between the network node and external subnet. Specifically, I&rsquo;ll use Arista switch to extend a L2 provider network over a L3 leaf-spine Cisco fabric.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Network Engineering Analysis of OpenStack SDN]]></title>
-    <link href="http://networkop.github.io/blog/2016/04/22/neutron-native/"/>
-    <updated>2016-04-22T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2016/04/22/neutron-native</id>
-    <content type="html"><![CDATA[<p>Now that we have our 3-node OpenStack lab <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">up and running</a> we can start exploring how virtual networks are implemented under the hood.</p>
-
-<!--more-->
-
-
-<h2>Intro</h2>
-
-<p>This is going to be quite a lengthy blogpost so I&rsquo;ll try to explain its structure first. I&rsquo;ll start with a high level overview of components used to build virtual networks by examining 3 types of traffic:</p>
-
-<ul>
-<li>Unicast traffic between VM1 and VM2</li>
-<li>Unicast traffic between VM1 and the outside world (represented by an external subnet)</li>
-<li>Broadcast, Unknown unicast and Multicast or BUM traffic from VM1</li>
-</ul>
-
-
-<p>Following that I&rsquo;ll give a brief overview of how to interpret the configuration and dynamic state of OpenvSwitch to manually trace the path of a packet. This will be required for the next section where I&rsquo;ll go over the same 3 types of traffic but this time corroborating every step with the actual outputs collected from the virtual switches. For the sake of brevity I&rsquo;ll abridge a lot of the output to only contain the relevant information.</p>
-
-<h2>High Level Overview</h2>
-
-<p><a href="http://www.innervoice.in/blogs/2015/03/31/openstack-neutron-plugins-and-agents/">Neutron</a> server, residing in a control node, is responsible for orchestrating and provisioning of all virtual networks within an OpenStack environment. Its goal is to enable end-to-end reachability among the VMs and between the VMs and external subnets. To do that, Neutron uses concepts that should be very familiar to every network engineer like subnet, router, firewall, DHCP and NAT. In the <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a> we&rsquo;ve seen how to create a virtual router and attach it to public and private networks. We&rsquo;ve also attached both of our VMs to a newly created private network and verified connectivity by logging into those virtual machines. Now let&rsquo;s see how exactly these VMs communicate with each other and the outside world.</p>
-
-<p><img class="center" src="/images/neutron-high-level.png"></p>
-
-<h3>Unicast frame between VM1 and VM2</h3>
-
-<ol>
-<li><p>As soon as the frame leaves the vNIC of VM1 it hits the firewall. The firewall is implemented on a <a href="http://www.innervoice.in/blogs/2013/12/08/tap-interfaces-linux-bridge/">tap interface</a> of the integration bridge. A set of <abbr title="Access Control List">ACL</abbr> rules, defined in a <strong>Security Group</strong> that VM belongs to, gets translated into Linux <a href="https://www.frozentux.net/iptables-tutorial/iptables-tutorial.html#TRAVERSINGOFTABLES">iptables</a> rules and attached to this tap interface. These simple reflexive access lists are what VMware and Cisco are calling microsegmentation and touting as one of the main use case of their SDN solutions.</p></li>
-<li><p>Next our frame enters the integration bridge implemented using <a href="http://openvswitch.org/">OpenvSwitch</a>. Its primary function is to interconnect all virtual machines running on the host. Its secondary function is to provide isolation between different subnets and tenants by keeping them in different VLANs. VLAN IDs used for this are locally significant and don&rsquo;t propagate outside of the physical host.</p></li>
-<li><p>A dot1q-tagged packet is forwarded down a layer 2 trunk to the tunnel bridge, also implemented using OpenvSwitch. It is programmed to strip the dot1q tags, replace them with VXLAN headers and forward an IP/UDP packet with VXLAN payload on to the physical network.</p></li>
-<li><p>Our simple routed underlay delivers the packets to the destination host, where the tunnel bridge swaps the <abbr title=" VXLAN Network ID">VNI</abbr> with a dot1q tag and forwards the packet up to the integration bridge.</p></li>
-<li><p>Integration bridge consults the local MAC table, finds the output interface, clears the dot1q tag and send the frame up to the VM.</p></li>
-<li><p>The frame gets screened by incoming iptables rules and gets delivered to the VM2.</p></li>
-</ol>
-
-
-<h3>Unicast frame between VM1 and External host</h3>
-
-<ol>
-<li><p>The first 3 steps will still be the same. VM1 sends a frame with destination MAC address of a virtual router. This packet will get encapsulated in a VXLAN header and forwarded to the Network node.</p></li>
-<li><p>The tunnel and integration bridges of the network node deliver the packet to the private interface of a virtual router. This virtual router lives in a <a href="http://blog.scottlowe.org/2013/09/04/introducing-linux-network-namespaces/">linux network namespaces</a> (similar to <abbr title="Virtual Routing and Forwarding">VRF</abbr>s) used to provide isolation between OpenStack tenants.</p></li>
-<li><p>The router finds the outgoing interface (a port attached to the external bridge), and a next-hop IP which we have set when we configured a public subnet <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">earlier</a>.</p></li>
-<li><p>The router then performs a source NAT on the packet before forwarding it out. This way the private IP of the VM stays completely hidden and hosts outside of OpenStack can talk back to the VM by sending packets to (publicly routable) external subnet.</p></li>
-<li><p>External bridge (also an OpenvSwitch) receives the packet and forwards it out the attached physical interface (eth1.300).</p></li>
-</ol>
-
-
-<h3>BUM frame from VM1 for MAC address of VM2</h3>
-
-<ol>
-<li><p>VM1 sends a multicast frame, which gets examined by the iptables rules and enters the integration bridge.</p></li>
-<li><p>The integration bridge follows the same process as for the unicast frame to assign the dot1q tag and floods the frame to the tunnel bridge.</p></li>
-<li><p>The tunnel bridge sees the multicast bit in the destination MAC address and performs source replication by sending a duplicate copy of the frame to both compute host #2 and the network node.</p></li>
-<li><p>Tunnel bridges of both receiving hosts strip the VXLAN header, add the dot1q tag and flood the frame to their respective integration bridges.</p></li>
-<li><p>Integration bridges flood the frame within the VLAN identified by the dot1q header.</p></li>
-<li><p>The response from VM2 follows the same process as the unicast frame.</p></li>
-</ol>
-
-
-<p>One thing worth noting is when an ARP packet enters the integration bridge, its source IP address (in case of IPv4) or source MAC address (in case of IPv6) gets examined to make sure it belong to that VM. This is how <strong>ARP spoofing protection</strong> is implemented in OpenStack.</p>
-
-<h2>OpenvSwitch quick intro</h2>
-
-<p>Before we dive deeper into the details of the packet flows inside OVS let me give a brief overview of how it works. There are two main protocols to configure OVS:</p>
-
-<ul>
-<li><p>OVSDB - a management protocol used to configure bridges, ports, VLANs, QoS, monitoring etc.</p></li>
-<li><p>OpenFlow - used to install flow entries for traffic switching, similar to how you would configure a static route but allowing you to match on most of the L2-L4 protocol headers.</p></li>
-</ul>
-
-
-<p>Control node instructs all <a href="http://www.innervoice.in/blogs/2015/03/31/openstack-neutron-plugins-and-agents/">local OVS agents</a> about how to configure virtual networks. Each local OVS agent then uses these two protocols to configure OVS and install all the required forwarding entries. Each entry contains a set of matching fields (e.g. incoming port, MAC/IP addresses) and an action field which determines what to do with the packet. These forwarding entries are implemented as <a href="https://wiki.openstack.org/wiki/Ovs-flow-logic">tables</a>. This is how a packet traverses these tables:</p>
-
-<ol>
-<li><p>First packet always hits table 0. The entries are examined in order of their priority (highest first) to find the first match. Note that it&rsquo;s the first and not necessarily the more specific match. It&rsquo;s the responsibility of a controller to build tables so that more specific flows are matched first. Normally this is done by assigning a higher priority to a more specific flow. Exact matches (where all L2-L4 fields are specified) implicitly have the highest priority value of 65535.</p></li>
-<li><p>When a flow is matched, the <strong>action</strong> field of that flow is examined. Here are some of the most commonly used actions:</p>
-
-<table>
-<thead>
-<tr>
-<th> Action </th>
-<th></th>
-<th> Description </th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td> resubmit(X,) </td>
-<td></td>
-<td> Resubmit a packet to table X </td>
-</tr>
-<tr>
-<td> output:Y </td>
-<td></td>
-<td> Send a packet out port Y </td>
-</tr>
-<tr>
-<td> NORMAL </td>
-<td></td>
-<td> Use a standard flood-and-learn behaviour of a switch to populate a local dynamic MAC address table </td>
-</tr>
-<tr>
-<td> learn(table=Z) </td>
-<td></td>
-<td> Create an exact-match entry for the matched flow in table Z (we&rsquo;ll see how its used later on) </td>
-</tr>
-</tbody>
-</table>
-
-
-<p> These actions can be combined in a sequence to create complex behaviours like sending the same packet to multiple ports for multicast source replication.</p></li>
-<li><p>OVS also <a href="https://networkheresy.com/2014/11/13/accelerating-open-vswitch-to-ludicrous-speed/">implements</a> what Cisco calls <strong>Fast switching</strong>, where the first packet lookup triggers a cache entry to be installed in the kernel-space process to be used by all future packets from the same flow.</p></li>
-</ol>
-
-
-<h2>Detailed packet flow analysis</h2>
-
-<p>Let&rsquo;s start by recapping what we know about our private virtual network. All these values can be obtained from Horizon GUI by examining the private network configuration under Project -> Network -> Networks -> private_network:</p>
-
-<ul>
-<li>VM1, IP=10.0.0.8, MAC=fa:16:3e:19:e4:91, port id = <strong>258336bc-4f</strong>38-4bec-9229-4bc76e27f568</li>
-<li>VM2, IP=10.0.0.9, MAC=fa:16:3e:ab:1a:bf, port id = <strong>e5f7eaca-1a</strong>36-4b08-aa9b-14e9787f80b0</li>
-<li>Router, IP=10.0.0.1, MAC=fa:16:3e:cf:89:47, port id = <strong>96dfc1d3-d2</strong>3f-4d28-a461-fa2404767df2</li>
-</ul>
-
-
-<p>The first 11 characters of port id will be used inside an integration bridge to build the port names, e.g.:</p>
-
-<ul>
-<li>tap258336bc-4f - interface connected to VM1</li>
-<li>qr-96dfc1d3-d2 - interface connected to the router</li>
-</ul>
-
-
-<h3>Enumerating OVS ports</h3>
-
-<p>In its forwarding entries OVS uses internal port numbers a lot, therefore it would make sense to collect all port number information before we start. This is how it can be done:</p>
-
-<ul>
-<li>Use <code>ovs-vsctl show</code> command to collect information about existing port names and their attributes (e.g. dot1q tag, VXLAN tunnel IPs, etc). This is the output collected on compute host #1:</li>
-</ul>
-
-
-<pre><code class="bash ovs-vsctl show | grep -E "Bridge|Port|tag|options"">    Bridge br-tun
-        Port br-tun
-        Port patch-int
-                options: {peer=patch-tun}
-        Port "vxlan-0a00020a"
-                options: {df_default="true", in_key=flow, local_ip="10.0.1.10", out_key=flow, remote_ip="10.0.2.10"}
-        Port "vxlan-0a00030a"
-                options: {df_default="true", in_key=flow, local_ip="10.0.1.10", out_key=flow, remote_ip="10.0.3.10"}
-    Bridge br-int
-        Port br-int
-        Port "tap258336bc-4f"
-            tag: 5
-        Port patch-tun
-                options: {peer=patch-int}
-</code></pre>
-
-<ul>
-<li>Use <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> command to correlate port names and numbers. Example below is for integration bridge of compute host #1:</li>
-</ul>
-
-
-<pre><code class="bash ovs-ofctl dump-ports-desc br-int | grep addr"> 2(patch-tun): addr:5a:c5:44:fc:ac:72
- 7(tap258336bc-4f): addr:fe:16:3e:19:e4:91
- LOCAL(br-int): addr:46:fe:10:de:1b:4f
-</code></pre>
-
-<p>I&rsquo;ve put together a diagram showing all the relevant integration bridge (<strong>br-int</strong>) and tunnel bridge (<strong>br-tun</strong>) ports on all 3 hosts.</p>
-
-<p><img class="center" src="/images/neutron-port-details.png"></p>
-
-<h3>Unicast frame between VM1 and VM2</h3>
-
-<ol>
-<li> Frame enters the br-int on port 7. Default iptables rules allow all outbound traffic from a VM.</li>
-
-<li> Inside the br-int our frame is matched by the "catch-all" rule which triggers the flood-and-learn behaviour:
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>10,arp,in_port<span class="o">=</span><span class="m">7</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,24<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span><span class="m">0</span> <span class="nv">actions</span><span class="o">=</span>NORMAL
-</span></code></pre></td></tr></table></div></figure></li>
-
-<li> Since it's a unicast frame the MAC address table is already populated by ARP:
-
-<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
-</span><span class='line'>    <span class="m">2</span>     <span class="m">5</span>  fa:16:3e:ab:1a:bf    1
-</span></code></pre></td></tr></table></div></figure></li>
-
-Target IP address is behind port 2 which is where the frame gets forwarded next.
-
-<li> Inside the tunnel bridge the frame will match three different tables. The first table simply matches the incoming port and resubmits the frame to table 2. Table 2 will match the unicast bit of the MAC address (the least significant bit of the first byte) and resubmit the frame to unicast table 20:
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1, <span class="nv">in_port</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0, <span class="nv">dl_dst</span><span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>20, <span class="nv">priority</span><span class="o">=</span>1, <span class="nv">vlan_tci</span><span class="o">=</span>0x0005/0x0fff,dl_dst<span class="o">=</span>fa:16:3e:ab:1a:bf <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x54-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:2
-</span></code></pre></td></tr></table></div></figure>
-
-The final match is done on a VLAN tag and destination MAC address. Resulting action is a combination of three consecutive steps:
-<ol>
-  <li> Clear the dot1q tag - load:0->NXM_OF_VLAN_TCI[]</li>
-  <li> Tag the frame with VNI 0x54 - load:0x54->NXM_NX_TUN_ID[]</li>
-  <li> Send the frame to compute host 2 - output:2</li>
-</ol>
-This last match entry is quite interesting in a way that it contains the destination MAC address of VM2, which means this entry was created <b>after</b> the ARP process. In fact, as we'll see in the next step, this entry is populated by a <b>learn</b> action triggered by the ARP response coming from VM2.
-</li>
-
-<li>A VXLAN packet arrives at compute host 2 and enters the tunnel bridge through port 2. It's matched on the incoming port and resubmitted to a table where it is assigned with an internal VLAN ID 3 based on the matched tunnel id 0x54. 
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">2</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>4, <span class="nv">priority</span><span class="o">=</span>1,tun_id<span class="o">=</span>0x54 <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:3,resubmit<span class="o">(</span>,10<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>10, <span class="nv">priority</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
-</span></code></pre></td></tr></table></div></figure>
-
-The last match does two things:
-<ol>
-  <li> Creates a mirroring entry in table 20 for the reverse packet flow. This is the entry similar to the one we've just seen in step 4.  </li>
-  <li> Sends the packet towards the integration bridge.</li>
-</ol>
-</li>  
-<li>The integration bridge checks the local dynamic MAC address table to find the MAC address of VM2(1a:bf).
-
-<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>port  VLAN  MAC                Age
-</span><span class='line'>  <span class="m">5</span>     <span class="m">3</span>  fa:16:3e:ab:1a:bf    0
-</span></code></pre></td></tr></table></div></figure>
-</li>
-
-<li>The frame is checked against the iptables rules configured on port 5 and gets sent up to VM2</li>
-</ol>
-
-
-<h3>Unicast frame to external host (192.168.247.1)</h3>
-
-<ol>
-  <li>
-    The first 5 steps will be similar to the previous section. The only exception will be that the tunnel bridge of compute host 1 will send the VXLAN packet out port 3 towards the network node.
-  </li>
-  <li>
-    The integration bridge of the network node consults the MAC address table to find the location of the virtual router (89:47) and forwards the packet out port 6.
-<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
-</span><span class='line'>    <span class="m">6</span>     <span class="m">1</span>  fa:16:3e:cf:89:47    1
-</span></code></pre></td></tr></table></div></figure>
-  </li>
-  <li> The virtual router does the route lookup to find the outgoing interface (qg-18bff97b-57)
-<figure class='code'><figcaption><span>ip route get 192.168.247.1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>192.168.247.1 dev qg-18bff97b-57  src 192.168.247.90
-</span></code></pre></td></tr></table></div></figure>
-Remember that since our virtual router resides in a network namespace all commands must be prepended with <code>ip netns exec qrouter-uuid</code>
-  
-  </li>
-  <li> The virtual router performs the source IP translation to hide the private IP address: 
-<figure class='code'><figcaption><span>iptables -t nat -S | grep qg-18bff97b-57</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>-A neutron-l3-agent-POSTROUTING ! -i qg-18bff97b-57 ! -o qg-18bff97b-57 -m conntrack ! --ctstate DNAT -j ACCEPT
-</span><span class='line'>-A neutron-l3-agent-snat -o qg-18bff97b-57 -j SNAT --to-source 192.168.247.90
-</span></code></pre></td></tr></table></div></figure>
-By default all packets will get translated to the external address of the router. For each assigned floating IP address there will be a pair of source/destination NAT entries created in the same table. 
-
-  </li>
-  <li> The router consults its local ARP table to find the MAC address of the next hop:
-<figure class='code'><figcaption><span>ip neigh show 192.168.247.1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>192.168.247.1 dev qg-18bff97b-57 lladdr 00:50:56:c0:00:01 DELAY
-</span></code></pre></td></tr></table></div></figure>
-  </li>
-  <li> External bridge receives the frame from the virtual router on port 4, consults its own MAC address table built by ARP and forwards the packet to the final destination.
-<figure class='code'><figcaption><span>ovs-appctl fdb/show br-ex</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
-</span><span class='line'>    <span class="m">4</span>     <span class="m">0</span>  fa:16:3e:5c:90:e0    1
-</span><span class='line'>    <span class="m">1</span>     <span class="m">0</span>  00:50:56:c0:00:01    1
-</span></code></pre></td></tr></table></div></figure></li>
-</ol>
-
-
-<h3>BUM frame from VM1 for MAC address of VM2</h3>
-
-<ol>
-  <li>The integration bridge of the sending host will check the source IP of the ARP packet to make sure it hasn't been spoofed before flooding the packet within the local broadcast domain (VLAN 5).
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>10,arp,in_port<span class="o">=</span><span class="m">7</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,24<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>24, <span class="nv">priority</span><span class="o">=</span>2,arp,in_port<span class="o">=</span>7,arp_spa<span class="o">=</span>10.0.0.8 <span class="nv">actions</span><span class="o">=</span>NORMAL
-</span></code></pre></td></tr></table></div></figure>
-</li>
-<li> The flooded packet reaches the tunnel bridge where it goes through 3 different tables. The first table matches the incoming interface, the second table matches the multicast bit of the MAC address.
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>01:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>22, <span class="nv">dl_vlan</span><span class="o">=</span><span class="m">5</span> <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x54,output:3,output:2
-</span></code></pre></td></tr></table></div></figure>
-
-The final table swaps the dot1q and VXLAN identifiers and does the source replication by forwarding the packet out ports 2 and 3.
-</li>
-<li> The following steps are similar to the unicast frame propagation with the exception that the local MAC table of the integration bridges will flood the packet to all interfaces in the same broadcast domain. That means that duplicate ARP requests will reach both the private interface of the virtual router and VM2. The latter, recognising its own IP, will send a unicast ARP response whose source IP will be verified by the ARP spoofing rule of the integration bridge. As the result of that process, both integration bridges on compute host 1 and 2 will populate their local MAC tables with addresses of VM1 and VM2.
-</li>
-</ol>
-
-
-<h2>Native OpenStack SDN advantages and limitation</h2>
-
-<p>Current implementation of OpenStack networking has several advantages compared to the traditional SDN solutions:</p>
-
-<ul>
-<li>Data-plane learning allows network to function even in the absence of the controller node</li>
-<li>Multicast source replication does not rely on multicast support in the underlay network</li>
-<li>ARP spoofing protection is the default security setting</li>
-</ul>
-
-
-<p>However at this point it should also be clear that there a number of limitations that can impact the overall network scalability and performance:</p>
-
-<ul>
-<li>Multicast source replication creates unnecessary overhead by flooding ARP packets to all hosts</li>
-<li>All routed traffic has to go through the network node which becomes a bottleneck for the whole network</li>
-<li>There is no ability to control physical devices, even the ones that support OVSDB/Openflow</li>
-<li>Network node must be layer 2 adjacent with the external network segment</li>
-</ul>
-
-
-<h2>Things to explore next</h2>
-
-<p>In the following posts I&rsquo;ll continue poking around Neutron and explore a number of features designed to address some of the limitations described above:</p>
-
-<ul>
-<li><a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">L2 population</a></li>
-<li><a href="https://wiki.openstack.org/wiki/Neutron/DVR">Distributed Virtual Router</a></li>
-<li><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 hardware gateway</a></li>
-<li><a href="https://wiki.openstack.org/wiki/Neutron/L3_High_Availability_VRRP">Network High Availability</a></li>
-<li><a href="https://wiki.openstack.org/wiki/Neutron/LBaaS">Load-Balancing-as-a-Service</a></li>
-<li><a href="https://github.com/openstack/networking-ovn">Open Virtual Network for OVS</a></li>
-<li><a href="http://specs.openstack.org/openstack/neutron-specs/specs/mitaka/bgp-dynamic-routing.html">Neutron&rsquo;s dynamic BGP routing</a></li>
-</ul>
-
-
-<h2>C<sub>2</sub>O</h2>
-
-<p>While writing this post I&rsquo;ve compiled a list of commands most useful to query the state of OpenvSwitch. So now, inspired by a similar  IOS to JUNOS (I2J) command <a href="http://www.net-gyver.com/?page_id=1166">conversion tables</a>, I&rsquo;ve put together my own Cisco to OVS conversion table, just for fun.</p>
-
-<table>
-<thead>
-<tr>
-<th> Action </th>
-<th> Cisco </th>
-<th> OpenvSwitch </th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td> Show MAC address table </td>
-<td> show mac address-table dynamic   </td>
-<td> <code>ovs-appctl fdb/show &lt;bridge_id&gt;</code> </td>
-</tr>
-<tr>
-<td> Clear MAC address table </td>
-<td> clear mac address-table dynamic </td>
-<td> <code>ovs-appctl fdb/flush &lt;bridge_id&gt;</code> </td>
-</tr>
-<tr>
-<td> Show port numbers </td>
-<td> show interface status </td>
-<td> <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> </td>
-</tr>
-<tr>
-<td> Show OVS configuration </td>
-<td> show run </td>
-<td> <code>ovs-vsctl show</code> </td>
-</tr>
-<tr>
-<td> Show packet forwarding rules </td>
-<td> show ip route  </td>
-<td> <code>ovs-ofctl dump-flows &lt;bridge_id&gt;</code> </td>
-</tr>
-<tr>
-<td> Simulate packet flow </td>
-<td> packet-tracer   </td>
-<td> <code>ovs-appctl ofproto/trace &lt;bridge_id&gt; in_port=1</code> </td>
-</tr>
-<tr>
-<td> View command history </td>
-<td> show archive log config </td>
-<td> <code>ovsdb-tool show-log -m</code> </td>
-</tr>
-</tbody>
-</table>
-
-
-<h2>References</h2>
-
-<p>In this post I have glossed over some details like iptables and DHCP for the sake of brevity and readability. However this post wouldn&rsquo;t be complete if I didn&rsquo;t include references to other resources that contain a more complete, even if at times outdated, overview of OpenStack networking. This is also a way to pay tribute to blogs where I&rsquo;ve learned most of what I was writing about here:</p>
-
-<ul>
-<li><a href="https://www.rdoproject.org/networking/networking-in-too-much-detail/">Networking in too much detail</a></li>
-<li><a href="http://www.opencloudblog.com/?p=300">Neutron using VXLAN</a></li>
-<li><a href="http://docs.ocselected.org/openstack-manuals/kilo/networking-guide/content/under_the_hood_openvswitch.html">Under the hood of OVS</a></li>
-<li><a href="https://kimizhang.wordpress.com/2014/04/01/how-ml2vxlan-works/">How ML2/VXLAN works</a></li>
-<li><a href="http://docs.openstack.org/openstack-ops/content/network_troubleshooting.html">Official network troubleshooting guide</a></li>
-<li><a href="http://therandomsecurityguy.com/openvswitch-cheat-sheet/">OVS commands cheat sheet</a></li>
-</ul>
-
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Building a Multi-node OpenStack Lab in UNetLab]]></title>
-    <link href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/"/>
-    <updated>2016-04-18T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2016/04/18/os-unl-lab</id>
-    <content type="html"><![CDATA[<p>In the <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a> I&rsquo;ve demonstrated how to get a working instance of a single-node OpenStack inside <a href="http://www.unetlab.com/">UNetLab</a>. In this post we&rsquo;ll continue building on that by adding two new compute nodes and redesigning our network to resemble something you might actually see in a real life.</p>
-
-<!--more-->
-
-
-<h2>OpenStack network requirements</h2>
-
-<p>Depending on the number of deployed <a href="https://www.openstack.org/software/project-navigator/">components</a>, OpenStack physical network requirements could be different. In our case we&rsquo;re not going to deploy any storage solution and simply use the <strong>ephemeral</strong> storage, i.e. hard disk that&rsquo;s a part of a virtual machine. However, even in minimal installations, there are a number of networks that should be considered individually due to different connectivity requirements:</p>
-
-<ul>
-<li><p>Server <abbr title=" Out-Of-Band">OOB</abbr> <strong>management</strong> network - this is usually a dedicated physical network used mainly for server bootstrapping and OS deployment. It is a Layer 3 network with DHCP relays configured at each edge L3 interface and access to Internet package repositories.</p></li>
-<li><p><strong>API</strong> network - used for internal communication between various OpenStack services. This can be a routed network without Internet access. The only requirement is any-to-any reachability within a single OpenStack environment.</p></li>
-<li><p><strong>External</strong> network - used for public access to internal OpenStack virtual machines. This is the <em>outside</em> of OpenStack, with a pool of IP addresses used to NAT the internal IPs of public-facing virtual machines. This network <strong>must</strong> be Layer 2 adjacent <strong>only</strong> with a network control node.</p></li>
-<li><p><strong>Tenant</strong> network - used for communication between virtual machines within OpenStack environment. Thanks to the use of VXLAN overlay, this can be a simple routed network that has any-to-any reachability between all Compute and Network nodes.</p></li>
-</ul>
-
-
-<h2>Building a lab network</h2>
-
-<p>For labbing purposes it&rsquo;s possible to relax some of the above network requirements without seriously affecting the outcomes of our simulation. For example, it&rsquo;s possible to combine some of the networks and still satisfy the requirements stated above. These are the networks that will be configured inside UNetLab:</p>
-
-<ul>
-<li><p><strong>Management</strong> - this network will combine the functions of OOB and API networks. To isolate it from our data centre underlay I&rsquo;ll be using separate interfaces on virtual machines and connect them directly to Workstation&rsquo;s NAT interface (192.168.91.0/24 in my case)  to give them direct access to Internet.</p></li>
-<li><p><strong>External</strong> - this network will be connected to Workstation&rsquo;s host-only NIC (192.168.247.0/24) through Vlan300 configured on one of the leaf switches. Since it must be L2 adjacent with the network control node our leaf switch will not perform any routing for this subnet.</p></li>
-<li><p><strong>Tenant</strong> - this will be a routed leaf/spine <a href="https://en.wikipedia.org/wiki/Clos_network">Clos</a> fabric comprised of 3 leaf and 2 spine switches running a single-area OSPF process on all their links. Each server will have its own unique tenant subnet (Vlan100) terminated on the leaf switch and subnet injected into OSPF. The subnet used for this Vlan is going to be <code>10.0.X.0/24</code>, where X is the number of the leaf switch terminating the vlan.</p>
-
-<p>  The links between switches are all L3 point-to-point with addresses borrowed from 169.254.0.0/16 range specifically to emphasize the fact that the internal addressing does not need to be known or routed outside of the fabric. The <strong>sole function of the fabric</strong> is to provide multiple equal cost paths between any pair of leafs, thereby achieving maximum link utilisation. Here&rsquo;s an example of a traceroute between Vlan100&rsquo;s of Leaf #1 and Leaf #3.</p></li>
-</ul>
-
-
-<pre><code class="text Traceroute inside an ECMP routed Clos fabric">L3#traceroute 10.0.1.1 source 10.0.3.1
-Type escape sequence to abort.
-Tracing the route to 10.0.1.1
-VRF info: (vrf in name/id, vrf out name/id)
-  1 169.254.31.111 1 msec
-    169.254.32.222 0 msec
-    169.254.31.111 0 msec
-  2 169.254.12.1 1 msec
-    169.254.11.1 1 msec *
-</code></pre>
-
-<h2>Building lab servers</h2>
-
-<p>Based on my experience a standard server would have at least 3 physical interfaces - one for OOB management and a pair of interfaces for application traffic. The two application interfaces will normally be combined in a single <abbr title=" Link Aggregation Group">LAG</abbr> and connected to a pair of MLAG-capable TOR switches. Multi-chassis LAG or <a href="http://blog.ipspace.net/2010/10/multi-chassis-link-aggregation-basics.html">MLAG</a> is a pretty old and well-understood technology so I&rsquo;m not going to try and simulate it in the lab. Instead I&rsquo;ll simply assume that a server will be connected to a TOR switch via a single physical link. That link will be setup as a dot1q trunk to allow for multiple subnets to share it.</p>
-
-<h2>Physical lab topology</h2>
-
-<p>All the above requirements and assumptions result in the following topology that we need to build inside UNetLab:</p>
-
-<p><img class="center" src="/images/neutron-native.png"></p>
-
-<p>For servers I&rsquo;ll be using OpenStack node type that I&rsquo;ve described in my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a>. The two compute nodes do not need as much RAM as the control node, so I&rsquo;ll reduce it to just 2GB.</p>
-
-<p>For switches I&rsquo;ll be using a Cisco&rsquo;s <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">L2 IOU</a> image for now, mainly due to the low resource requirements. In the future I&rsquo;ll try and swap it for something else. As you can see from the sample config below, fabric configuration is very basic and can be easily replaced by any other solution:</p>
-
-<pre><code class="text Leaf 1 configuration">interface Ethernet0/0
- no switchport
- ip address 169.254.11.1 255.255.255.0
- ip ospf network point-to-point
- duplex auto
-!
-interface Ethernet0/1
- no switchport
- ip address 169.254.12.1 255.255.255.0
- ip ospf network point-to-point
- duplex auto
-!
-interface Ethernet0/2
- switchport trunk allowed vlan 100
- switchport trunk encapsulation dot1q
- switchport mode trunk
-!
-interface Vlan100
- ip address 10.0.1.1 255.255.255.0
-!
-router ospf 1
- network 0.0.0.0 255.255.255.255 area 0
-</code></pre>
-
-<h2>Server configuration and OpenStack installation</h2>
-
-<p>Refer to my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a> for instructions on how to install OpenStack and follow the first 5 steps from &ldquo;Installing CentOS and Openstack&rdquo; section. Before doing the final step, we need to configure our VMs' new interfaces:</p>
-
-<ul>
-<li>Remove any IP configuration from <strong>eth1</strong> interface to make it look like this:</li>
-</ul>
-
-
-<pre><code class="ini /etc/sysconfig/network-scripts/ifcfg-eth1">TYPE=Ethernet
-BOOTPROTO=none
-DEVICE=eth1
-ONBOOT=yes
-</code></pre>
-
-<ul>
-<li>Configure <strong>Tenant network</strong>:</li>
-</ul>
-
-
-<pre><code class="ini /etc/sysconfig/network-scripts/ifcfg-eth1.100">VLAN=yes
-DEVICE=eth1.100
-BOOTPROTO=none
-IPADDR=10.0.X.10
-PREFIX=24
-ONBOOT=yes
-</code></pre>
-
-<ul>
-<li>Setup a <strong>static route</strong> to all other leaf nodes:</li>
-</ul>
-
-
-<pre><code class="ini /etc/sysconfig/network-scripts/route-eth1.100">10.0.0.0/8 via 10.0.X.1
-</code></pre>
-
-<ul>
-<li>On Control node setup <strong>External network</strong> interface</li>
-</ul>
-
-
-<pre><code class="ini /etc/sysconfig/network-scripts/route-eth1.300">DEVICE=eth1.300
-IPADDR=192.168.247.100
-PREFIX=24
-ONBOOT=yes
-BOOTPROTO=none
-VLAN=yes
-</code></pre>
-
-<p>Now we&rsquo;re ready to kick off OpenStack installation. This can be done with a single command that needs to be executed on the Control node. Note that <code>eth1.100</code> interface is spelled as <code>eth1_100</code> in the last line.</p>
-
-<pre><code class="bash Controller">packstack --allinone \
-    --os-cinder-install=n \
-    --os-ceilometer-install=n \
-    --os-trove-install=n \
-    --os-ironic-install=n \
-    --nagios-install=n \
-    --os-swift-install=n \
-    --os-gnocchi-install=n \
-    --os-aodh-install=n \
-    --os-neutron-ovs-bridge-mappings=extnet:br-ex \
-    --os-neutron-ovs-bridge-interfaces=br-ex:eth1.300 \
-    --os-neutron-ml2-type-drivers=vxlan,flat \
-    --provision-demo=n \
-    --os-compute-hosts=192.168.91.10,192.168.91.11,192.168.91.12 \
-    --os-neutron-ovs-tunnel-if=eth1_100
-</code></pre>
-
-<h2>Creating a virtual network for a pair of VMs</h2>
-
-<p>Once again, follow all steps from &ldquo;Configuring Openstack networking&rdquo; section of my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a>. Only this time when setting up a public subnet, update the subnet details to match our current environment:</p>
-
-<pre><code class="bash Step 3 - Creating a public subnet">  neutron subnet-create --name public_subnet \
-    --enable_dhcp=False \
-    --allocation-pool=start=192.168.247.90,end=192.168.247.126 \
-    --gateway=192.168.247.1 external_network 192.168.247.0/24
-</code></pre>
-
-<h2>Nova-scheduler and setting up host aggregates</h2>
-
-<p>OpenStack&rsquo;s Nova project is responsible for managing virtual machines. Nova controller views all available compute nodes as a single pool of resources. When a new VM is to be instantiated, a special process called nova-scheduler examines all available compute nodes and selects the &ldquo;best&rdquo; one based on a special algorithm, which normally takes into account amount of RAM, CPU and other host capabilities.</p>
-
-<p>To make our host selection a little bit more deterministic, we can define a group of compute servers via <strong>host aggregates</strong>, which will be used by nova-scheduler in its selection algorithm. Normally it could include all servers in a single rack or a row of racks. In our case we&rsquo;ll setup two host aggregates each with a single compute host. This way we&rsquo;ll be able to select exactly which compute host to use when instantiating a new virtual machine.</p>
-
-<p>To setup it up, from Horizon&rsquo;s dashboard navigate to Admin -> System and create two host aggregates <strong>comp-1</strong> and <strong>comp-2</strong>, each including a single compute host.</p>
-
-<h2>Creating workloads and final testing</h2>
-
-<p>Using a process described in &ldquo;Spinning up a VM&rdquo; section of my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a>, create a couple of virtual machines assigning them to different host aggregates created earlier.</p>
-
-<h2>Security and Remote access</h2>
-
-<p>To access these virtual machines we need to give them a <a href="https://www.rdoproject.org/networking/floating-ip-range/">floating</a> ip address from the External subnet range. To do that navigate to Project -> Compute -> Instances and select <strong>Associate Floating IP</strong> from the Actions drop-down menu.</p>
-
-<p>The final steps is to allow remote SSH access. Each new VM inherits ACLs from a default security group. So the easiest way to allow SSH is to go to Project -> Compute -> Access &amp; Security and add a rule to allow inbound SSH connections for the default security group.</p>
-
-<h2>Verification</h2>
-
-<p>At this stage you should be able to SSH into the floating IP addresses assigned to the two new VMs using the default credentials. Feel free to poke around and explore Horizon&rsquo;s interface a bit more. For example, try setting up an SSH key pair and re-build our two VMs to allow passwordless SSH access.</p>
-
-<h2>What to expect next</h2>
-
-<p>In the next post we&rsquo;ll explore some of the basic concepts of OpenStack&rsquo;s SDN. We&rsquo;ll peak inside the internal implementation of virtual networks and see what are some of their limitations and drawbacks.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Openstack on UNetlab]]></title>
-    <link href="http://networkop.github.io/blog/2016/04/04/openstack-unl/"/>
-    <updated>2016-04-04T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2016/04/04/openstack-unl</id>
-    <content type="html"><![CDATA[<p>In this post I&rsquo;m going to show how to get a running instance of Openstack inside a UNetLab virtual machine.</p>
-
-<!--more-->
-
-
-<p><img class="center" src="/images/unl-os.png"></p>
-
-<h2>What the hell am I trying to do?</h2>
-
-<p>I admit that running Openstack on anything other than baremetal is nonsense. So why would anyone want to run it with two layers of virtualisation underneath? My goal is to explore some of the new SDN/NFV technologies without leaving the confines on my home area network and/or racking up a triple-digit electricity bill. I also wanted to be able to swap underlay networks without spending hours trying to plumb together virtualized switches and servers from multiple vendors. That&rsquo;s why I&rsquo;ve decided to use UNetLab VM as a host for my Openstack lab. This would allow me to easily assemble any type of underlay, WAN or DCI network and with hardware virtualisation support I can afford to run Openstack double-nested inside Workstation and Qemu on my dual-core i7 without too much of a performance penalty. After all, <a href="https://www.ravellosystems.com/technology/hvx">some companies</a> even managed to turn similar things into a commercial product.</p>
-
-<p>My interest in Openstack is strictly limited by networking, that&rsquo;s why a lot of the things you&rsquo;ll see in this and following posts will not be applicable to a real-life production environment. However, as far as networking is concerned, I&rsquo;ll try to stick as close to the official Openstack <a href="http://docs.openstack.org/openstack-ops/content/example_architecture.html">network design</a> as possible. I&rsquo;ll be using <a href="https://www.rdoproject.org">RDO</a> to deploy Openstack. The specific method will be Packstack which is a collection of Puppet modules used to deploy Openstack components.</p>
-
-<p>Why have I not went the OpenDaylight/Mininet way if I wanted to play with SDN/NFV? Because I wanted something more realistic to play with, that wouldn&rsquo;t feel like vendor&rsquo;s powerpoint presentation. Plus there&rsquo;s plenty of resources on the &lsquo;net about it anyway.</p>
-
-<p>So, without further ado, let&rsquo;s get cracking.</p>
-
-<h2>Setting the scene</h2>
-
-<p>On my Windows 8 laptop I&rsquo;ve got a UNL virtual machine running inside a VMWare Workstation.. I&rsquo;ve <a href="http://www.unetlab.com/download/">downloaded</a> and <a href="http://www.unetlab.com/2014/11/upgrade-unetlab-installation/">upgraded</a> a pre-built UNL VM image. I&rsquo;ve also downloaded a copy of the <a href="http://isoredirect.centos.org/centos/7/isos/x86_64/CentOS-7-x86_64-Minimal-1511.iso">Centos 7 minimal ISO image</a> and copied it over to my UNL VM&rsquo;s home directory.</p>
-
-<p>For network access I&rsquo;ll be using VMWware Workstation&rsquo;s NAT interface. It&rsquo;s currently configured with <code>192.168.91.0/24</code> subnet with DHCP range of <code>.128-.254</code>. Therefore I&rsquo;ll be using <code>.10-.126</code> to allocate IPs to my Openstack servers.</p>
-
-<h2>Creating a custom node type in UNL</h2>
-
-<p>Every node type inside UNL has its own unique settings. Some settings, like amount of RAM, CPU or number of network interfaces, can be changed during node instantiation, while some of them remain &ldquo;baked in&rdquo;. Say, for example, the default &ldquo;Linux&rdquo; template creates nodes with default <strong>Qemu Virtual CPU</strong> which doesn&rsquo;t support the hardware virtualisation (<strong>VT-X/AMD-V</strong>) <a href="http://docs.openstack.org/liberty/config-reference/content/kvm.html">required</a> by Openstack. In order to change that you can either edit the existing node template or follow these steps to create a new one:</p>
-
-<ol>
-<li><p>Add Openstack node definition to initialization file <code>/opt/unetlab/html/includes/init.php</code>.</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='php'><span class='line'> <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">linux</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;</span>                 <span class="o">=&gt;</span>      <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">Linux</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;,</span>
-</span><span class='line'> <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">openstack</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;</span>             <span class="o">=&gt;</span>      <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">Openstack</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;,</span>
-</span><span class='line'> <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">mikrotik</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;</span>              <span class="o">=&gt;</span>      <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">MikroTik</span> <span class="nx">RouterOS</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;,</span>
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create a new Openstack node template based on existing linux node template.</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>cp /opt/unetlab/html/templates/linux.php /opt/unetlab/html/templates/openstack.php
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Edit the template file replacing all occurences of &lsquo;Linux&rsquo; with &lsquo;Openstack&rsquo;</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sed -i <span class="p">&amp;</span>rsquo<span class="p">;</span>s/Linux/Openstack/g<span class="p">;</span> s/linux/openstack/g<span class="err">&#39;</span> /opt/unetlab/html/templates/openstack.php
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Edit the template file to double the RAM and CPU and pass all host&rsquo;s CPU instructions to Openstack nodes</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sed -i <span class="p">&amp;</span>rsquo<span class="p">;</span>s/2048/4096/<span class="p">;</span> s/<span class="o">(</span>cpu.*<span class="o">)</span> <span class="o">=</span> 1/<span class="se">\1</span> <span class="o">=</span> 2/<span class="p">;</span> s/<span class="o">(</span><span class="nv">order</span><span class="o">=)</span>dc/<span class="se">\1</span>cd -cpu host/<span class="p">&amp;</span>lsquo<span class="p">;</span> /opt/unetlab/html/templates/openstack.php
-</span></code></pre></td></tr></table></div></figure></p></li>
-</ol>
-
-
-<p>At this point you should be able to navigate to UNL&rsquo;s web interface and find a new node of type Openstack. However you won&rsquo;t be able to create it until you have at least one image, which is what we&rsquo;re going to build next.</p>
-
-<h2>Building a Linux VM inside UNetLab</h2>
-
-<p>Now we need to create a CentOS image inside a UNL. One way to do it is build it inside a VMWare Workstation, copy it to UNL and convert the <strong>.vmdk</strong> to <strong>.qcow2</strong>. However, when I tried doing this I ran into a problem with CentOS not finding the correct disk partitions during bootup. The workaround was to boot into rescue mode and rebuild the initramfs. For those feeling adventurous, I would recommend checking out the following links [<a href="https://wiki.centos.org/TipsAndTricks/CreateNewInitrd">1</a>, <a href="http://advancelinux.blogspot.com.au/2013/06/how-to-rebuild-initrd-or-initramfs-in.html">2</a>, <a href="http://forums.fedoraforum.org/showthread.php?t=288020">3</a>] before trying this option.<br/>
-The other option is to build CentOS inside UNL from scratch. This is how you can do it:</p>
-
-<ol>
-<li><p>Create a new directory for Openstack image</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>mkdir -p /opt/unetlab/addons/qemu/openstack-1
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create a link to CentOS ISO boot image from our new directory</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ln -s ~/CentOS-7-x86_64-Minimal-1511.iso /opt/unetlab/addons/qemu/openstack-1/cdrom.iso
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create a blank 6Gb disk image</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>/opt/qemu/bin/qemu-img create -f qcow2 -o <span class="nv">preallocation</span><span class="o">=</span>metadata /opt/unetlab/addons/qemu/openstack-1/virtioa.qcow2 6G
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>If you want to create <strong>snapshots</strong> at any stage of the process you&rsquo;d need to use a copy of this file under /opt/unetlab/tmp/pod_id/lab_uuid/node_id/ directory</p></li>
-</ol>
-
-
-<p>Now you should be able to successfully create an Openstack node and connect it to Internet. Create a new network that would have Internet connectivity (in my case it&rsquo;s <strong>pnet0</strong>) and connect it to Openstack&rsquo;s <strong>eth0</strong>.  At this stage we have everything ready to start installing Openstack, but before we move on let me take a quick detour to tell you about my ordeals with VNC integration.</p>
-
-<h2>Optional: Integrating TightVNC with UNL</h2>
-
-<p>For some unknown reason UltraVNC does not work well on my laptop. My sessions would often crash or start minimised with the only option to close the window. That&rsquo;s not the only thing not working properly on my laptop thanks to the corporate policies with half of the sh*t locked down for <em>security</em> reasons.<br/>
-So instead of mucking around with <strong>Ultra</strong> I decided to give me old pal <strong>Tight</strong>VNC a go. The setup process is very similar to the <a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/">official VNC integration guide</a> with the following exceptions:</p>
-
-<ol>
-<li><p>The wrapper file simply strips the leading &lsquo;vnc://&rsquo; and trailing &lsquo;/&rsquo; off the passed argument</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='winbatch'><span class='line'><span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%1</span>
-</span><span class='line'><span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%arg:~6%</span>
-</span><span class='line'><span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%arg:~0</span><span class="p">,</span><span class="m">-1</span>%
-</span><span class='line'>start &amp;ldquo;&amp;rdquo; &amp;ldquo;c:\Program Files\TightVNC\tvnviewer.exe&amp;rdquo; <span class="nv">%arg%</span>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>The registry entry now points to the TightVNC wrapper</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='registry'><span class='line'><span class="k">[</span><span class="nb">HKEY_CLASSES_ROOT</span><span class="k">\vnc\shell\open\command]</span>
-</span><span class='line'><span class="na">@</span><span class="o">=</span><span class="s">&amp;ldquo;\&quot;c:\Program Files\TightVNC\wrapper.bat\&amp;rdquo; %1&quot;</span>
-</span></code></pre></td></tr></table></div></figure></p></li>
-</ol>
-
-
-<h2>Installing CentOS and Openstack</h2>
-
-<p>Finally, we&rsquo;ve got all our ducks lined up in a row and we&rsquo;re ready to shoot. Fire up the Openstack node inside UNL and click on it to open a vnc session. Proceed to install CentOS with default options. You need to confirm which <strong>hard disk</strong> to use and setup the <strong>hostname</strong> and the <strong>root password</strong> during installation process.
-As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all the necessary Openstack components. The whole installation process will be quite simple and can be found on the RDO&rsquo;s <a href="https://www.rdoproject.org/install/quickstart/">quickstart page</a>. Here is my slightly modified version of installation process:</p>
-
-<ol>
-<li><p>Disable Network Manager and SELinux.</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>service NetworkManager stop
-</span><span class='line'> <span class="nv">$ </span>systemctl disable NetworkManager.service
-</span><span class='line'> <span class="nv">$ </span>setenforce 0
-</span><span class='line'> <span class="nv">$ </span>sed -i <span class="p">&amp;</span>rsquo<span class="p">;</span>s/enforcing/permissive/<span class="p">&amp;</span>lsquo<span class="p">;</span> /etc/selinux/config
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Configure static IP address <code>192.168.91.10</code> on the network interface. <br/>
- Assuming your interface name is <code>eth0</code> make sure you /etc/sysconfig/network-scripts/ifcfg-eth0 looks something like this:</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">TYPE</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>Ethernet<span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'> <span class="nv">BOOTPROTO</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>static<span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'> <span class="nv">IPADDR</span><span class="o">=</span>192.168.91.10
-</span><span class='line'> <span class="nv">PREFIX</span><span class="o">=</span>24
-</span><span class='line'> <span class="nv">GATEWAY</span><span class="o">=</span>192.168.91.2
-</span><span class='line'> <span class="nv">DNS1</span><span class="o">=</span>192.168.91.2
-</span><span class='line'> <span class="nv">NAME</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>eth0<span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'> <span class="nv">DEVICE</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>eth0<span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'> <span class="nv">ONBOOT</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>yes<span class="p">&amp;</span>rdquo<span class="p">;</span>&lt;br/&gt;
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> Issue a <code>service network restart</code> and reconnect to the new static IP address. Make sure that you still have access to Internet after making this change.</p></li>
-<li><p>Setup RDO repositories</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>sudo yum install -y &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://rdoproject.org/repos/rdo-release.rpm&quot;</span>&gt;https://rdoproject.org/repos/rdo-release.rpm&lt;/a&gt;
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Update your current packages</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>sudo yum update -y
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Install Packstack</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>sudo yum install -y openstack-packstack
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> That&rsquo;s where it&rsquo;d make sense to take a snapshot with <code>qemu-img snapshot -c pre-install virtioa.qcow2</code> command</p></li>
-<li><p>Deploy a single-node Openstack environment</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>packstack --allinone <span class="se">\</span>
-</span><span class='line'> --os-cinder-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'> --os-ceilometer-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'> --os-trove-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'> --os-ironic-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'> --nagios-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'> --os-swift-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'> --os-neutron-ovs-bridge-mappings<span class="o">=</span>extnet:br-ex <span class="se">\</span>
-</span><span class='line'> --os-neutron-ovs-bridge-interfaces<span class="o">=</span>br-ex:eth0 <span class="se">\</span>
-</span><span class='line'> --os-neutron-ml2-type-drivers<span class="o">=</span>vxlan,flat <span class="se">\</span>
-</span><span class='line'> --provision-demo<span class="o">=</span>n
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> Here we&rsquo;re overriding some of the default Packstack options. We&rsquo;re not installing some of the components we&rsquo;re not going to use and setting up a name (<strong>extnet</strong>) for our external physical segment, which we&rsquo;ll use in the next section.</p></li>
-</ol>
-
-
-<p>At the end of these 4 steps you should be able to navigate to Horizon (Openstack&rsquo;s dashboard) by typing <code>http://192.168.91.10</code> in your browser. You can find login credentials in the <code>~/keystonerc_admin</code> file.</p>
-
-<h2>Configuring Openstack networking</h2>
-
-<p>At this stage we need to setup virtual networking infrastructure inside Openstack. This will be almost the same as described in RDO&rsquo;s external network <a href="https://www.rdoproject.org/networking/neutron-with-existing-external-network/">setup guide</a>. The only exceptions will be the <a href="https://www.rdoproject.org/networking/difference-between-floating-ip-and-private-ip/">floating IP range</a>, which will match our existing environment, and the fact that we&rsquo;re no going to setup any additional tenants yet. This is how our topology will look like:</p>
-
-<p><img class="center" src="/images/os-net-1.png"></p>
-
-<ol>
-<li><p>Switch to Openstack&rsquo;s <code>admin</code> user
- <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span><span class="nb">source</span> ~/keystonerc_admin
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create external network
- <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> neutron net-create external_network --provider:network_type flat <span class="se">\</span>
-</span><span class='line'> --provider:physical_network extnet  <span class="se">\</span>
-</span><span class='line'> --router:external <span class="se">\</span>
-</span><span class='line'> --shared
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create a public subnet</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> neutron subnet-create --name public_subnet <span class="se">\</span>
-</span><span class='line'> --enable_dhcp<span class="o">=</span>False <span class="se">\</span>
-</span><span class='line'> --allocation-pool<span class="o">=</span><span class="nv">start</span><span class="o">=</span>192.168.91.90,end<span class="o">=</span>192.168.91.126 <span class="se">\</span>
-</span><span class='line'> --gateway<span class="o">=</span>192.168.91.2 external_network 192.168.91.0/24
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> Default gateway is VMware&rsquo;s NAT IP address</p></li>
-<li><p>Create a private network and subnet</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> neutron net-create private_network
-</span><span class='line'> neutron subnet-create --name private_subnet private_network 10.0.0.0/24 <span class="se">\</span>
-</span><span class='line'> --dns-nameserver 8.8.8.8
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>  This network is not routable outside of Openstack and is used for inter-VM communication</p></li>
-<li><p>Create a virtual router and attach it to both networks</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> neutron router-create router
-</span><span class='line'> neutron router-gateway-set router external_network
-</span><span class='line'> neutron router-interface-add router private_subnet
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-</ol>
-
-
-<p>Make sure to check out the visualisation of our newly created network topology in Horizon, it&rsquo;s amazing.</p>
-
-<h2>Spinning up a VM</h2>
-
-<p>There&rsquo;s no point in installing Openstack just for the sake of it. Our final step would be to create a working virtual machine that would be able to connect to Internet.</p>
-
-<ol>
-<li><p>Download a test linux image</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> curl &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img&quot;</span>&gt;http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img&lt;/a&gt; <span class="p">|</span> glance <span class="se">\</span>
-</span><span class='line'> image-create --name<span class="o">=</span><span class="p">&amp;</span>lsquo<span class="p">;</span>cirros image<span class="p">&amp;</span>rsquo<span class="p">;</span> <span class="se">\</span>
-</span><span class='line'> --visibility<span class="o">=</span>public <span class="se">\</span>
-</span><span class='line'> --container-format<span class="o">=</span>bare <span class="se">\</span>
-</span><span class='line'> --disk-format<span class="o">=</span>qcow2
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>From Horizon&rsquo;s home page navigate to Project -> Compute -> Images.</p></li>
-<li><p>Click on <code>Launch Instance</code> and give the new VM a name.</p></li>
-<li><p>Make sure it&rsquo;s attached to <code>private_network</code> under the Networking tab.</p></li>
-<li><p>Less then a minute later the status should change to <code>Active</code> and you can navigate to VM&rsquo;s console by clicking on its name and going to <code>Console</code> tab.</p></li>
-<li><p>Login using the default credentials (<strong>cirros/cubswin:)</strong>) and verify Internet access by pinging google.com.</p></li>
-</ol>
-
-
-<p>Congratulations, we have successfully created a VM running inside a KVM inside a KVM inside a VMWare Workstation inside Windows!</p>
-
-<h2>What to expect next</h2>
-
-<p>Unlike my other post series, I don&rsquo;t have a clear goal at this stage so I guess I&rsquo;ll continue playing around with different underlays for multi-node Openstack and then move on to various SDN solutions available like OpenDayLight and OpenContrail. Unless I lose interest half way through, which happened in the past. But until that happens, stay tuned for more.</p>
 ]]></content>
   </entry>
   

@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-05-10T23:16:51-07:00</updated>
+  <updated>2016-08-26T11:46:46-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,915 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 1)]]></title>
+    <link href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/"/>
+    <updated>2016-08-26T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/08/26/os-lab-p1</id>
+    <content type="html"><![CDATA[<p>In this post we will explore what&rsquo;s required to perform a zero-touch deployment of an OpenStack cloud. We&rsquo;ll get a 3-node lab up and running inside UNetLab with just a few commands.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>Now that I&rsquo;m finally beginning to settle down at my new place of residence I can start spending more time on research and blogging. I have left off right before I was about to start exploring the native OpenStack distributed virtual routing function. However as I&rsquo;d started rebuilding my OpenStack lab from scratch I realised that I was doing a lot of repetitive tasks which can be easily automated. Couple that with the fact that I needed to learn Chef for my new work and you&rsquo;ve got this blogpost describing a few Chef <a href="https://github.com/networkop/chef-unl-os.git">cookbooks</a> (similar to Ansible&rsquo;s playbook) automating all those manual steps described in my earlier blogposts <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">1</a> and <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">2</a>.<br/>
+In addition to that in this post I&rsquo;ll show how to build a very simple OpenStack baremetal provisioner and installer. Some examples of production-grade baremetal provisioners are <a href="https://wiki.openstack.org/wiki/Ironic">Ironic</a>, <a href="http://crowbar.github.io/">Crowbar</a> and <a href="http://maas.io/">MAAS</a>. In our case we&rsquo;ll turn UNetLab VM into an <strong>undercloud</strong>, a server used to provision and deploy our OpenStack lab, an <strong>overcloud</strong>. To do that we&rsquo;ll first install and configure DHCP, TFTP and Apache servers to PXE-boot our UNL OpenStack nodes. Once all the nodes are bootstrapped, we&rsquo;ll use Chef to configure the server networking and kickoff the packstack OpenStack installer.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/os-lab-chef.png"></p>
+
+<p>In this post I&rsquo;ll try to use Chef recipes that I&rsquo;ve written as much as possible, therefore you won&rsquo;t see the actual configuration commands, e.g. how to configure Apache or DHCP servers. However I will try to describe everything that happens at each step and hopefully that will provide enough incentive for the curious to look into the Chef code and see how it&rsquo;s done. To help with the Chef code understanding let me start with a brief overview of what to look for in a cookbook.</p>
+
+<h2>How to read a Chef cookbook (Optional)</h2>
+
+<p>A cookbook directory (<strong>/cookbooks/[cookbook_name]</strong>) contains all its configuration scripts in <strong>/recipes</strong>. Each file inside a recipe contains a list of steps to be performed on a server. Each step is an operation (add/delete/update) on a <strong>resource</strong>. Here are some of the common Chef resources:</p>
+
+<ul>
+<li>Package - allows you to add, remove or update a package</li>
+<li>Template - creates a file from an <strong>erb</strong>-formatted template</li>
+<li>Execute - runs an ad-hoc CLI command</li>
+</ul>
+
+
+<p>Just these three basic resources allow you to do 95% of administrative tasks on any server. Most importantly they do it in platform-independent (any flavour of Linux) and idempotent (only make changes if current state is different from a desired state) way. Other directories you might want to explore are:</p>
+
+<ul>
+<li>/templates - contains all the <strong>erb</strong>-formatted templates</li>
+<li>/attributes - contains recipe variables (file paths, urls etc.)</li>
+<li>/files - contains the non-template files, i.e. files with static content</li>
+</ul>
+
+
+<h2>Bootstrapping the OpenStack nodes</h2>
+
+<ol>
+<li><p>If you haven&rsquo;t done it yet, download a copy of the <strong>UNetLab VM</strong> from the <a href="http://www.unetlab.com/">official website</a>. Set it up inside your hypervisor so that you can access Internet through the first interface <strong>pnet0</strong> (i.e. connect the first NIC of the VM to hypervisor&rsquo;s NAT interface). Make sure the VM has got at least 6GB of RAM and VT-x support enabled for nested virtualization.</p></li>
+<li><p>Follow the official <a href="https://downloads.chef.io/chef-dk/">installation instructions</a> to <strong>install Chef Development Kit</strong> inside UNetLab VM.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   wget <a href="https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.16.28-1_amd64.deb">https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.16.28-1_amd64.deb</a>
+</span><span class='line'>   dpkg -i chefdk_0.16.28-1_amd64.deb
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p><strong>Install git</strong> and clone <a href="https://github.com/networkop/chef-unl-os.git">chef cookbooks</a>.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   apt-get -y update
+</span><span class='line'>   apt-get -y install git
+</span><span class='line'>   git clone <a href="https://github.com/networkop/chef-unl-os.git">https://github.com/networkop/chef-unl-os.git</a>
+</span><span class='line'>   <span class="nb">cd </span>chef-unl-os
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Examine the lab <strong>environment settings</strong> to see what values are going to be used. You can modify that file to your liking.</p>
+
+<blockquote><p>Note that the OpenStack node IDs (keys of <em>os_lab</em> hash) MUST have one to one correspondence with the UNL node IDs which will be created at step 5</p></blockquote>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   cat environment/lab.rb
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Run Chef against a local server to setup the <strong>baremetal provisioner</strong>. This step installs and configures DHCP, TFTP and Apache servers. It also creates all the necessary PXE-boot and kickstart files based on our environment settings. Note that a part of the process is the download of a 700MB CentOS image so it might take a while to complete.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   chef-client -z -E lab -o pxe
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p> At the start of the PXE-boot process, DCHP server sends an OFFER which, along with the standard IP information, includes the name of the PXE boot image and the IP address of TFTP server where to get it from. A server loads this image and then searches the TFTP server for the boot configuration file which tells it what kernel to load and where to get a kickstart file. Both kickstart and the actual installation files are accessed via HTTP and served by the same Apache server that runs UNL GUI.</p></li>
+<li><p>From <strong>UNL GUI</strong> create a new lab, add 3 OpenStack nodes and connect them all to <strong>pnet10</strong> interface as described in <a href="http://www.unetlab.com/2014/11/using-cloud-devices/">this guide</a>. Note that the <strong>pnet10</strong> interface has already been created by Chef so you don&rsquo;t have to re-create it again.</p>
+
+<blockquote><p>Make sure that the UNL node IDs match the ones defined in the environment setting file</p></blockquote></li>
+<li><p>Fire-up the nodes and watch them being bootstrapped by our UNL VM.</p></li>
+</ol>
+
+
+<h2>Server provisioning</h2>
+
+<p>Next step is to configure the server networking and kickoff the OpenStack installer. These steps will also be done with a single command:</p>
+
+<p>   <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   chef-client -z -E lab lab.rb
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure>
+The first part of this script will connect to each prospective OpenStack node and setup its network interfaces and hostnames. The second part of this script will generate a packstack answer file and modify its settings to exclude some of the components we&rsquo;re not going to use (like Nagios, Ceph and Ceilometer). Have a look at <strong>cookbooks/packstack/recipe/default.rb</strong> for the list of modifications. The final step is a command to kickoff the packstack installer which will use another configuration management system, Puppet, to install and configure OpenStack according to the provided answer file.</p>
+
+<p>At the end of these steps you should have a fully functional 3-node OpenStack environment.</p>
+
+<h2>To be continued&hellip;</h2>
+
+<p>This is a part of a 2-post series. In the next post we&rsquo;ll look into how to use the same tools to perform the baremetal provisioning of our physical underlay network.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway]]></title>
+    <link href="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/"/>
+    <updated>2016-05-21T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/05/21/neutron-l2gw</id>
+    <content type="html"><![CDATA[<p>One of the basic function of any data centre network is the ability to communicate with baremetal servers. In this post we&rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</p>
+
+<!--more-->
+
+
+<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="http://networkop.github.io/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/">downloaded</a> and imported into my lab.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-overview.png"></p>
+
+<p>To simulate the baremetal server (10.0.0.100) I&rsquo;ve VRF&rsquo;d an interface on Arista &ldquo;L4&rdquo; switch and connected it directly to a &ldquo;swp3&rdquo; interface of the Cumulus VX. This is not shown on the diagram.</p>
+
+<h2>Solution overview</h2>
+
+<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that compose this solution:</p>
+
+<ul>
+<li><strong>Hardware switch</strong> implementing the OVSDB hardware vtep schema. This is a special &ldquo;flavour&rdquo; of OVSDB designed specifically to enable connectivity between logical (VXLAN VTEP) and physical (switchport) interfaces.</li>
+<li><strong>L2GW agent</strong> running on a network node. This is the process responsible for connecting to OVSDB server running on a hardware switch and updating that database based on instructions received from a L2GW service plugin.</li>
+<li><strong>L2GW Service Plugin</strong> residing on a control node. The task of this plugin is to notify the L2GW agent and normal L2 OVS agents running on compute hosts about network events and distribute VTEP IP address information between them.</li>
+</ul>
+
+
+<p>Note that in our case both network and control nodes are running on the same VM.</p>
+
+<h2>Cumulux VX configuration</h2>
+
+<p>Cumulux is a debian-based linux distribution, therefore most of the basic networking configuration will be similar to how things are done in Ubuntu. First, let&rsquo;s start by configuring basic IP addressing on Loopback (VTEP IP), Eth0 (OOB management), swp1 and swp2 (fabric) interfaces.</p>
+
+<figure class='code'><figcaption><span>/etc/network/interfaces</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>iface lo inet loopback
+</span><span class='line'>        address 10.0.0.5/32
+</span><span class='line'>
+</span><span class='line'>auto eth0
+</span><span class='line'>iface eth0 inet static
+</span><span class='line'>        address 192.168.91.21/24
+</span><span class='line'>
+</span><span class='line'>auto swp1
+</span><span class='line'>iface swp1 inet static
+</span><span class='line'>        address 169.254.51.5/24
+</span><span class='line'>
+</span><span class='line'>auto swp2
+</span><span class='line'>iface swp2 inet static
+</span><span class='line'>        address 169.254.52.5/24
+</span><span class='line'>
+</span><span class='line'>auto swp3
+</span><span class='line'>iface swp3
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Next, let&rsquo;s enable OSPF</p>
+
+<figure class='code'><figcaption><span>Enable OSPF process</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo sed -i s/zebra<span class="o">=</span>no/zebra<span class="o">=</span>yes/ /etc/quagga/daemons
+</span><span class='line'>sudo sed -i s/ospfd<span class="o">=</span>no/ospfd<span class="o">=</span>yes/ /etc/quagga/daemons
+</span><span class='line'>sudo service quagga restart
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Once OSPFd is running, we can use <code>sudo vtysh</code> to connect to local quagga shell and finalise the configuration.</p>
+
+<figure class='code'><figcaption><span>show run</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface lo
+</span><span class='line'> ip ospf area 0.0.0.0
+</span><span class='line'> link-detect
+</span><span class='line'>!
+</span><span class='line'>interface swp1
+</span><span class='line'> ip ospf area 0.0.0.0
+</span><span class='line'> ip ospf network point-to-point
+</span><span class='line'> link-detect
+</span><span class='line'>!
+</span><span class='line'>interface swp2
+</span><span class='line'> ip ospf area 0.0.0.0
+</span><span class='line'> ip ospf network point-to-point
+</span><span class='line'> link-detect
+</span><span class='line'>!
+</span><span class='line'>router ospf
+</span><span class='line'> ospf router-id 10.0.0.5
+</span><span class='line'> passive-interface default
+</span><span class='line'> no passive-interface swp1
+</span><span class='line'> no passive-interface swp2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At this stage our Cumulus VX switch should be fully adjacent to both spines and its loopback IP (10.0.0.5) should be reachable from all OpenStack nodes.</p>
+
+<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack">process</a> is fairly simple and involves only a few commands.</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo sed -i s/START<span class="o">=</span>no/START<span class="o">=</span>yes/g /etc/default/openvswitch-vtep
+</span><span class='line'><span class="nv">$ </span>sudo service openvswitch-vtep start
+</span><span class='line'><span class="nv">$ </span>sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The last command runs a bootstrap script that does the following things:</p>
+
+<ul>
+<li>Creates a hardware VTEP OVSDB schema</li>
+<li>Inside that schema creates a new physical switch called &ldquo;L5&rdquo;</li>
+<li>Sets the VTEP IP to 10.0.0.5</li>
+<li>Starts listening to incoming OVSDB connections on 192.168.91.21</li>
+</ul>
+
+
+<h2>Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h2>
+
+<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that <a href="https://tools.ietf.org/html/rfc7047">OVSDB</a> is just a database and OVSDB protocol is just a set of JSON RPC calls to work with that database. Information that can be stored in the database is defined by a schema - a structure that represents tables and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
+
+<ul>
+<li><strong><a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf">Open_vSwitch schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
+<li><strong><a href="http://openvswitch.org/docs/vtep.5.pdf">Hardware_vtep schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
+</ul>
+
+
+<p>The information from these databases is later consumed by another process that sets up the actual bridges and ports. The first schema is used by the <strong>ovs-vswitchd</strong> process running on all compute hosts to configure ports and flows of integration and tunnel bridges. In case of a Cumulus switch, the information from <strong>hardware_vtep</strong> OVSDB is used by a process called <strong>ovs-vtepd</strong> that is responsible for settings up VXLAN VTEP interfaces, provisioning of VLANs on physical switchports and interconnecting them with a Linux bridge.</p>
+
+<p>If you want to learn more, check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html">awesome post</a> about hardware VTEP and OVS.</p>
+
+<h2>OpenStack Control node configuration</h2>
+
+<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/">another blog</a>. It&rsquo;s included it this post because I had to do some modifications and also for the sake of completeness.</p>
+
+<ol>
+<li><p>Clone the L2GW repository</p>
+
+<pre><code class="`"> git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
+</code></pre></li>
+<li><p>Use pip to install the plugin</p>
+
+<pre><code class="`"> pip install ./networking-l2gw/
+</code></pre></li>
+<li><p>Enable the L2GW service plugin</p>
+
+<pre><code class="`"> sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' \
+ /etc/neutron/neutron.conf
+</code></pre></li>
+<li><p>Copy L2GW configuration files into the neutron configuration directory</p>
+
+<pre><code class="`"> cp  /usr/etc/neutron/l2g* /etc/neutron/
+</code></pre></li>
+<li><p>Point the L2GW plugin to our Cumulus VX switch</p>
+
+<pre><code class="`"> sudo sed -ri "s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/" /etc/neutron/l2gateway_agent.ini
+</code></pre></li>
+<li><p>Update Neutron database with the new schema required by L2GW plugin</p>
+
+<pre><code class="`"> systemctl stop neutron-server
+ neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
+ systemctl start neutron-server
+</code></pre></li>
+<li><p>Update Neutron startup script to load the L2GW plugin configuration file</p>
+
+<pre><code class="`"> sed -ri "s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /" /usr/lib/systemd/system/neutron-server.service
+</code></pre></li>
+<li><p>Create a L2GW systemd unit file</p>
+
+<pre><code class="`"> cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
+ [Unit]
+ Description=OpenStack Neutron L2 Gateway Agent
+ After=neutron-server.service
+
+ [Service]
+ Type=simple
+ User=neutron
+ ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
+ KillMode=process
+
+ [Install]
+ WantedBy=multi-user.target
+ EOF
+</code></pre></li>
+<li><p>Restart both L2GW and neutron server</p>
+
+<pre><code class="`"> systemctl daemon-reload
+ systemctl restart neutron-server.service
+ systemctl start neutron-l2gateway-agent.service  
+</code></pre></li>
+<li><p>Enter the &ldquo;neutron configuration mode&rdquo;</p>
+
+<pre><code>source ~/keystone_admin
+neutron
+</code></pre></li>
+<li><p>Create a new L2 gateway device</p>
+
+<pre><code>l2-gateway-create --device name="L5",interface_names="swp3" CUMULUS-L2GW
+</code></pre></li>
+<li><p>Create a connection between a &ldquo;private_network&rdquo; and a native vlan (dot1q 0) of swp3 interface</p>
+
+<pre><code>l2-gateway-connection-create --default-segmentation-id 0 CUMULUS-L2GW private_network
+</code></pre></li>
+</ol>
+
+
+<h2>Verification and Traffic Flows</h2>
+
+<p>At this stage everything should be ready for testing. We&rsquo;ll start by examining the following traffic flow:</p>
+
+<ul>
+<li>From VM-2 10.0.0.4/fa:16:3e:d7:0e:14</li>
+<li>To baremetal server 10.0.0.100/50:00:00:6b:2e:70</li>
+</ul>
+
+
+<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-detailed.png"></p>
+
+<p>The communication starts with VM-2 sending an ARP request for the MAC address of the baremetal server. Packet flow inside the compute host will be exactly the same <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">as before</a>, with packet being flooded from the VM to the integration and tunnel bridges. Inside the tunnel bridge the packet gets resubmitted to table 22 where head-end replication of ARP request takes place.</p>
+
+<p>The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards the Cumulux VTEP IP. We&rsquo;ll use the <code>ovs-appctl ofproto/trace</code> command to see the full path a packet takes inside OVS, which is similar to <code>packet-tracer</code> command of Cisco ASA. To simulate an ARP packet we need to specify the incoming port(in_port), EtherType(arp), internal VLAN number for our tenant(dl_vlan) and an ARP request target IP address(arp_tpa). You can find the full list of fields that can be matched in <a href="http://openvswitch.org/support/dist-docs/ovs-ofctl.8.txt">this document</a>.</p>
+
+<figure class='code'><figcaption><span>ARP request to the baremetal server</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>1,arp,dl_vlan<span class="o">=</span>1,arp_tpa<span class="o">=</span>10.0.0.100 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
+</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>1
+</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">2</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00
+</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">20</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>0
+</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
+</span><span class='line'>                        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">22</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">dl_vlan</span><span class="o">=</span>1
+</span><span class='line'>                        OpenFlow <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The packet leaving port 9 will get encapsulated into a VXLAN header with destination IP of 10.0.0.5 and forwarded out the fabric-facing interface eth1.100. When VXLAN packet reaches the <strong>vxln69</strong> interface (10.0.0.5) of the Cumulus switch, the <strong>br-vxlan69</strong> Linux bridge floods the frame out the second connected interface - <strong>swp3</strong>.</p>
+
+<figure class='code'><figcaption><span>brctl show br-vxln69</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>bridge name        bridge id          STP enabled     interfaces
+</span><span class='line'>br-vxln69          8000.500000070003  no              swp3
+</span><span class='line'>                                                      vxln69
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The rest of the story is very simple. When ARP packet hits the baremetal server it populates its ARP cache. A unicast response travels all the way back to the Cumulus switch, gets matched by the static MAC (0e:14) entry created based on information provided by the L2GW plugin. This entry points to the VTEP IP of Compute host 2(10.0.2.10) which is where it gets forwarded next.</p>
+
+<figure class='code'><figcaption><span>bridge fdb show</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>50:00:00:09:00:04 dev swp3 vlan <span class="m">0</span> master br-vxln69
+</span><span class='line'>50:00:00:07:00:03 dev swp3 vlan <span class="m">0</span> master br-vxln69 permanent
+</span><span class='line'>50:00:00:6b:2e:70 dev swp3 vlan <span class="m">0</span> master br-vxln69
+</span><span class='line'>26:21:90:a8:8a:cc dev vxln69 vlan <span class="m">0</span> master br-vxln69 permanent
+</span><span class='line'>fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan <span class="m">65535</span> self permanent
+</span><span class='line'>fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan <span class="m">65535</span> self permanent
+</span><span class='line'>fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan <span class="m">65535</span> self permanent
+</span><span class='line'>fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan <span class="m">65535</span> self permanent
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The packet travels through compute host 2, populating the flow entries of all OVS bridges along the way. These entries are then used by subsequent unicast packets travelling from VM-2.</p>
+
+<figure class='code'><figcaption><span>Unicast packet to the baremetal server</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>1,dl_vlan<span class="o">=</span>1,dl_dst<span class="o">=</span>50:00:00:6b:2e:70 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
+</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>1
+</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">2</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00
+</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">20</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>1,vlan_tci<span class="o">=</span>0x0001/0x0fff,dl_dst<span class="o">=</span>50:00:00:6b:2e:70
+</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x45-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:9
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/">service node</a> to perform the head-end replication. The idea is that a switch that needs to flood a multicast packet, would send it to a service node which keeps track of all active VTEPs in the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node, however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
+
+<h2>Programming Network Node as BUM replication service node</h2>
+
+<p>First of all, we need to tell our Cumulus switch to send all multicast packets to the network node. To do that we need to modify OVSDB table called &ldquo;Mcast_Macs_Remote&rdquo;. You can view the contents of the database using the <code>ovsdb-client dump --pretty tcp:192.168.91.21:6632</code> command to make sure that this table is empty. Using the VTEP control command we need to force all <strong>unknown-dst</strong> (BUM) traffic to go to the network node(10.0.3.10). The UUID of the logical switch can be found with <code>sudo vtep-ctl list-ls</code> command.</p>
+
+<figure class='code'><figcaption><span>Forward all BUM traffic to OpenStack network node</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At this stage all BUM traffic hits the network node and gets flooded to the DHCP and the virtual router namespaces. In order to force this traffic to also be replicated to all compute nodes we can use some of the existing tables of the tunnel bridge. Before we do anything let&rsquo;s have a look at the tables our ARP request has to go through inside the tunnel bridge.</p>
+
+<figure class='code'><figcaption><span>Packet from Cumulus VTEP inside br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">2</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>4, <span class="nv">priority</span><span class="o">=</span>1,tun_id<span class="o">=</span>0x45 <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:1,resubmit<span class="o">(</span>,10<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>10,priority<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,cookie<span class="o">=</span>0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>We also have a default head-end replication table 22 which floods all BUM traffic received from the integration bridge to all VTEPs:</p>
+
+<figure class='code'><figcaption><span>BUM replication table</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>22, <span class="nv">dl_vlan</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>So what we can do is create a new flow entry that would intercept all ARP packets inside Table 4 and resubmit them to tables 10 and 22. Table 10 will take our packet up to the integration bridge of the network node, since we still need to be able to talk the virtual router and the DHCP. Table 22 will receive a copy of the packet and flood it to all known VXLAN endpoints.</p>
+
+<figure class='code'><figcaption><span>Manipulating OVS flows</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl add-flow br-tun <span class="s2">&quot;table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)&quot;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>We can once again use the trace command to see the ARP request flow inside the tunnel bridge.</p>
+
+<figure class='code'><figcaption><span>ARP request received from the Cumulus switch</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>2,arp,tun_id<span class="o">=</span>0x45 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
+</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>2
+</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
+</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">4</span> <span class="nv">cookie</span><span class="o">=</span><span class="m">0</span> <span class="nv">priority</span><span class="o">=</span>2,arp,tun_id<span class="o">=</span>0x45
+</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:1,resubmit<span class="o">(</span>,10<span class="o">)</span>,resubmit<span class="o">(</span>,22<span class="o">)</span>
+</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">10</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">priority</span><span class="o">=</span>1
+</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,cookie<span class="o">=</span>0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
+</span><span class='line'>                        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0x91b1a9a9b6e8d608 <span class="nv">priority</span><span class="o">=</span>0
+</span><span class='line'>                        OpenFlow <span class="nv">actions</span><span class="o">=</span>NORMAL
+</span><span class='line'>                                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb36f6e358a37bea6 <span class="nv">priority</span><span class="o">=</span>2,in_port<span class="o">=</span>2
+</span><span class='line'>                                OpenFlow <span class="nv">actions</span><span class="o">=</span>drop
+</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">22</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">dl_vlan</span><span class="o">=</span>1
+</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-arp.png"></p>
+
+<p>Now we should be able to clear the ARP cache on baremetal device and successfully ping both VM-2, VM-1 and the virtual router.</p>
+
+<h2>Conclusion</h2>
+
+<p>The workaround presented above is just a temporary solution for the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily, the patch implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c">merged</a> into master OVS branch only a few days ago. So hopefully, this update trickles down to Cumulus package repositories soon.</p>
+
+<p>Despite all the issues, Neutron L2 gateway plugin is a cool project that provides a very important piece of functionality without having to rely on 3rd party SDN controllers. Let&rsquo;s hope it will continue to be supported and developed by the community.</p>
+
+<h2>Coming up</h2>
+
+<p>In the next post I was planning to examine another &ldquo;must have&rdquo; feature of any SDN solution - Distributed Virtual Routing. However due to my current circumstances I may need to take a few weeks' break before going on. Be back soon!</p>
+
+<p><img class="center" src="http://networkop.github.io/images/be-back.jpg"></p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway]]></title>
+    <link href="http://networkop.github.io/blog/2016/05/18/neutron-l2gw/"/>
+    <updated>2016-05-18T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/05/18/neutron-l2gw</id>
+    <content type="html"><![CDATA[<p>One of the basic function of any data centre network is the ability to communicate with baremetal workloads. In this post we&rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</p>
+
+<!--more-->
+
+
+<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="http://networkop.github.io/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/">downloaded</a> and imported into my lab.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-overview.png"></p>
+
+<p>To simulate the baremetal server (10.0.0.100) I&rsquo;ve VRF&rsquo;d an interface on Arista &ldquo;L4&rdquo; switch and connected it directly to a &ldquo;swp3&rdquo; interface of the Cumulus VX. This is not shown on the diagram.</p>
+
+<h2>Solution overview</h2>
+
+<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that comprise this solution:</p>
+
+<ul>
+<li><strong>Hardware switch</strong> implementing the OVSDB hardware vtep schema. This is a special &ldquo;flavour&rdquo; of OVSDB designed specifically to enable connectivity between logical (VXLAN VTEP) and physical (switchport) interfaces.</li>
+<li><strong>L2GW agent</strong> running on a network node. This is the process responsible for connecting to OVSDB server running on a hardware switch and updating that database based on instructions received from a L2GW service plugin.</li>
+<li><strong>L2GW Service Plugin</strong> residing on a control node. The task of this plugin is to notify the L2GW agent and normal L2 OVS agents running on compute hosts about network events and distribute VTEP IP address information between them.</li>
+</ul>
+
+
+<p>Note that in our case both network and control nodes are running on the same VM.</p>
+
+<h2>Cumulux VX configuration</h2>
+
+<p>Cumulux is a debian-based linux distribution, therefore most of the basic networking configuration will be similar to how things are done in Ubuntu. First, let&rsquo;s start by configuring basic IP addressing on Loopback (VTEP IP), Eth0 (OOB management), swp1 and swp2 (fabric) interfaces.</p>
+
+<figure class='code'><figcaption><span>/etc/network/interfaces</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>iface lo inet loopback
+</span><span class='line'>        address 10.0.0.5/32
+</span><span class='line'>
+</span><span class='line'>auto eth0
+</span><span class='line'>iface eth0 inet static
+</span><span class='line'>        address 192.168.91.21/24
+</span><span class='line'>
+</span><span class='line'>auto swp1
+</span><span class='line'>iface swp1 inet static
+</span><span class='line'>        address 169.254.51.5/24
+</span><span class='line'>
+</span><span class='line'>auto swp2
+</span><span class='line'>iface swp2 inet static
+</span><span class='line'>        address 169.254.52.5/24
+</span><span class='line'>
+</span><span class='line'>auto swp3
+</span><span class='line'>iface swp3
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Next, let&rsquo;s enable OSPF</p>
+
+<figure class='code'><figcaption><span>Enable OSPF process</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo sed -i s/zebra<span class="o">=</span>no/zebra<span class="o">=</span>yes/ /etc/quagga/daemons
+</span><span class='line'>sudo sed -i s/ospfd<span class="o">=</span>no/ospfd<span class="o">=</span>yes/ /etc/quagga/daemons
+</span><span class='line'>sudo service quagga restart
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Once OSPFd is running, we can use <code>sudo vtysh</code> to connect to local quagga shell and finalise the configuration.</p>
+
+<figure class='code'><figcaption><span>show run</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface lo
+</span><span class='line'> ip ospf area 0.0.0.0
+</span><span class='line'> link-detect
+</span><span class='line'>!
+</span><span class='line'>interface swp1
+</span><span class='line'> ip ospf area 0.0.0.0
+</span><span class='line'> ip ospf network point-to-point
+</span><span class='line'> link-detect
+</span><span class='line'>!
+</span><span class='line'>interface swp2
+</span><span class='line'> ip ospf area 0.0.0.0
+</span><span class='line'> ip ospf network point-to-point
+</span><span class='line'> link-detect
+</span><span class='line'>!
+</span><span class='line'>router ospf
+</span><span class='line'> ospf router-id 10.0.0.5
+</span><span class='line'> passive-interface default
+</span><span class='line'> no passive-interface swp1
+</span><span class='line'> no passive-interface swp2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At this stage our Cumulus VX switch should be fully adjacent to both spines and its loopback IP (10.0.0.5) should be reachable from all OpenStack nodes.</p>
+
+<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack">process</a> is faily simple and involves only a few commands.</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo sed -i s/START<span class="o">=</span>no/START<span class="o">=</span>yes/g /etc/default/openvswitch-vtep
+</span><span class='line'><span class="nv">$ </span>sudo service openvswitch-vtep start
+</span><span class='line'><span class="nv">$ </span>sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The last commands runs a bootstrap script that does the following things:</p>
+
+<ul>
+<li>Creates a hardware VTEP OVSDB schema</li>
+<li>Inside that schema creates a new physical switch called &ldquo;L5&rdquo;</li>
+<li>Sets the VTEP IP to 10.0.0.5</li>
+<li>Starts listening to incoming OVSDB connections on 192.168.91.21.</li>
+</ul>
+
+
+<h2>Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h2>
+
+<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that OVSDB is just a database and the OVSDB protocol is just a set of JSON RPC <a href="https://tools.ietf.org/html/rfc7047">calls</a> to work with that database. As it is with any database, an information that can be stored in it is defined by a schema - a structure that represents tables, columns and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
+
+<ul>
+<li><strong>Open_vSwitch <a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf">schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
+<li><strong>Hardware_vtep <a href="http://openvswitch.org/docs/vtep.5.pdf">schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
+</ul>
+
+
+<p>The information from these databases is later consumed by another process that sets up the actual bridges and ports. The first schema is used by the <strong>ovs-vswitchd</strong> process running on all compute hosts to configure ports for VMs, integration and tunnel bridges and VTEP interfaces. In case of a Cumulus switch, the information from &ldquo;hardware_vtep&rdquo; OVSDB is used by a process called <strong>ovs-vtepd</strong> that is responsible for settings up VXLAN VTEP interfaces, provisioning of VLANs on physical switchports and interconnecting them with a linux bridge.</p>
+
+<p>If you want to learn more check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html">awesome post</a> about hardware VTEP and OVS.</p>
+
+<h2>OpenStack Control node configuration</h2>
+
+<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/">other blogs</a>. I included it here for the sake of completeness and also because I had to do some modifications.</p>
+
+<ol>
+<li><p>Clone the L2GW repository</p>
+
+<pre><code class="`"> git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
+</code></pre></li>
+<li><p>Use pip to install the plugin</p>
+
+<pre><code class="`"> pip install ./networking-l2gw/
+</code></pre></li>
+<li><p>Enable L2GW service plugin</p>
+
+<pre><code class="`"> sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' /etc/neutron/neutron.conf
+</code></pre></li>
+<li><p>Copy L2GW configuration files</p>
+
+<pre><code class="`"> cp  /usr/etc/neutron/l2g* /etc/neutron/
+</code></pre></li>
+<li><p>Point L2GW plugin to our Cumulus VX switch</p>
+
+<pre><code class="`"> sudo sed -ri "s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/" /etc/neutron/l2gateway_agent.ini
+</code></pre></li>
+<li><p>Update Neutron database with tables required for L2GW</p>
+
+<pre><code class="`"> systemctl stop neutron-server
+ neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
+ systemctl start neutron-server
+</code></pre></li>
+<li><p>Update Neutron startup script include L2GW plugin</p>
+
+<pre><code class="`"> sed -ri "s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /" /usr/lib/systemd/system/neutron-server.service
+</code></pre></li>
+<li><p>Create a L2GW systemd unit</p>
+
+<pre><code class="`"> cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
+ [Unit]
+ Description=OpenStack Neutron L2 Gateway Agent
+ After=neutron-server.service
+
+ [Service]
+ Type=simple
+ User=neutron
+ ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
+ KillMode=process
+
+ [Install]
+ WantedBy=multi-user.target
+ EOF
+</code></pre></li>
+<li><p>Restart both L2GW and neutron server</p>
+
+<pre><code class="`"> systemctl daemon-reload
+ systemctl restart neutron-server.service
+ systemctl start neutron-l2gateway-agent.service  
+</code></pre></li>
+<li><p>Enter the &ldquo;neutron configuration mode&rdquo;</p>
+
+<pre><code>source ~/keystone_admin
+neutron
+</code></pre></li>
+<li><p>Create a new L2GW</p>
+
+<pre><code>l2-gateway-create --device name="L5",interface_names="swp3" CUMULUS-L2GW
+</code></pre></li>
+<li><p>Create a connection between a &ldquo;private_network&rdquo; and a native vlan of swp3 interface</p>
+
+<pre><code>l2-gateway-connection-create --default-segmentation-id 0 CUMULUS-L2GW private_network
+</code></pre></li>
+</ol>
+
+
+<h2>Verficiation and Traffic Flows</h2>
+
+<p>At this stage everything should be ready for testing. We&rsquo;ll start by examining the traffic flow from a VM-2 (10.0.0.4) to the baremetal server (10.0.0.100).</p>
+
+<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-detailed.png"></p>
+
+<p>The communication starts with VM-2 sending an ARP request for the MAC address of the baremetal server. Packet flow inside the compute host will be exactly the same <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">as before</a>, with packet being flooded from the VM to the intergration and tunnel bridges. Inside the tunnel bridge the packet gets resubmitted to table 22 where head-end replication of ARP request takes place. The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards Cumulux VTEP IP. You can use the <code>ovs-appctl ofproto/trace</code> to see the full path a packet takes inside OVS, similiar to <code>packet-tracer</code> command on Cisco ASA.</p>
+
+<figure class='code'><figcaption><span>ARP request</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>1,arp,dl_vlan<span class="o">=</span>1,arp_tpa<span class="o">=</span>10.0.0.100 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
+</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>1
+</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">2</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00
+</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">20</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>0
+</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
+</span><span class='line'>                        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">22</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">dl_vlan</span><span class="o">=</span>1
+</span><span class='line'>                        OpenFlow <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The packet leaving port 9 will get encapsulated into a VXLAN header with destination IP of 10.0.0.5 and forwarded out the fabric-facing interface eth1.100. When VXLAN packet reaches the vxln69 interface of the Cumulus switch, the ARP frame will get forwarded to <strong>br-vxlan69</strong> Linux bridge, which will flood the frame out the connected physical interface swp3.</p>
+
+<figure class='code'><figcaption><span>bridge fdb show</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>50:00:00:09:00:04 dev swp3 vlan <span class="m">0</span> master br-vxln69
+</span><span class='line'>50:00:00:07:00:03 dev swp3 vlan <span class="m">0</span> master br-vxln69 permanent
+</span><span class='line'>50:00:00:6b:2e:70 dev swp3 vlan <span class="m">0</span> master br-vxln69
+</span><span class='line'>26:21:90:a8:8a:cc dev vxln69 vlan <span class="m">0</span> master br-vxln69 permanent
+</span><span class='line'>fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan <span class="m">65535</span> self permanent
+</span><span class='line'>fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan <span class="m">65535</span> self permanent
+</span><span class='line'>fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan <span class="m">65535</span> self permanent
+</span><span class='line'>fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan <span class="m">65535</span> self permanent
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The rest of the story is very simple. The ARP packet hits the baremetal server and populates its ARP cache. A unicast response travels all the way back to VM-2, populating the flow entries of all OVS switches along the way. These entries are then used by unicast message travelling from VM-2.</p>
+
+<figure class='code'><figcaption><span>Unicast packet to baremetal server</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>1,dl_vlan<span class="o">=</span>1,dl_dst<span class="o">=</span>50:00:00:6b:2e:70 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
+</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>1
+</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
+</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">2</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00
+</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
+</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">20</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>1,vlan_tci<span class="o">=</span>0x0001/0x0fff,dl_dst<span class="o">=</span>50:00:00:6b:2e:70
+</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x45-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:9
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/">service node</a> to perform the head-end replication. The idea is that a switch that requires a multicast packet to be replicated to multiple destinations, would send it to a service node, which keeps track of all active VTEPs on the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
+
+<h2>Programming Network Node as BUM replication service node</h2>
+
+<p>First of all, we need to tell our Cumulus switch to send all multicast packets to the network node. To do that we need to modify an OVSDB table called &ldquo;Mcast_Macs_Remote&rdquo;. Let&rsquo;s first make sure that this table is empty:</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovsdb-client dump --pretty tcp:192.168.91.21:6632
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now let&rsquo;s modify OVSDB manually to force all BUM traffic (unknown-dst is the keyword) to go to 10.0.3.10. The UUID of the logical switch can be found with <code>sudo vtep-ctl list-ls</code> command.</p>
+
+<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At this stage all BUM traffic hits the network node and gets flooded to the DHCP and the virtual router. In order to force this traffic to be replicated to all compute nodes we can use some of the existing tables of the tunnel bridge. Before we do anything let&rsquo;s have a look at the tables our ARP request has to go through inside the tunnel bridge.</p>
+
+<figure class='code'><figcaption><span>ARP from Cumulus VX inside br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">2</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>4, <span class="nv">priority</span><span class="o">=</span>1,tun_id<span class="o">=</span>0x45 <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:1,resubmit<span class="o">(</span>,10<span class="o">)</span>
+</span><span class='line'><span class="nv">table</span><span class="o">=</span>10,priority<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,cookie<span class="o">=</span>0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>We also have a default head-end replication table 22, which forwards all unmatched BUM traffic to all VTEPs:</p>
+
+<figure class='code'><figcaption><span>BUM replication table</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>22, <span class="nv">dl_vlan</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>So what we can do is create a new flow entry that would intercept all ARP packets inside table #4 and resubmit it to tables 10 and 22. Table 10 will take our packet to the intergration bridge of the network node and Table 22 will take a copy of the packet and replicate it to all known VXLAN endpoints.</p>
+
+<figure class='code'><figcaption><span>Manipulating OVS flows</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl add-flow br-tun <span class="s2">&quot;table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)&quot;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>We can once again use the trace command to see the ARP request flow inside the tunnel bridge.</p>
+
+<figure class='code'><figcaption><span>Manipulating OVS flows</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>2,arp,tun_id<span class="o">=</span>0x45 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
+</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>2
+</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
+</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">4</span> <span class="nv">cookie</span><span class="o">=</span><span class="m">0</span> <span class="nv">priority</span><span class="o">=</span>2,arp,tun_id<span class="o">=</span>0x45
+</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:1,resubmit<span class="o">(</span>,10<span class="o">)</span>,resubmit<span class="o">(</span>,22<span class="o">)</span>
+</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">10</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">priority</span><span class="o">=</span>1
+</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,cookie<span class="o">=</span>0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
+</span><span class='line'>                        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0x91b1a9a9b6e8d608 <span class="nv">priority</span><span class="o">=</span>0
+</span><span class='line'>                        OpenFlow <span class="nv">actions</span><span class="o">=</span>NORMAL
+</span><span class='line'>                                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb36f6e358a37bea6 <span class="nv">priority</span><span class="o">=</span>2,in_port<span class="o">=</span>2
+</span><span class='line'>                                OpenFlow <span class="nv">actions</span><span class="o">=</span>drop
+</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">22</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">dl_vlan</span><span class="o">=</span>1
+</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-arp.png"></p>
+
+<p>Now we should be able to clear the ARP cache on the baremetal device and successfully ping both VM-2, VM-1 and a virtual router.</p>
+
+<h2>Conclusion</h2>
+
+<p>The workaround presented above is just a temporary solution to the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily the patch has been implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c">merged</a> into master OVS branch only a few days ago.
+So hopefully, this update trickles down to Cumulus package respositories.</p>
+
+<p>Nevertheless it&rsquo;s a cool project that provides a very important piece of functionality without having to rely on 3rd party SDN controllers.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack SDN - Extending a L2 Provider Network Over a L3 Fabric]]></title>
@@ -4066,979 +4975,6 @@ The template which will generate the switchport configuration is designed to hav
 <hr />
 
 <p>This post demonstrated how to abstract common pieces of configuration and lay the groundwork for future site provisioning and enterprise-wide configuration changes. In the next post I&rsquo;ll show how to use the information collected so far to automate the build of a new branch office network.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Network Configuration Automation]]></title>
-    <link href="http://networkop.github.io/blog/2015/08/07/configuration-automation/"/>
-    <updated>2015-08-07T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/08/07/configuration-automation</id>
-    <content type="html"><![CDATA[<p>This post will give a brief overview of network configuration automation, describe its challenges and benefits and will set off a series of posts showing how to automate a configuration of a typical enterprise network.</p>
-
-<!--more-->
-
-
-<h2>Automating Network Configuration</h2>
-
-<p>Automation and programmability steadily make their way into a networking domain. The idea was born in application development world where makefiles served a role of automated installation scripts. It later spread into application testing and deployment so now hardly anyone does these two things by hand. Next in line were the operating systems largely thanks to the raising popularity of <abbr title="Platform-as-a-Service">PaaS</abbr> solutions. Until recently network configuration has been the prerogative of us, network engineers. However it&rsquo;s hard maintain this mindset when everything surrounding the network industry changes so rapidly. In fact, one of the reasons why idea of <abbr title="Software-Defined Network">SDN</abbr> has become so popular was because it allowed faster deployment and configuration changes in a much more scalable manner. As usual, one of the first adopters of these new tools and paradigms were <abbr title="Internet Service Providers">ISPs</abbr>. This comes as no surprise since one of the major benefits automation gives is ability to manage large-scale systems. Another area where automation has been very successful is <abbr title="Data Centre">DC</abbr> networking. Now what makes these two networking domains so suitable for automation? One of the main requirements for DC and ISP network is ability to scale to enormous proportions without any detrimental effect to services provided to end clients. And amongst other things making it possible is a use of <strong>standard repeatable design patterns</strong>. That is exactly where automation fits in.</p>
-
-<ol>
-<li>Take a small part of the network (a DC pod or an ISP region)</li>
-<li>Identify a pattern (a spine/route-reflector with two leafs/RR-clients)</li>
-<li>Abstract it by taking out all variable parts (ip addresses, BGP AS numbers) until it looks exactly the same as in any other region/POD</li>
-<li>Put this abstract pattern inside an automation system</li>
-<li>All the information extracted during step #3 goes into environmental variables</li>
-</ol>
-
-
-<p>Now all what needs to be done to configure another POD/region is simply create a new set of environmental variables (ip addresses, hostnames) and run them through the automation system.<br/>
-However remember that network configuration automation will not substitute a good design. In fact, it&rsquo;s a standards-based, scalable design that makes automation possible.</p>
-
-<h2>Enterprise network automation</h2>
-
-<p>Everyone who has ever dealt with enterprise networks knows that repeatable standard design patterns have nothing to do with a typical enterprise network. In best case scenario there is a standard for IGP, EGP, STP flavour and a single set of WAN providers. Most of the times, however, enterprise network is a tight knot of semi-permanent solutions mixed with a number of ad-hoc workarounds resulted from fault troubleshooting. So is there a point in even <em>trying</em> to bring order into this mess? According to chaos theory, order is everywhere even though it is sometimes concealed behind a visual chaos. We only need to look closer to see recognisable patterns emerging:</p>
-
-<ul>
-<li>All network devices in the same administrative domain share some management configuration (syslog, snmp, AAA)</li>
-<li>Most of the access switches have similar switchport configuration (data/voice, management, video)</li>
-<li>QoS configuration including ACLs and class-maps normally remains the same on all devices</li>
-</ul>
-
-
-<p>Cumulatively, these three configuration parts may constitute around 70% of total device configuration. And there are not too many things that need to be done do automate them. QoS configuration will only differ in interface reference bandwidth, switchport configuration will differ in VLAN number and management template will only have different source interface IP addresses for management protocols.<br/>
-Ok, so what happens to the remaining 30% you would ask. The answer is nothing. Automation is not all-or-nothing game. We can have big chunks of configuration stored as a collection of static text and not worry about it. It will even be possible to quantify the scaling property of a design as a ratio between automated and total (automated + non-standard) device configuration. Something like a test coverage in application development world.</p>
-
-<h2>Automating a typical enterprise network</h2>
-
-<p>In the upcoming series of posts I will show how to:</p>
-
-<ul>
-<li>Pull legacy network configuration into automation system</li>
-<li>Completely automate the build of a new branch office</li>
-</ul>
-
-
-<p>I will use a cut-down version of a typical enterprise network I&rsquo;ve used in my <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">previous posts</a>. I&rsquo;ll once again use Ansible as automation system and specifically its' <code>template</code> module which uses <a href="http://jinja.pocoo.org/docs/dev/">Jinja2</a> templating language.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Network TDD Quickstart Guide]]></title>
-    <link href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/"/>
-    <updated>2015-07-17T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/07/17/tdd-quickstart</id>
-    <content type="html"><![CDATA[<p>This post gives a quick overview of how to use network Test Driven Development framework. As an example I&rsquo;ll use a simplified version of a typical enterprise network with a Data Centre/HQ and a Branch office. A new branch is being added and the task is to configure routing for that branch using a TDD approach. First we&rsquo;ll devise a set of TDD scenarios to be tested and then, going through each one of them, modify routing to make sure those scenarios don&rsquo;t fail (a so-called red-green-refactor approach)</p>
-
-<!--more-->
-
-
-<h2>Network overview</h2>
-
-<p>Let&rsquo;s assume you&rsquo;re working in a proverbial Acme Inc. It has a Data Centre hosting all centralised services and a single office branch (Branch #1). Sites are interconnected using active/backup WAN links. The company decides to expand and adds a new office in a city nearby. In additional to standard dual WAN links it&rsquo;s possible to buy a cheap and high throughput backdoor link between the two branches.</p>
-
-<p><img class="centre" src="http://networkop.github.io/images/tdd-big-topo.png" title="Acme Inc. Topology" ></p>
-
-<h2>Network configuration</h2>
-
-<p>Acme Inc. uses OSPF for intra-site routing and BGP for WAN routing. A standard configuration assumes that the core router at each site is the route reflector for the two WAN routers.</p>
-
-<figure class='code'><figcaption><span>CORE ROUTER CONFIG</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>interface Loopback0
-</span><span class='line'> ip address 10.0.X.1 255.255.255.255
-</span><span class='line'>!
-</span><span class='line'>router ospf 100
-</span><span class='line'> network 0.0.0.0 255.255.255.255 area 0
-</span><span class='line'>!
-</span><span class='line'>router bgp X
-</span><span class='line'> bgp log-neighbor-changes
-</span><span class='line'> timers bgp 1 5
-</span><span class='line'> neighbor RR-CLIENTS peer-group
-</span><span class='line'> neighbor RR-CLIENTS remote-as 1
-</span><span class='line'> neighbor RR-CLIENTS update-source Loopback0
-</span><span class='line'> neighbor RR-CLIENTS route-reflector-client
-</span><span class='line'> neighbor 10.0.X.2 peer-group RR-CLIENTS
-</span><span class='line'> neighbor 10.0.X.3 peer-group RR-CLIENTS
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>WAN routers originate site summary by first injecting their own Loopback IP address into BGP RIB and then aggregating it to site summary boundary (/24).</p>
-
-<figure class='code'><figcaption><span>WAN ROUTER 1 CONFIG</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>router ospf 100
-</span><span class='line'> network 0.0.0.0 255.255.255.255 area 0
-</span><span class='line'>!
-</span><span class='line'>router bgp X
-</span><span class='line'> bgp log-neighbor-changes
-</span><span class='line'> network 10.0.X.2 mask 255.255.255.255
-</span><span class='line'> aggregate-address 10.0.X.0 255.255.255.0
-</span><span class='line'> neighbor &lt;PRIMARY_PE_IP&gt; remote-as &lt;PRIMARY_WAN_AS&gt;
-</span><span class='line'> neighbor 10.0.X.1 remote-as 1
-</span><span class='line'> neighbor 10.0.X.1 update-source Loopback0
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>No special path manipulation is done on either WAN routers by default.</p>
-
-<figure class='code'><figcaption><span>WAN ROUTER 2 CONFIG</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>router ospf 100
-</span><span class='line'> network 0.0.0.0 255.255.255.255 area 0
-</span><span class='line'>!
-</span><span class='line'>router bgp X
-</span><span class='line'> bgp log-neighbor-changes
-</span><span class='line'> network 10.0.X.2 mask 255.255.255.255
-</span><span class='line'> aggregate-address 10.0.X.0 255.255.255.0
-</span><span class='line'> neighbor &lt;BACKUP_PE_IP&gt; remote-as &lt;BACKUP_WAN_AS&gt;
-</span><span class='line'> neighbor 10.0.X.1 remote-as 1
-</span><span class='line'> neighbor 10.0.X.1 update-source Loopback0
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>The same pattern is repeated on all sites with the exception of an additional backdoor link between the branch sites over which the two cores run eBGP. Inter-device transit subnets can be anything within the site-allocated range.</p>
-
-<h2>Devising TDD scenarios</h2>
-
-<p>After careful consideration of all links' bandwidths you devise a set of TDD scenarios and along with the high-level network topology present them to your management for endorsement. The idea is to always try to use the primary WAN link if possible. However for the inter-branch communication, backdoor link should be the preferred option. When the primary link fails at the new branch, all traffic to and from the DC should traverse the backdoor link only falling back to the secondary WAN link in case both primary and backdoor link fail. This corresponds to the 4 TDD scenarios (shown with coloured arrows on the above diagram):</p>
-
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>./scenarios/all.txt </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>1. Testing of Primary Link (default scenario)
-</span><span class='line'>
-</span><span class='line'>1.1 From DC-CORE to BR2-CORE via DC-WAN1,BR2-WAN1
-</span><span class='line'>1.2 From BR2-CORE to DC-CORE via BR2-WAN1, DC-WAN1
-</span><span class='line'>1.3 From BR2-WAN1 to BR1-WAN1 via BR2-CORE,BR1-CORE
-</span><span class='line'>1.4 From BR1-WAN1 to BR2-WAN1 via BR1-CORE, BR2-CORE
-</span><span class='line'>
-</span><span class='line'>2. Primary WAN failed at Branch #2
-</span><span class='line'>
-</span><span class='line'>2.1 From DC-CORE to BR2-CORE via DC-WAN1,BR1-WAN1,BR1-CORE
-</span><span class='line'>2.2 From BR2-CORE to DC-CORE via BR1-CORE, BR1-WAN1, DC-WAN1
-</span><span class='line'>2.3 From BR2-WAN2 to BR1-WAN2 via BR2-CORE, BR1-CORE
-</span><span class='line'>2.4 From BR1-WAN2 to BR2-WAN2 via BR1-CORE, BR2-CORE
-</span><span class='line'>
-</span><span class='line'>3. Backdoor link failed
-</span><span class='line'>
-</span><span class='line'>3.1 From BR2-WAN2 to BR1-WAN2 via BR2-WAN1, BR1-WAN1
-</span><span class='line'>3.2 FROM BR1-WAN2 to BR2-WAN2 via BR1-WAN1, BR2-WAN1
-</span><span class='line'>
-</span><span class='line'>4. Both Primary and Backdoor links failed at Branch #2
-</span><span class='line'>
-</span><span class='line'>4.1 From DC-CORE to BR2-CORE via DC-WAN2, BR2-WAN2
-</span><span class='line'>4.2 From BR2-CORE to DC-CORE via BR2-WAN2, DC-WAN2
-</span><span class='line'>4.3 From BR2-CORE to BR1-CORE via BR2-WAN2, BR1-WAN2
-</span><span class='line'>4.4 From BR1-CORE to BR2-CORE via BR1-WAN2, BR2-WAN2
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<h2>Preparing the test environment</h2>
-
-<p>First, you need to get a Linux machine connected to internet and to your network. A simply VM inside a VirtualBox would do. Now clone the git repository:</p>
-
-<figure class='code'><figcaption><span>Cloning git repository</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/simple-cisco-tdd.git tdd-acme-inc
-</span><span class='line'><span class="nb">cd </span>tdd-acme-int
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Populate Ansible hosts inventory. In this case hosts are assigned to the group corresponding to their site and all the site groups are assigned to a parent group.</p>
-
-<figure class='code'><figcaption><span>./myhosts</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>[dc-devices]
-</span><span class='line'>DC-CORE ansible_ssh_host=10.0.1.1
-</span><span class='line'>DC-WAN1 ansible_ssh_host=10.0.1.2
-</span><span class='line'>DC-WAN2 ansible_ssh_host=10.0.1.3
-</span><span class='line'>
-</span><span class='line'>[br1-devices]
-</span><span class='line'>BR1-CORE ansible_ssh_host=10.0.2.1
-</span><span class='line'>BR1-WAN1 ansible_ssh_host=10.0.2.2
-</span><span class='line'>BR1-WAN2 ansible_ssh_host=10.0.2.3
-</span><span class='line'>
-</span><span class='line'>[br2-devices]
-</span><span class='line'>BR2-CORE ansible_ssh_host=10.0.3.1
-</span><span class='line'>BR2-WAN1 ansible_ssh_host=10.0.3.2
-</span><span class='line'>BR2-WAN2 ansible_ssh_host=10.0.3.3
-</span><span class='line'>
-</span><span class='line'>[cisco-devices:children]
-</span><span class='line'>dc-devices
-</span><span class='line'>br1-devices
-</span><span class='line'>br2-devices
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Optionally, you can define your username/password credentials.</p>
-
-<figure class='code'><figcaption><span>./group_vars/cisco-devices.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
-</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_pass</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Do the IP address information gathering and scenario processing first.</p>
-
-<figure class='code'><figcaption><span>Run the fact gathering</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>./ansible-playbook cisco-ip-collect.yml
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Verify that IP addresses and scenarios are now recorded in a global group variable file.</p>
-
-<figure class='code'><figcaption><span>Verify the content of all.yml file</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat ./group_vars/all.yml
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Test the default scenario</h2>
-
-<p>Now it&rsquo;s time to test. First, the default scenario:</p>
-
-<figure class='code'><figcaption><span>Testing scenario #1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook cisco_tdd.yml
-</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 1
-</span><span class='line'>...
-</span><span class='line'>skipping: <span class="o">[</span>DC-WAN1<span class="o">]</span>
-</span><span class='line'>skipping: <span class="o">[</span>BR1-CORE<span class="o">]</span>
-</span><span class='line'>skipping: <span class="o">[</span>DC-WAN2<span class="o">]</span>
-</span><span class='line'>skipping: <span class="o">[</span>BR1-WAN2<span class="o">]</span>
-</span><span class='line'>skipping: <span class="o">[</span>BR2-WAN2<span class="o">]</span>
-</span><span class='line'>ok: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;DC-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-WAN1&#39;</span>, <span class="s1">&#39;DC-WAN1&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR2-WAN1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-WAN1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;BR1-CORE&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR1-WAN1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-WAN1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR2-CORE&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>DC-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;DC-WAN1&#39;</span>, <span class="s1">&#39;BR2-WAN1&#39;</span><span class="o">]})</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>All tests succeeded.</p>
-
-<h2>Testing the primary link failure</h2>
-
-<p>Now, let&rsquo;s simulate the failure of a primary WAN link by shutting down the uplink on the WAN router:</p>
-
-<figure class='code'><figcaption><span>BR2-WAN1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>BR2-WAN1#conf t
-</span><span class='line'>Enter configuration commands, one per line.  End with CNTL/Z.
-</span><span class='line'>BR2-WAN1(config)#int eth 0/0
-</span><span class='line'>BR2-WAN1(config-if)#shut
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>And now run the second scenario:</p>
-
-<figure class='code'><figcaption><span>Testing scenario #2 - failed</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook cisco_tdd.yml
-</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 2
-</span><span class='line'>...
-</span><span class='line'>failed: <span class="o">[</span>DC-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;DC-WAN1&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;BR2-CORE&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;DC-WAN1&quot;</span>, <span class="s2">&quot;BR1-WAN1&quot;</span><span class="o">]}}</span>
-</span><span class='line'>msg: Failed scenario Primary WAN failed at Branch <span class="c">#2.</span>
-</span><span class='line'>Traceroute from DC-CORE to BR2-CORE has not traversed <span class="o">[</span><span class="s1">&#39;DC-WAN1&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]</span>
-</span><span class='line'> Actual path taken: DC-CORE -&gt; DC-WAN2 -&gt; 2.2.2.2 -&gt; BR2-WAN2 -&gt; BR2-CORE
-</span><span class='line'>ok: <span class="o">[</span>BR1-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR2-CORE&#39;</span><span class="o">]})</span>
-</span><span class='line'>failed: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;DC-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;DC-CORE&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;BR1-CORE&quot;</span>, <span class="s2">&quot;BR1-WAN1&quot;</span><span class="o">]}}</span>
-</span><span class='line'>msg: Failed scenario Primary WAN failed at Branch <span class="c">#2.</span>
-</span><span class='line'>Traceroute from BR2-CORE to DC-CORE has not traversed <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]</span>
-</span><span class='line'> Actual path taken: BR2-CORE -&gt; BR2-WAN2 -&gt; 2.2.3.2 -&gt; DC-WAN2 -&gt; DC-CORE
-</span><span class='line'>ok: <span class="o">[</span>BR2-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;BR1-CORE&#39;</span><span class="o">]})</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Right, here is where it gets interesting. You see that the two scenarios have failed. Specifically traffic between the new branch and the DC has not traversed the backdoor link preferring the backup WAN instead. So we need to make the backup WAN less preferred. The easiest way is to use <code>as-path prepend</code> feature. Let&rsquo;s modify the configuration of our backup WAN router:</p>
-
-<figure class='code'><figcaption><span>BR2-WAN1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>route-map RM-BGP-PREPEND-IN permit 10
-</span><span class='line'> set as-path prepend last-as 4
-</span><span class='line'>route-map RM-BGP-PREPEND-OUT permit 10
-</span><span class='line'> set as-path prepend 3 3 3 3
-</span><span class='line'>!
-</span><span class='line'>router bgp 3
-</span><span class='line'>neighbor 2.2.3.2 route-map RM-BGP-PREPEND-IN in
-</span><span class='line'>neighbor 2.2.3.2 route-map RM-BGP-PREPEND-OUT out
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Now let&rsquo;s run the same test again:</p>
-
-<figure class='code'><figcaption><span>Testing scenario #2 - success</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook cisco_tdd.yml
-</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 2
-</span><span class='line'>ok: <span class="o">[</span>DC-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;DC-WAN1&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR1-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR2-CORE&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;DC-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR2-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;BR1-CORE&#39;</span><span class="o">]})</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Looks better now. Let&rsquo;s move on.</p>
-
-<h2>Testing the Backdoor link failure</h2>
-
-<p>Next in order, backdoor link failure. First let&rsquo;s restore our primary WAN link first:</p>
-
-<figure class='code'><figcaption><span>BR2-WAN1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>BR2-WAN1#conf t
-</span><span class='line'>Enter configuration commands, one per line.  End with CNTL/Z.
-</span><span class='line'>BR2-WAN1(config)#int eth 0/0
-</span><span class='line'>BR2-WAN1(config-if)#no shut
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>And bring down the link between the two branches:</p>
-
-<figure class='code'><figcaption><span>BR2-CORE</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>BR2-CORE#conf t
-</span><span class='line'>Enter configuration commands, one per line.  End with CNTL/Z.
-</span><span class='line'>BR2-CORE(config)#int eth 0/2
-</span><span class='line'>BR2-CORE(config-if)#shut
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Run the third scenario:</p>
-
-<figure class='code'><figcaption><span>Testing scenario #3</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@netops:~/quickstart# ansible-playbook cisco_tdd.yml
-</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 3
-</span><span class='line'>ok: <span class="o">[</span>BR1-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-WAN1&#39;</span>, <span class="s1">&#39;BR2-WAN1&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR2-WAN2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-WAN2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-WAN1&#39;</span>, <span class="s1">&#39;BR1-WAN1&#39;</span><span class="o">]})</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Looking good. Now even the backup WAN routers traverse the primary WAN to talk to each other. Just as we expected.</p>
-
-<h2>Testing of backup WAN</h2>
-
-<p>Finally, let&rsquo;s see what would happen when both primary WAN and backdoor links go down. First, bring down the primary WAN link again:</p>
-
-<figure class='code'><figcaption><span>BR2-WAN1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>BR2-WAN1#conf t
-</span><span class='line'>Enter configuration commands, one per line.  End with CNTL/Z.
-</span><span class='line'>BR2-WAN1(config)#int eth 0/0
-</span><span class='line'>BR2-WAN1(config-if)#shut
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Run the last scenario:</p>
-
-<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook cisco_tdd.yml
-</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 4
-</span><span class='line'>ok: <span class="o">[</span>DC-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;DC-WAN2&#39;</span>, <span class="s1">&#39;BR2-WAN2&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR1-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR2-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR1-WAN2&#39;</span>, <span class="s1">&#39;BR2-WAN2&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;DC-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;DC-WAN2&#39;</span><span class="o">]})</span>
-</span><span class='line'>ok: <span class="o">[</span>BR2-CORE<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;BR1-CORE&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;BR2-WAN2&#39;</span>, <span class="s1">&#39;BR1-WAN2&#39;</span><span class="o">]})</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>All tests passed. Now the network at the new branch is behaving exactly as we expect it to.</p>
-
-<h2>Conclusion</h2>
-
-<p>The above scenario, of course, is a gross simplification of a real life, however the demonstrated approach can be applied to varied network topologies. The desired state may be achieved through not one but several red-green-refactor cycles. The benefit of using this approach is not only confidence that you haven&rsquo;t broken anything by fixing one particular failure condition scenario, but also for future growth and development, when new devices are added or traffic flows are modified, these same tests can be re-run to ensure that the agreed assumptions still hold.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Verifying TDD Scenarios]]></title>
-    <link href="http://networkop.github.io/blog/2015/07/10/test-verification/"/>
-    <updated>2015-07-10T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/07/10/test-verification</id>
-    <content type="html"><![CDATA[<p>Now that Ansible has done all the information gathering for us it&rsquo;s time to finally make use of it. In this post I will show how to use Ansible to run traceroutes from and to the hosts defined in a test scenario and perform verification of the results of those tests. Should any of those tests fail, Ansible will provide a meaningful description of what exactly failed and why. While doing all this I&rsquo;ll introduce a couple of new Ansible features like conditional looping and interactive prompts.</p>
-
-<!--more-->
-
-
-<h2>TDD Playbook</h2>
-
-<p>In order to run and verify tests I will create a separate playbook. It makes sense to separate it from the <a href="http://networkop.github.io/blog/2015/07/03/parser-modules/">previous playbook</a> simply because this time it will be used multiple times, while the information gathering playbook can only be run once. The new playbook will have to accomplish the following tasks:</p>
-
-<ol>
-<li>Select which scenario to test</li>
-<li>Run tests as specified in that scenario</li>
-<li>Parse test results</li>
-<li>Verify that test results conform to the specification</li>
-</ol>
-
-
-<h2>Selecting test scenario</h2>
-
-<p>Our <code>scenarios/all.txt</code> file contains multiple test scenarios each defined by a name. Each test scenario represent a certain state in the network, e.g. scenario #1 tests how the network behaves in a normal state with no outages or link failures, scenario #2 tests how traffic should be rerouted in the event of primary link failure. Inside each scenario there are one or more test steps each testing a behaviour of a particular traffic flow, e.g. traffic from router R1 to router R4 should traverse R2 followed by R3. Each steps contains keywords <code>From</code>, <code>To</code> and <code>Via</code> which identify  source, destination and transit routers. This is how a typical scenario file looks like.</p>
-
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/scenarios/all.txt </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>1. Testing of Primary Link
-</span><span class='line'>1.1 From R1 to R3 via R2
-</span><span class='line'>1.2 From R1 to R4 via R2, R3
-</span><span class='line'>1.3 From R2 to R4 via R3
-</span><span class='line'>1.4 From R1 to R2 via R2
-</span><span class='line'>2. Testing of Backup Link
-</span><span class='line'>2.1 From R1 to R3 via R4
-</span><span class='line'>2.2 From R1 to R2 via R4,R3
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<p>In the <a href="http://networkop.github.io/blog/2015/07/03/parser-modules/">previous post</a> I showed how to parse and store these scenarios in YAML dictionary in <code>group_vars/all.yml</code> file, which makes this information automatically available to any future playbooks. So in the new playbook all we need to do is let the user decide which scenario to test:</p>
-
-<figure class='code'><figcaption><span>~/tdd_ansible/cisco_tdd.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Run traceroute commands</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco-devices</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">remote_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">vars_prompt</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_num</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">prompt</span><span class="p-Indicator">:</span> <span class="s">&quot;Enter</span><span class="nv"> </span><span class="s">scenario</span><span class="nv"> </span><span class="s">number&quot;</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">default</span><span class="p-Indicator">:</span> <span class="s">&quot;1&quot;</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">private</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">no</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">extracting scenario name and steps</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">set_fact</span><span class="p-Indicator">:</span>
-</span><span class='line'>        <span class="l-Scalar-Plain">scenario_steps</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">scenarios[scenario_num][1]</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>        <span class="l-Scalar-Plain">scenario_name</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">scenarios[scenario_num][0]</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>This playbook contains a standard header followed by a <code>vars_prompt</code> section which prompts user to select a particular scenario number and stores the selection in <code>scenario_num</code> variable. The first task in the playbook extracts scenario name and steps from <code>scenarios</code> dictionary stored in <code>group_vars/all.yml</code> file and stores them in respective variables. Of course this task is optional and it&rsquo;s possible to reference the same data using full notation, however I prefer things to be more readable even if it leads to some inefficient memory use.</p>
-
-<h2>Run test specified in scenario steps</h2>
-
-<p>Now it&rsquo;s time to run traceroutes to see how the packets flow in the network. As we did in one of the <a href="http://networkop.github.io/blog/2015/06/24/ansible-intro/">previous posts</a> we&rsquo;ll use the <code>raw</code> module to run traceroutes. However this time, instead of running a full-mesh any-to-any traceroutes we&rsquo;ll only run them if they were defined in one of the test steps. Indeed, why would we run a traceroute between devices if we&rsquo;re not going to verify it? Ansible&rsquo;s conditionals will help us with that. For each of the hosts in <code>cisco-devices</code> group we&rsquo;ll look into scenario_steps dictionary and see if there were any tests defined and if there were, we&rsquo;ll run a traceroute to each of the destination hosts.</p>
-
-<figure class='code'><figcaption><span>~/tdd_ansible/cisco_tdd.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">run traceroutes as per the defined scenario steps</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">raw</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">traceroute {{ hostvars[item.key][&#39;ansible_ssh_host&#39;] }} source Loopback0 probe 1 numeric</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_steps[inventory_hostname] is defined</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">with_dict</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_steps[inventory_hostname]|default({})</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">register</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">trace_result</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>When both a loop (<code>with_dict</code>) and a conditional (<code>when</code>) are defined in a task, Ansible does the looping first. That&rsquo;s why if a test scenario is not defined for a particular host (e.g. <code>R3</code>) the conditional check will fail and stop execution of the playbook. To overcome that we can use Ansible (Jinja) templates inside the <code>with_dict</code> loop. Appending <code>|default({})</code> will instruct Ansible create an empty dictionary in case <code>scenario_steps[inventory_hostname]</code> does not exist which will make conditional return <code>False</code> and skip this host altogether.</p>
-
-<h2>Parse test results</h2>
-
-<p>There&rsquo;s no silver bullet when it comes to parsing of the outcome of traceroute command. We&rsquo;ll have to use Python to traverse the textual output line by line looking for <code>msec</code> and storing all found IPs in a list.</p>
-
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_trace_parse.py </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">TraceParse</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">std_out</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;std_out&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;dest_host&#39;</span><span class="p">]</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">result</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">path</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">std_out</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">):</span>
-</span><span class='line'>            <span class="k">if</span> <span class="s">&#39;msec&#39;</span> <span class="ow">in</span> <span class="n">line</span><span class="p">:</span>
-</span><span class='line'>                <span class="n">path</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()[</span><span class="mi">1</span><span class="p">])</span>
-</span><span class='line'>        <span class="n">result</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span><span class="p">]</span> <span class="o">=</span> <span class="n">path</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">result</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
-</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span>
-</span><span class='line'>        <span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
-</span><span class='line'>            <span class="n">std_out</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="n">dest_host</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="p">)</span>
-</span><span class='line'>    <span class="p">)</span>
-</span><span class='line'>    <span class="n">traceParser</span> <span class="o">=</span> <span class="n">TraceParse</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
-</span><span class='line'>    <span class="n">result</span> <span class="o">=</span> <span class="n">traceParser</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
-</span><span class='line'>    <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">ansible_facts</span><span class="o">=</span><span class="n">result</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="c"># import module snippets</span>
-</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
-</span><span class='line'><span class="n">main</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>The playbook task will run through each hosts' trace_results variable and pass it to the trace parse module.</p>
-
-<figure class='code'><figcaption><span>~/tdd_ansible/cisco_tdd.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">parse traceroute ouput</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">cisco_trace_parse</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">dest_host</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">item.item.key</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">std_out</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">item.stdout</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">item.stdout is defined</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">with_items</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">trace_result.results</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Test verification</h2>
-
-<p>Finally we need to compare the captured output with the scenario steps. This time all the information collected by Ansible in the previous tasks needs to be passed to a module.</p>
-
-<figure class='code'><figcaption><span>~/tdd_ansible/cisco_tdd.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">verify traceroutes against pre-defined scenarios</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">cisco_tdd_verify</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">dest_host</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">item.key</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">src_host</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">inventory_hostname</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">scenario</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">scenario_steps</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">ip2host</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">ip2host</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">path</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">hostvars[inventory_hostname][item.key]</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">scenario_name</span><span class="p-Indicator">:</span> <span class="s">&quot;{{</span><span class="nv"> </span><span class="s">scenario_name</span><span class="nv"> </span><span class="s">}}&quot;</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_steps[inventory_hostname] is defined</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">with_dict</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">scenario_steps[inventory_hostname]|default({})</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Ansible module contains a class with a single public method <code>compare</code>. The first thing it does is converts the list of IP addresses of transit devices into a list of hostnames. That&rsquo;s where the IP-to-Hostname dictionary created in the <a href="http://networkop.github.io/blog/2015/07/03/parser-modules/">previous playbook</a> is first used. IP address is used as a lookup key and the Hostname is extracted from the first element of the returned list (second element, the interface name, is currently unused). The private method <code>__validatepath</code> is used to confirm that devices listed after <code>Via</code> in a test scenario are present in the traceroute path in the specified order. If this verification fails, the whole module fails and the error message is passed back to Ansible playbook.</p>
-
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_tdd_verify.py </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-<span class='line-number'>36</span>
-<span class='line-number'>37</span>
-<span class='line-number'>38</span>
-<span class='line-number'>39</span>
-<span class='line-number'>40</span>
-<span class='line-number'>41</span>
-<span class='line-number'>42</span>
-<span class='line-number'>43</span>
-<span class='line-number'>44</span>
-<span class='line-number'>45</span>
-<span class='line-number'>46</span>
-<span class='line-number'>47</span>
-<span class='line-number'>48</span>
-<span class='line-number'>49</span>
-<span class='line-number'>50</span>
-<span class='line-number'>51</span>
-<span class='line-number'>52</span>
-<span class='line-number'>53</span>
-<span class='line-number'>54</span>
-<span class='line-number'>55</span>
-<span class='line-number'>56</span>
-<span class='line-number'>57</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">ResultCompare</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;dest_host&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">src_host</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;src_host&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">trace_path</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;path&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;scenario&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">ip2host</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;ip2host&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">scenario_name</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;scenario_name&#39;</span><span class="p">]</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">compare</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">trace_path_new</span> <span class="o">=</span> <span class="nb">list</span><span class="p">()</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">dev</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">trace_path</span><span class="p">:</span>
-</span><span class='line'>            <span class="k">if</span> <span class="n">dev</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ip2host</span><span class="p">:</span>
-</span><span class='line'>                <span class="n">trace_path_new</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ip2host</span><span class="p">[</span><span class="n">dev</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>
-</span><span class='line'>            <span class="k">else</span><span class="p">:</span>
-</span><span class='line'>                <span class="n">trace_path_new</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">dev</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">src_host</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">:</span>
-</span><span class='line'>            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">]:</span>
-</span><span class='line'>                <span class="n">ref_path</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span><span class="p">]</span>
-</span><span class='line'>                <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span> <span class="n">__validatepath</span><span class="p">(</span><span class="n">trace_path_new</span><span class="p">):</span>
-</span><span class='line'>                    <span class="n">msg</span> <span class="o">=</span> <span class="s">&quot;Failed scenario &quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">scenario_name</span> <span class="o">+</span>  <span class="s">&quot;.</span><span class="se">\r\n</span><span class="s">Traceroute from &quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">src_host</span> <span class="o">+</span> <span class="s">&quot; to &quot;</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span> <span class="o">+</span> <span class="s">&quot; has not traversed &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">ref_path</span><span class="p">)</span>
-</span><span class='line'>                    <span class="n">msg</span> <span class="o">+=</span> <span class="s">&quot;</span><span class="se">\r\n</span><span class="s"> Actual path taken: &quot;</span> <span class="o">+</span> <span class="s">&#39; -&gt; &#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">]</span> <span class="o">+</span> <span class="n">trace_path_new</span><span class="p">)</span> <span class="o">+</span> <span class="s">&quot;</span><span class="se">\r\n</span><span class="s">&quot;</span>
-</span><span class='line'>                    <span class="k">return</span> <span class="mi">1</span><span class="p">,</span> <span class="n">msg</span>
-</span><span class='line'>        <span class="k">return</span> <span class="mi">0</span><span class="p">,</span> <span class="s">&#39;no error&#39;</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__validatepath</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">path</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">index</span> <span class="o">=</span> <span class="mi">0</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">path</span><span class="p">:</span>
-</span><span class='line'>            <span class="k">if</span> <span class="n">device</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span><span class="p">][</span><span class="n">index</span><span class="p">]:</span>
-</span><span class='line'>                <span class="n">index</span> <span class="o">+=</span> <span class="mi">1</span>
-</span><span class='line'>                <span class="k">if</span> <span class="n">index</span> <span class="o">==</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ref_scenario</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">src_host</span><span class="p">][</span><span class="bp">self</span><span class="o">.</span><span class="n">dest_host</span><span class="p">]):</span>
-</span><span class='line'>                    <span class="k">return</span> <span class="bp">True</span>
-</span><span class='line'>        <span class="k">return</span> <span class="bp">False</span>
-</span><span class='line'>
-</span><span class='line'>
-</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
-</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span>
-</span><span class='line'>        <span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
-</span><span class='line'>            <span class="n">dest_host</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="n">src_host</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="n">scenario</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;dict&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="n">ip2host</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;dict&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="n">path</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;list&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="n">scenario_name</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="p">)</span>
-</span><span class='line'>    <span class="p">)</span>
-</span><span class='line'>    <span class="n">comparator</span> <span class="o">=</span> <span class="n">ResultCompare</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
-</span><span class='line'>    <span class="n">rc</span><span class="p">,</span> <span class="n">error</span> <span class="o">=</span> <span class="n">comparator</span><span class="o">.</span><span class="n">compare</span><span class="p">()</span>
-</span><span class='line'>    <span class="k">if</span> <span class="n">rc</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
-</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">fail_json</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="n">error</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">else</span><span class="p">:</span>
-</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
-</span><span class='line'><span class="n">main</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>TDD in action</h2>
-
-<p>So let&rsquo;s finally see the whole thing action. First let&rsquo;s modify a <a href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">4-router topology</a> so that traffic from R1 to R4 is routed via R2 and R3 (a simple <code>delay 9999</code> on Ethernet0/1 will do). Now let&rsquo;s run the first scenario and verify that no errors are displayed.</p>
-
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>Scenario 1 successful </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>
-</span><span class='line'>~/tdd_ansible# ansible-playbook cisco_tdd.yml
-</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>:
-</span><span class='line'>
-</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
-</span><span class='line'>...
-</span><span class='line'>PLAY RECAP ********************************************************************
-</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">4</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">4</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Nothing much really, which is good, that means all scenarios were verified successfully. Now let&rsquo;s see how it fails. The easiest way is to run the tests from a second scenario, the one that assumes that the link between R1 and R2 failed and all the traffic is routed via R4.</p>
-
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>Scenario 2 failed </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>~/tdd_ansible# ansible-playbook cisco_tdd.yml
-</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 2
-</span><span class='line'>
-</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
-</span><span class='line'>...
-</span><span class='line'>TASK: <span class="o">[</span>verify traceroutes against pre-defined scenarios<span class="o">]</span> **********************
-</span><span class='line'>skipping: <span class="o">[</span>R2<span class="o">]</span>
-</span><span class='line'>skipping: <span class="o">[</span>R4<span class="o">]</span>
-</span><span class='line'>failed: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;R3&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;R2&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;R4&quot;</span>, <span class="s2">&quot;R3&quot;</span><span class="o">]}}</span>
-</span><span class='line'>msg: Failed scenario Testing of Backup Link.
-</span><span class='line'>Traceroute from R1 to R2 has not traversed <span class="o">[</span><span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;R3&#39;</span><span class="o">]</span>
-</span><span class='line'> Actual path taken: R1 -&gt; R2
-</span><span class='line'>
-</span><span class='line'>failed: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;R4&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;R1&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;R4&quot;</span><span class="o">]}}</span>
-</span><span class='line'>msg: Failed scenario Testing of Backup Link.
-</span><span class='line'>Traceroute from R3 to R1 has not traversed <span class="o">[</span><span class="s1">&#39;R4&#39;</span><span class="o">]</span>
-</span><span class='line'> Actual path taken: R3 -&gt; R2 -&gt; R1
-</span><span class='line'>
-</span><span class='line'>failed: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="o">[</span><span class="s1">&#39;R4&#39;</span><span class="o">]})</span> <span class="o">=</span>&gt; <span class="o">{</span><span class="s2">&quot;failed&quot;</span>: <span class="nb">true</span>, <span class="s2">&quot;item&quot;</span>: <span class="o">{</span><span class="s2">&quot;key&quot;</span>: <span class="s2">&quot;R3&quot;</span>, <span class="s2">&quot;value&quot;</span>: <span class="o">[</span><span class="s2">&quot;R4&quot;</span><span class="o">]}}</span>
-</span><span class='line'>msg: Failed scenario Testing of Backup Link.
-</span><span class='line'>Traceroute from R1 to R3 has not traversed <span class="o">[</span><span class="s1">&#39;R4&#39;</span><span class="o">]</span>
-</span><span class='line'> Actual path taken: R1 -&gt; R2 -&gt; R3
-</span><span class='line'>
-</span><span class='line'>
-</span><span class='line'>PLAY RECAP ********************************************************************
-</span><span class='line'>           to retry, use: --limit @/root/cisco_tdd.retry
-</span><span class='line'>
-</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">3</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>1
-</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">3</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>1
-</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Here all 3 test steps within a scenario failed. Ansible displayed error messages passed down by our module, specifying the expected and the actual path.<br/>
-Now if we simply shutdown Ethernet0/0 of R1 to simulate a link failure and re-run the same scenario all tests will succeed again.</p>
-
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>Scenario 2 successful </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>~/tdd_ansible# ansible-playbook cisco_tdd.yml
-</span><span class='line'>Enter scenario number <span class="o">[</span>1<span class="o">]</span>: 2
-</span><span class='line'>
-</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
-</span><span class='line'>...
-</span><span class='line'>PLAY RECAP ********************************************************************
-</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">4</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">4</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">2</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>So there it is, a working network TDD framework in action. I still haven&rsquo;t covered a lot of corner cases (e.g. when traceroute times out) and deployment scenarios (device with VRFs) but it should still work for a lot of scenarios and can be easily extended to cover those corner cases.</p>
 ]]></content>
   </entry>
   

@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Automation | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/automation/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-05-10T23:16:51-07:00</updated>
+  <updated>2016-08-26T11:46:46-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,107 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 1)]]></title>
+    <link href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/"/>
+    <updated>2016-08-26T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/08/26/os-lab-p1</id>
+    <content type="html"><![CDATA[<p>In this post we will explore what&rsquo;s required to perform a zero-touch deployment of an OpenStack cloud. We&rsquo;ll get a 3-node lab up and running inside UNetLab with just a few commands.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>Now that I&rsquo;m finally beginning to settle down at my new place of residence I can start spending more time on research and blogging. I have left off right before I was about to start exploring the native OpenStack distributed virtual routing function. However as I&rsquo;d started rebuilding my OpenStack lab from scratch I realised that I was doing a lot of repetitive tasks which can be easily automated. Couple that with the fact that I needed to learn Chef for my new work and you&rsquo;ve got this blogpost describing a few Chef <a href="https://github.com/networkop/chef-unl-os.git">cookbooks</a> (similar to Ansible&rsquo;s playbook) automating all those manual steps described in my earlier blogposts <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">1</a> and <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">2</a>.<br/>
+In addition to that in this post I&rsquo;ll show how to build a very simple OpenStack baremetal provisioner and installer. Some examples of production-grade baremetal provisioners are <a href="https://wiki.openstack.org/wiki/Ironic">Ironic</a>, <a href="http://crowbar.github.io/">Crowbar</a> and <a href="http://maas.io/">MAAS</a>. In our case we&rsquo;ll turn UNetLab VM into an <strong>undercloud</strong>, a server used to provision and deploy our OpenStack lab, an <strong>overcloud</strong>. To do that we&rsquo;ll first install and configure DHCP, TFTP and Apache servers to PXE-boot our UNL OpenStack nodes. Once all the nodes are bootstrapped, we&rsquo;ll use Chef to configure the server networking and kickoff the packstack OpenStack installer.</p>
+
+<p><img class="center" src="/images/os-lab-chef.png"></p>
+
+<p>In this post I&rsquo;ll try to use Chef recipes that I&rsquo;ve written as much as possible, therefore you won&rsquo;t see the actual configuration commands, e.g. how to configure Apache or DHCP servers. However I will try to describe everything that happens at each step and hopefully that will provide enough incentive for the curious to look into the Chef code and see how it&rsquo;s done. To help with the Chef code understanding let me start with a brief overview of what to look for in a cookbook.</p>
+
+<h2>How to read a Chef cookbook (Optional)</h2>
+
+<p>A cookbook directory (<strong>/cookbooks/[cookbook_name]</strong>) contains all its configuration scripts in <strong>/recipes</strong>. Each file inside a recipe contains a list of steps to be performed on a server. Each step is an operation (add/delete/update) on a <strong>resource</strong>. Here are some of the common Chef resources:</p>
+
+<ul>
+<li>Package - allows you to add, remove or update a package</li>
+<li>Template - creates a file from an <strong>erb</strong>-formatted template</li>
+<li>Execute - runs an ad-hoc CLI command</li>
+</ul>
+
+
+<p>Just these three basic resources allow you to do 95% of administrative tasks on any server. Most importantly they do it in platform-independent (any flavour of Linux) and idempotent (only make changes if current state is different from a desired state) way. Other directories you might want to explore are:</p>
+
+<ul>
+<li>/templates - contains all the <strong>erb</strong>-formatted templates</li>
+<li>/attributes - contains recipe variables (file paths, urls etc.)</li>
+<li>/files - contains the non-template files, i.e. files with static content</li>
+</ul>
+
+
+<h2>Bootstrapping the OpenStack nodes</h2>
+
+<ol>
+<li><p>If you haven&rsquo;t done it yet, download a copy of the <strong>UNetLab VM</strong> from the <a href="http://www.unetlab.com/">official website</a>. Set it up inside your hypervisor so that you can access Internet through the first interface <strong>pnet0</strong> (i.e. connect the first NIC of the VM to hypervisor&rsquo;s NAT interface). Make sure the VM has got at least 6GB of RAM and VT-x support enabled for nested virtualization.</p></li>
+<li><p>Follow the official <a href="https://downloads.chef.io/chef-dk/">installation instructions</a> to <strong>install Chef Development Kit</strong> inside UNetLab VM.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>wget &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.16.28-1_amd64.deb&quot;</span>&gt;https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.16.28-1_amd64.deb&lt;/a&gt;
+</span><span class='line'>dpkg -i chefdk_0.16.28-1_amd64.deb
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p><strong>Install git</strong> and clone <a href="https://github.com/networkop/chef-unl-os.git">chef cookbooks</a>.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>apt-get -y update
+</span><span class='line'>apt-get -y install git
+</span><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
+</span><span class='line'><span class="nb">cd </span>chef-unl-os
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Examine the lab <strong>environment settings</strong> to see what values are going to be used. You can modify that file to your liking.</p>
+
+<blockquote><p>Note that the OpenStack node IDs (keys of <em>os_lab</em> hash) MUST have one to one correspondence with the UNL node IDs which will be created at step 5</p></blockquote>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat environment/lab.rb
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Run Chef against a local server to setup the <strong>baremetal provisioner</strong>. This step installs and configures DHCP, TFTP and Apache servers. It also creates all the necessary PXE-boot and kickstart files based on our environment settings. Note that a part of the process is the download of a 700MB CentOS image so it might take a while to complete.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>chef-client -z -E lab -o pxe
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>At the start of the PXE-boot process, DCHP server sends an OFFER which, along with the standard IP information, includes the name of the PXE boot image and the IP address of TFTP server where to get it from. A server loads this image and then searches the TFTP server for the boot configuration file which tells it what kernel to load and where to get a kickstart file. Both kickstart and the actual installation files are accessed via HTTP and served by the same Apache server that runs UNL GUI.</p></li>
+<li><p>From <strong>UNL GUI</strong> create a new lab, add 3 OpenStack nodes and connect them all to <strong>pnet10</strong> interface as described in <a href="http://www.unetlab.com/2014/11/using-cloud-devices/">this guide</a>. Note that the <strong>pnet10</strong> interface has already been created by Chef so you don&rsquo;t have to re-create it again.</p>
+
+<blockquote><p>Make sure that the UNL node IDs match the ones defined in the environment setting file</p></blockquote></li>
+<li><p>Fire-up the nodes and watch them being bootstrapped by our UNL VM.</p></li>
+</ol>
+
+
+<h2>Server provisioning</h2>
+
+<p>Next step is to configure the server networking and kickoff the OpenStack installer. These steps will also be done with a single command:</p>
+
+<p>   <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   chef-client -z -E lab lab.rb
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure>
+The first part of this script will connect to each prospective OpenStack node and setup its network interfaces and hostnames. The second part of this script will generate a packstack answer file and modify its settings to exclude some of the components we&rsquo;re not going to use (like Nagios, Ceph and Ceilometer). Have a look at <strong>cookbooks/packstack/recipe/default.rb</strong> for the list of modifications. The final step is a command to kickoff the packstack installer which will use another configuration management system, Puppet, to install and configure OpenStack according to the provided answer file.</p>
+
+<p>At the end of these steps you should have a fully functional 3-node OpenStack environment.</p>
+
+<h2>To be continued&hellip;</h2>
+
+<p>This is a part of a 2-post series. In the next post we&rsquo;ll look into how to use the same tools to perform the baremetal provisioning of our physical underlay network.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC]]></title>
@@ -356,105 +457,6 @@ I have already explored the idea of automated network testing in my previous blo
 
 
 <p>If that sounds interesting to you - stay tuned.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[REST API for Network Engineers]]></title>
-    <link href="http://networkop.github.io/blog/2016/01/01/rest-for-neteng/"/>
-    <updated>2016-01-01T00:00:00-08:00</updated>
-    <id>http://networkop.github.io/blog/2016/01/01/rest-for-neteng</id>
-    <content type="html"><![CDATA[<p>This is the first, introductory, post in a series dedicated to REST APIs for Network Engineers. In this post we&rsquo;ll learn what REST API is, what are the most common tools and ways to consume it. Later in the series I&rsquo;ll show how to build a REST client to control <a href="http://www.unetlab.com/">UnetLab</a>, a very popular network emulation environment.</p>
-
-<!--more-->
-
-
-<h2>Management interface evolution</h2>
-
-<p>Since the early dawn of networking, devices have been configured through <abbr title="Virtual Terminal User Interface">VTY</abbr>s. The transport has evolved from telnet to ssh but the underlying rule still maintained that network is configured manually, device-by-device by a human administrator. It&rsquo;s obvious that this approach does not scale and is prone to human error, however it still remains the most prevalent method of network device configuration. <br/>
-The first attempt to tackle these issues has been made in 1988 with the introduction of SNMP. The basic idea was to monitor and manage network devices using a strictly-defined data structures called <abbr title="Management Information Base">MIB</abbr>s. Unfortunately, due to several architectural issues and poor vendor implementation, SNMP has ended up being used mainly for basic monitoring tasks.<br/>
-The idea of programmatic management of network devices later resulted in the creation of NETCONF protocol. Despite being almost 10 years old, this protocol is still not widely used due to limited vendor support, however things may improve as the <abbr title="Yet Another Next Generation">YANG</abbr>-based network configuration gains greater adoption.<br/>
-Finally, with the advent of SDN, REST has become a new de-facto standard for network provisioning. It is supported by most of the latest products of all the major vendors. Let&rsquo;s take a closer look at what REST is and how it works.</p>
-
-<h2>REpresentational State Transfer overview</h2>
-
-<p>Technically speaking, REST is not a protocol but a <a href="https://en.wikipedia.org/wiki/Representational_state_transfer">software architectural pattern</a>. To put it in simple words, it describes <strong>a way</strong> to exchange information rather than the structure of that information. Think of it as another transport (like telnet or ssh for VTY) for payloads of any format. Most commonly payload will get encoded as <abbr title="JavaScript Object Notation">JSON</abbr>, however the structure of JSON is not defined and is different for each application. This rather <em>weak</em> definition opens up huge opportunities for potential use cases:</p>
-
-<ol>
-<li><p>The most basic use case is a Web application with client retrieving and updating information on a server. A good example in networking world would be the native interfaces of Cisco ACI or VMWare NSX. Each time you create an object (a network or a tenant) in a Web GUI, your client sends a request to server&rsquo;s REST interface.</p></li>
-<li><p>The more advanced use case is for communication between distributed software components over a network environment. This is how all management and control plane communications are designed inside OpenStack. For example, every time a new VM is created, <abbr title="Compute controller">Nova</abbr> sends a request to <abbr title="Network controller">Neutron</abbr>&rsquo;s REST API interface to allocate an IP address and a port for that VM.</p></li>
-</ol>
-
-
-<h2>REST under the hood</h2>
-
-<p>REST is an API that allows clients to perform read/write operations on data stored on the server. REST uses HTTP to perform a set of actions commonly known as <strong>CRUD</strong>:</p>
-
-<ul>
-<li>Create</li>
-<li>Read</li>
-<li>Update</li>
-<li>Delete</li>
-</ul>
-
-
-<p>Assuming we want to manipulate a &lsquo;device&rsquo; object on a server we can send an <code>HTTP GET</code> request to <code>/api/devices</code> and get a response with a payload containing a full list of known devices.<br/>
-If we want to add a new device, we need to construct a payload with device attributes (e.g. IP address, Hostname) and send it attached to an <code>HTTP POST</code> request.<br/>
-To update a device we need to send the full updated payload with <code>HTTP PUT</code> method.</p>
-
-<p><img class="centre" src="/images/rest-crud.png" title="Basic REST actions" ></p>
-
-<p>Note that both Update and Delete API calls refer to a specific number in url <code>/api/devices/{ID}</code>. That is a <abbr title="Universally Unique IDentifier">UUID</abbr> that server assigns to every new object and is returned in <code>Location</code> header of <code>201 Created</code> message sent in response to Create request.</p>
-
-<h2>REST API Constraints</h2>
-
-<p>For API to be considered <strong>RESTful</strong> it needs comply with a number of <a href="http://www.restapitutorial.com/lessons/whatisrest.html">formal constraints</a>. One of the most important constraint of all is the stateless nature of the interface. That means that no cookie or session information should be stored on the server, and every request is treated independently from every other request. The implication here is that all state needs to be maintained on the client and information needs to be cacheable in order to improve interface responsiveness.</p>
-
-<p>It&rsquo;s worth noting that an API can still be considered RESTful even if a server <em>does</em> store a session cookie, however all requests must still be treated independently. The last point means there&rsquo;s no <em>configuration modes</em> like we&rsquo;ve seen in traditional CLIs where all commands issued in &ldquo;interface configuration mode&rdquo; will be applied to that specific interface. With RESTful API each request from a client must reference a full path to an object including its UUID within the system.</p>
-
-<h2>Using REST</h2>
-
-<h3>cURL</h3>
-
-<p>cURL is a light-weight Linux command-line tool for transferring data. It&rsquo;s very simple to get started and very frequently used to make HTTP requests. For example, this is how you would issue a Read request to get a list of devices configured on an imaginary SDN controller:</p>
-
-<pre><code class="bash  Get all devices using cURL">$ curl -X GET http://sdn-controller.org:8181/api/devices
-</code></pre>
-
-<p>Obviously this tool is very good for fast prototyping and troubleshooting but becomes too cumbersome for anything involving more than a few commands.</p>
-
-<h3>Browser plugins</h3>
-
-<p>There&rsquo;s plenty of GUI-based clients that can be added-on to most popular browsers. <a href="https://www.getpostman.com/">Postman</a> and <a href="https://addons.mozilla.org/en-us/firefox/addon/restclient/">RESTClient</a> are amongst the most popular ones. In addition to basic functionality, these plugins allow you to store and issue sequence of requests which can be very handy for live demonstrations. Unfortunately that&rsquo;s where most of the people stop learning about REST API and assume this is the intended way to interact with a server.</p>
-
-<h3><abbr title="Software Development Kit">SDK</abbr></h3>
-
-<p>SDK is a collection of tools and libraries that allow users to build a full-blown applications with complex internal logic. Instead of caring about the exact syntax of API calls, SDK libraries provide a simple programming interface. For example, this is how you would run the same command we did earlier with cURL:</p>
-
-<pre><code class="python Get all devices using SDK">controller = sdk.Controller('sdn-controller.org', 8181)
-response = controller.get_devices()
-</code></pre>
-
-<p>We first create an instance of a controller with specific hostname and port number and then issue a <code>.get_devices()</code> call on it to obtain the list of all known devices. SDK library will do all the dirty work constructing HTTP request in the background and return the parsed information from HTTP response. We can then use that information to perform some complex logic, like start only Router devices (but not switches and firewalls):</p>
-
-<pre><code class="python Start all Routers using SDK">routers_started = [device.start() for device in response.get_payload() if device.type == 'Router']
-</code></pre>
-
-<p>As you can see, we can use all capabilities of a programming language to write a succinct and powerful code, something that would be extremely difficult to do with cURL or Postman. That&rsquo;s why the focus of this series of posts will be on the SDK, how to build one from scratch and how to use it.</p>
-
-<h2>UNetLab REST SDK</h2>
-
-<p>In the upcoming posts I&rsquo;ll show how to develop a REST SDK to control UnetLab. My final goal would be to be able to create and fully configure an arbitrary network topology. The whole series will be broken up into several posts going over:</p>
-
-<ol>
-<li><a href="http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest/">UnetLab SDK development environment setup</a>.
-I&rsquo;ll show how to setup PyCharm to work with UNL running in a hypervisor on a Windows machine.</li>
-<li><a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">First steps with REST API for UNetLab</a>.
-In this post I&rsquo;ll show how to work with HTTP and perform basic operations like login/logoff and object creation in UNL.</li>
-<li><a href="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/">Advanced actions with UNetLab SDK</a>.
-The final post will demonstrate how to push configuration to devices inside UNL. To wrap up I&rsquo;ll write a sample app to spin up and provision a three-node topology without making a single GUI click.</li>
-</ol>
-
 ]]></content>
   </entry>
   
