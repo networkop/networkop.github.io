@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Automation | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/automation/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-08-26T11:46:46-07:00</updated>
+  <updated>2016-09-07T13:40:40-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,135 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 2)]]></title>
+    <link href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/"/>
+    <updated>2016-09-09T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/09/09/os-lab-p2</id>
+    <content type="html"><![CDATA[<p>In this post we&rsquo;ll use Chef, unnumbered BGP and Cumulus VX to build a massively scalable &ldquo;Lapukhov&rdquo; Leaf-Spine data centre.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>In the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">last post</a> we&rsquo;ve seen how to use Chef to automate the build of a 3-node OpenStack cloud. The only thing remaining is to build an underlay network supporting communication between the nodes, which is what we&rsquo;re going to do next. The build process will, again, be relatively simple and will include only a few manual steps, but before we get there let me go over some of the decisions and assumptions I&rsquo;ve made in my network design.</p>
+
+<h2>High-level design</h2>
+
+<p>The need to provide more bandwidth for East-West traffic has made the Clos Leaf-Spine architecture a de facto standard in any data centre network design. The use of virtual overlay networks has obviated the requirement to have a strict VLAN and IP numbering schemes in the underlay. The only requirement for the compute nodes now is to have any-to-any layer 3 connectivity. This is how the underlay network design has converged to a Layer 3 Leaf-Spine architecture.<br/>
+The choice of a routing protocol is not so straight-forward. My fellow countryman Petr Lapukhov and co-authors of <a href="https://tools.ietf.org/html/draft-ietf-rtgwg-bgp-routi3ng-large-dc-11">RFC draft</a> claim that having a single routing protocol in your WAN and DC reduces complexity and makes interoperability and operations a lot easier. This draft presents some of the design principles that can be used to build a L3 data centre with BGP as the only routing protocol. In our lab we&rsquo;re going to implement a single &ldquo;cluster&rdquo; of the multi-tier topology proposed in that RFC.</p>
+
+<p><img class="center" src="/images/os-lab-chef-full.png"></p>
+
+<p>In order to help us build this in an automated and scalable way, we&rsquo;re going to use a relatively new feature called <strong>unnumbered BGP</strong>.</p>
+
+<h2>Unnumbered BGP as a replacement for IGP</h2>
+
+<p>As we all know, one of the main advantages of interior gateway protocols is the automatic discovery of adjacent routers which is accomplished with the help of link-local multicasts. On the other hand, BGP traditionally required you to explicitly define neighbor&rsquo;s IP address in order to establish a peering relationship with it. This is where IPv6 comes to the rescue. With the help of neighbor discovery protocol and router advertisement messages, it becomes possible to accurately determine the address of the peer BGP router on an intra-fabric link. The only question is how we would exchange IPv4 information over and IPv6-only BGP network.<br/>
+<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the adveritised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
+
+<h2>Configuration example on Cumulus VX</h2>
+
+<p>In order to implement BGP unnumbered on Cumulus Linux all you need to is:</p>
+
+<ol>
+<li>Enable IPv6 router advertisements on all transit links</li>
+<li>Enable BGP on the same interfaces</li>
+</ol>
+
+
+<p>Example Quagga configuration snippet will look like this:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface swp1
+</span><span class='line'>  ipv6 nd ra-interval 5
+</span><span class='line'>  no ipv6 nd suppress-ra&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;rouer bgp &lt;ASN&gt;
+</span><span class='line'>  neighbor swp1 interface
+</span><span class='line'>  neighbor swp1 external
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>As you can see, Cumulus simplifies it even more by allowing you to only specify the BGP peering type (external/internal) and learning the value of peer BGP AS dynamically from a neighbor.</p>
+
+<h2>Design assumptions and caveats</h2>
+
+<p>With all the above in mind, this is the list of decisions I&rsquo;ve made while building the fabric configuration:</p>
+
+<ul>
+<li>All switches inside the fabric will be running BGP peerings using <strong>IPv6 link-local</strong> addresses</li>
+<li><strong>eBGP</strong> will be used throughout to simplify configuration automation (all peers will be external)</li>
+<li>Each Leaf/Spine switch will have a <strong>unique IPv4 loopback</strong> address assigned for management purposes (ICMP, SSH)</li>
+<li>On each Leaf switch <strong>all directly connected IPv4</strong> prefixes will get redistributed into BGP</li>
+<li>BGP multipath rule will be &ldquo;relaxed&rdquo; to allow for different AS-PATHs. This is not used in our current topology but is required in an HA Leaf switch design (same IPv4 prefix will be advertised from two Leaf switches with different ASN)</li>
+<li>Loop prevention on Leaf switches will also be &ldquo;relaxed&rdquo;. This, again, is not used in our single &ldquo;cluster&rdquo; topology, however it will allow same Leaf ASNs to be reused in a different cluster.</li>
+</ul>
+
+
+<h2>Implementation steps</h2>
+
+<p>Picking up where we left off after the OpenStack node provisioning described in the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">previous post</a></p>
+
+<ol>
+<li><p>Get the latest <a href="https://github.com/networkop/chef-unl-os">OpenStack lab cookbooks</a></p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
+</span><span class='line'> <span class="nb">cd </span>chef-unl-os
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p><a href="https://cumulusnetworks.com/cumulus-vx/">Download</a> and import Cumulus VX image similar to how it&rsquo;s described <a href="http://www.unetlab.com/2015/06/adding-cisco-asav-images/">here</a>.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> /opt/unetlab/addons/qemu/cumulus-vx/hda.qcow2
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Build the topology inside UNL. Make sure that Node IDs inside UNL match the ones in <strong>chef-unl-os/environment/lab.rb</strong> file and that interfaces are connected as shown in the diagram below</p>
+
+<p> <img class="center" src="/images/os-lab-unl.png"></p></li>
+<li><p>Re-run UNL self-provisioning cookbook to create a <a href="https://github.com/networkop/chef-unl-os/blob/master/cookbooks/pxe/templates/ztp.erb">zero touch provisioning</a> file and update DHCP server configuration with static entries for the switches.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> chef-client -z -E lab -o pxe
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p> Cumulus <a href="https://docs.cumulusnetworks.com/display/DOCS/Zero+Touch+Provisioning+-+ZTP">ZTP</a> allows you to run a predefined script on the first boot of the operating system. In our case we inject a UNL VM&rsquo;s public key and enable passwordless <strong>sudo</strong> for cumulus user.</p></li>
+<li><p>Kickoff Chef provisioning to bootstrap and configure the DC fabric.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> chef-client -z -E lab fabric.rb
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p> This command instructs Chef provisioning to connect to each switch, download and install the Chef client and run a simple recipe to create quagga configuration file from a template.</p></li>
+</ol>
+
+
+<p>At the end of step 5 we should have a fully functional BGP-only fabric and all 3 compute nodes should be able to reach each other in at most 4 hops.</p>
+
+<p><code>bash [root@controller-1 ~]# traceroute 10.0.0.4
+traceroute to 10.0.0.4 (10.0.0.4), 30 hops max, 60 byte packets
+ 1  10.0.0.1 (10.0.0.1)  0.609 ms  0.589 ms  0.836 ms
+ 2  10.255.255.7 (10.255.255.7)  0.875 ms  2.957 ms  3.083 ms
+ 3  10.255.255.6 (10.255.255.6)  3.473 ms  5.486 ms  3.147 ms
+ 4  10.0.0.4 (10.0.0.4)  4.231 ms  4.159 ms  4.115 ms
+</code></p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 1)]]></title>
@@ -398,65 +527,6 @@ cd packer-unl-jenkins
 <h2>Coming up</h2>
 
 <p>In the next post I&rsquo;ll show how to setup Jenkins to do automatic network testing and verification.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Network Continuous Integration and Delivery]]></title>
-    <link href="http://networkop.github.io/blog/2016/02/19/network-ci-intro/"/>
-    <updated>2016-02-19T00:00:00-08:00</updated>
-    <id>http://networkop.github.io/blog/2016/02/19/network-ci-intro</id>
-    <content type="html"><![CDATA[<p>In this series of posts I&rsquo;ll introduce the tools I&rsquo;ve been using for continuous network development and how they can be used with automation servers like Jenkins for network continuous integration and delivery.</p>
-
-<!--more-->
-
-
-<h2>CI/CD vs ITIL</h2>
-
-<p>How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an <abbr title=" Request For Change">RFC</abbr>, submit it at least a week before the planned implementation date, go through at least one <abbr title=" Change Admission Board">CAB</abbr> meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to &lsquo;please have a look at the network performance issues&rsquo;?</p>
-
-<p>Software developers have solved most of these problems for themselves. DevOps movement has brought forth ideas of Continuous Integration and Delivery (CI/CD) to streamline the change process and &lsquo;embrace&rsquo; the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.</p>
-
-<h2>Problem #1 - How to test</h2>
-
-<p>Ever since the dawn of networking, the only tools that engineers could use for testing were traceroutes and pings. It&rsquo;s not necessarily bad since, after all, networks are supposed to be a simple packet transports and shouldn&rsquo;t be endowed with application-layer knowledge. Note that I&rsquo;m talking about traditional or, in SDN-era terms, &lsquo;underlay&rsquo; networks. The biggest problem with network testability is not the lack of test tools but rather lack of automation. For every ping and every traceroute we had to login a device, carefully craft the command including source interface names, VRFs and other various options and then interpret the output.<br/>
-I have already explored the idea of automated network testing in my previous blog posts - <a href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/">Building Network TDD framework</a> and <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">Network TDD quickstart</a>. I even got lucky enough to get invited to one of the <a href="http://blog.ipspace.net/2015/11/test-driven-network-development-with.html">greatest networking podcasts</a> hosted by Ivan Pepelnjak.</p>
-
-<h2>Problem #2 - Where to test</h2>
-
-<p>Another big problem is the lack of testable network software. We&rsquo;ve only had IOU, vSRX and vEOS for the past 3-4 years and even now a lot of the real-world functionality remains unvirtualizable. However having those images is a lot better than not, even though some of them tend to crash and behave unreliably from time to time.</p>
-
-<h2>Network CI</h2>
-
-<p>Here I&rsquo;ve come to the actual gist of my post. I want to demonstrate the tools that I&rsquo;ve built and how I use them to automate a lot of the repetitive tasks to prepare for network deployments and upgrades. This is what these tools can do:</p>
-
-<ul>
-<li>Create a replica of almost any real-world network topology inside a network emulation environment</li>
-<li>Apply configuration to all built devices</li>
-<li>Verify real-time connectivity between nodes</li>
-<li>Verify traffic flows under various failure conditions against pre-defined set rules</li>
-<li>Shutdown and delete the network topology</li>
-</ul>
-
-
-<p>All these steps can be done automatically without making a single click in a GUI or entering a single command in a CLI. This is a sneak peak of what to expect later in the series:</p>
-
-<p><div class="embed-video-container"><iframe src="//www.youtube.com/embed/jiZs0969RWI" allowfullscreen></iframe></div></p>
-
-<p>Please don&rsquo;t judge me too harshly, this is my first experience with screencasts.</p>
-
-<h2>Coming up</h2>
-
-<p>In the following posts I&rsquo;ll show how to:</p>
-
-<ul>
-<li><a href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/">Setup continuous delivery environment with Jenkins and UNetLab</a></li>
-<li><a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/">Create test cases to enable automatic testing by Jenkins server</a></li>
-<li><a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-large/">Safely replace a core routing protocol inside an Active/Standby DC</a></li>
-</ul>
-
-
-<p>If that sounds interesting to you - stay tuned.</p>
 ]]></content>
   </entry>
   

@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Openstack | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/openstack/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-08-26T11:46:46-07:00</updated>
+  <updated>2016-09-07T13:40:40-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,135 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 2)]]></title>
+    <link href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/"/>
+    <updated>2016-09-09T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/09/09/os-lab-p2</id>
+    <content type="html"><![CDATA[<p>In this post we&rsquo;ll use Chef, unnumbered BGP and Cumulus VX to build a massively scalable &ldquo;Lapukhov&rdquo; Leaf-Spine data centre.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>In the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">last post</a> we&rsquo;ve seen how to use Chef to automate the build of a 3-node OpenStack cloud. The only thing remaining is to build an underlay network supporting communication between the nodes, which is what we&rsquo;re going to do next. The build process will, again, be relatively simple and will include only a few manual steps, but before we get there let me go over some of the decisions and assumptions I&rsquo;ve made in my network design.</p>
+
+<h2>High-level design</h2>
+
+<p>The need to provide more bandwidth for East-West traffic has made the Clos Leaf-Spine architecture a de facto standard in any data centre network design. The use of virtual overlay networks has obviated the requirement to have a strict VLAN and IP numbering schemes in the underlay. The only requirement for the compute nodes now is to have any-to-any layer 3 connectivity. This is how the underlay network design has converged to a Layer 3 Leaf-Spine architecture.<br/>
+The choice of a routing protocol is not so straight-forward. My fellow countryman Petr Lapukhov and co-authors of <a href="https://tools.ietf.org/html/draft-ietf-rtgwg-bgp-routi3ng-large-dc-11">RFC draft</a> claim that having a single routing protocol in your WAN and DC reduces complexity and makes interoperability and operations a lot easier. This draft presents some of the design principles that can be used to build a L3 data centre with BGP as the only routing protocol. In our lab we&rsquo;re going to implement a single &ldquo;cluster&rdquo; of the multi-tier topology proposed in that RFC.</p>
+
+<p><img class="center" src="/images/os-lab-chef-full.png"></p>
+
+<p>In order to help us build this in an automated and scalable way, we&rsquo;re going to use a relatively new feature called <strong>unnumbered BGP</strong>.</p>
+
+<h2>Unnumbered BGP as a replacement for IGP</h2>
+
+<p>As we all know, one of the main advantages of interior gateway protocols is the automatic discovery of adjacent routers which is accomplished with the help of link-local multicasts. On the other hand, BGP traditionally required you to explicitly define neighbor&rsquo;s IP address in order to establish a peering relationship with it. This is where IPv6 comes to the rescue. With the help of neighbor discovery protocol and router advertisement messages, it becomes possible to accurately determine the address of the peer BGP router on an intra-fabric link. The only question is how we would exchange IPv4 information over and IPv6-only BGP network.<br/>
+<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the adveritised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
+
+<h2>Configuration example on Cumulus VX</h2>
+
+<p>In order to implement BGP unnumbered on Cumulus Linux all you need to is:</p>
+
+<ol>
+<li>Enable IPv6 router advertisements on all transit links</li>
+<li>Enable BGP on the same interfaces</li>
+</ol>
+
+
+<p>Example Quagga configuration snippet will look like this:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface swp1
+</span><span class='line'>  ipv6 nd ra-interval 5
+</span><span class='line'>  no ipv6 nd suppress-ra&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;rouer bgp &lt;ASN&gt;
+</span><span class='line'>  neighbor swp1 interface
+</span><span class='line'>  neighbor swp1 external
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>As you can see, Cumulus simplifies it even more by allowing you to only specify the BGP peering type (external/internal) and learning the value of peer BGP AS dynamically from a neighbor.</p>
+
+<h2>Design assumptions and caveats</h2>
+
+<p>With all the above in mind, this is the list of decisions I&rsquo;ve made while building the fabric configuration:</p>
+
+<ul>
+<li>All switches inside the fabric will be running BGP peerings using <strong>IPv6 link-local</strong> addresses</li>
+<li><strong>eBGP</strong> will be used throughout to simplify configuration automation (all peers will be external)</li>
+<li>Each Leaf/Spine switch will have a <strong>unique IPv4 loopback</strong> address assigned for management purposes (ICMP, SSH)</li>
+<li>On each Leaf switch <strong>all directly connected IPv4</strong> prefixes will get redistributed into BGP</li>
+<li>BGP multipath rule will be &ldquo;relaxed&rdquo; to allow for different AS-PATHs. This is not used in our current topology but is required in an HA Leaf switch design (same IPv4 prefix will be advertised from two Leaf switches with different ASN)</li>
+<li>Loop prevention on Leaf switches will also be &ldquo;relaxed&rdquo;. This, again, is not used in our single &ldquo;cluster&rdquo; topology, however it will allow same Leaf ASNs to be reused in a different cluster.</li>
+</ul>
+
+
+<h2>Implementation steps</h2>
+
+<p>Picking up where we left off after the OpenStack node provisioning described in the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">previous post</a></p>
+
+<ol>
+<li><p>Get the latest <a href="https://github.com/networkop/chef-unl-os">OpenStack lab cookbooks</a></p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
+</span><span class='line'> <span class="nb">cd </span>chef-unl-os
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p><a href="https://cumulusnetworks.com/cumulus-vx/">Download</a> and import Cumulus VX image similar to how it&rsquo;s described <a href="http://www.unetlab.com/2015/06/adding-cisco-asav-images/">here</a>.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> /opt/unetlab/addons/qemu/cumulus-vx/hda.qcow2
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Build the topology inside UNL. Make sure that Node IDs inside UNL match the ones in <strong>chef-unl-os/environment/lab.rb</strong> file and that interfaces are connected as shown in the diagram below</p>
+
+<p> <img class="center" src="/images/os-lab-unl.png"></p></li>
+<li><p>Re-run UNL self-provisioning cookbook to create a <a href="https://github.com/networkop/chef-unl-os/blob/master/cookbooks/pxe/templates/ztp.erb">zero touch provisioning</a> file and update DHCP server configuration with static entries for the switches.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> chef-client -z -E lab -o pxe
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p> Cumulus <a href="https://docs.cumulusnetworks.com/display/DOCS/Zero+Touch+Provisioning+-+ZTP">ZTP</a> allows you to run a predefined script on the first boot of the operating system. In our case we inject a UNL VM&rsquo;s public key and enable passwordless <strong>sudo</strong> for cumulus user.</p></li>
+<li><p>Kickoff Chef provisioning to bootstrap and configure the DC fabric.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> chef-client -z -E lab fabric.rb
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p> This command instructs Chef provisioning to connect to each switch, download and install the Chef client and run a simple recipe to create quagga configuration file from a template.</p></li>
+</ol>
+
+
+<p>At the end of step 5 we should have a fully functional BGP-only fabric and all 3 compute nodes should be able to reach each other in at most 4 hops.</p>
+
+<p><code>bash [root@controller-1 ~]# traceroute 10.0.0.4
+traceroute to 10.0.0.4 (10.0.0.4), 30 hops max, 60 byte packets
+ 1  10.0.0.1 (10.0.0.1)  0.609 ms  0.589 ms  0.836 ms
+ 2  10.255.255.7 (10.255.255.7)  0.875 ms  2.957 ms  3.083 ms
+ 3  10.255.255.6 (10.255.255.6)  3.473 ms  5.486 ms  3.147 ms
+ 4  10.0.0.4 (10.0.0.4)  4.231 ms  4.159 ms  4.115 ms
+</code></p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 1)]]></title>
@@ -858,118 +987,6 @@ VLAN=yes
 <h2>Coming Up</h2>
 
 <p>In the next post we&rsquo;ll examine the L2 gateway feature that allows tenant networks to communicate with physical servers through yet another VXLAN-VLAN hardware gateway.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Openstack SDN - L2 Population and ARP Proxy]]></title>
-    <link href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/"/>
-    <updated>2016-05-06T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2016/05/06/neutron-l2pop</id>
-    <content type="html"><![CDATA[<p>In the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a> we&rsquo;ve had a look at how native OpenStack SDN works and what are some of its limitations. In this post we&rsquo;ll tackle the first one of them - overhead created by multicast source replication.</p>
-
-<!--more-->
-
-
-<h2>MAC learning in a controller-less VXLAN overlay</h2>
-
-<p>VXLAN <a href="https://tools.ietf.org/html/rfc7348">standard</a> does not specify any control plane protocol to exchange MAC-IP bindings between VTEPs. Instead it relies on data plane flood-and-learn behaviour, just like a normal switch. To force this behaviour in an underlay, the standard stipulates that each VXLAN network should be mapped to its own multicast address and each VTEP participating in a network should join the corresponding multicast group. That multicast group would be used to flood the <abbr title="Broadcast Unknown unicast and Multicast">BUM</abbr> traffic in an underlay to all subscribed VTEPs thereby populating dynamic MAC address tables.</p>
-
-<p>Default OpenvSwitch implementation <a href="https://github.com/openvswitch/ovs/blob/master/FAQ.md#q-how-much-of-the-vxlan-protocol-does-open-vswitch-currently-support">does not support</a> VXLAN multicast flooding and uses unicast source replication instead. This decision comes with a number of tradeoffs:</p>
-
-<ul>
-<li>Duplicate packets consume additional bandwidth. Extra 100 bytes exchanged every 3 minutes in a 100-nodes environment generate around 500 kbit/s of traffic on average. This can be considered negligible inside modern high-speed DC fabrics.</li>
-<li>Hardware VTEP gateways rely on multicast for MAC learning and VTEP discovery. As we&rsquo;ll see later in the series, these gateways can now be controlled by Neutron just like a normal OVS inside a compute host.</li>
-<li>Duplicate packets are processed by hosts that do not need them, e.g. ARP request is processed by tunnel and integration bridges of all hosts that have VMs in the same broadcast domain. This presents some serious scaling limitation and is addressed by the L2 population feature described in this post.</li>
-</ul>
-
-
-<p>Despite all the tradeoffs, OVS with unicast source replication has become a de-facto standard in most recent OpenStack implementations. The biggest advantage of such approach is the lack of requirement for multicast in the underlay network.</p>
-
-<h2>VXLAN MAC learning with an SDN controller</h2>
-
-<p>Neutron server is aware of all active MAC and IP addresses within the environment. This information can be used to prepopulate forwarding entries on all tunnel bridges. This is accomplished by a <a href="https://github.com/openstack/neutron/tree/master/neutron/plugins/ml2/drivers/l2pop">L2 population</a> driver. However that in itself isn&rsquo;t enough. Whenever a VM doesn&rsquo;t know the destination MAC address, it will send a broadcast ARP request which needs to be intercepted and responded by a local host to stop it from being flooded in the network. The latter is accomplished by a feature called <a href="https://assafmuller.com/2014/05/21/ovs-arp-responder-theory-and-practice/">ARP responder</a> which simulates the functionality commonly known as <strong>ARP proxy</strong> inside the tunnel bridge.</p>
-
-<p><img class="center" src="/images/neutron-l2-arp.png"></p>
-
-<h3>Configuration</h3>
-
-<p>Configuration of these two features is <a href="https://kimizhang.wordpress.com/2014/04/01/how-ml2vxlan-works/">fairly straight-forward</a>. First, we need to add L2 population to the list of supported mechanism drivers on our control node and restart the neutron server.</p>
-
-<pre><code class="bash Update on control node">$ sed -ri 's/(mechanism_drivers.*)/\1,l2population/' /etc/neutron/plugin.ini
-$ service neutron-server restart  
-</code></pre>
-
-<p>Next we need to enable L2 population and ARP responder features on all 3 compute nodes.</p>
-
-<pre><code class="bash Updates on all 3 compute nodes">$ sed -ri 's/.*(arp_responder).*/\1 = true/' /etc/neutron/plugins/ml2/openvswitch_agent.ini
-$ sed -ri 's/.*(l2_population).*/\1 = true/' /etc/neutron/plugins/ml2/openvswitch_agent.ini
-$ service neutron-openvswitch-agent restart
-</code></pre>
-
-<p>Since L2 population is triggered by the <a href="https://assafmuller.com/2014/02/23/ml2-address-population/">port_up</a> messages, we might need to restart both our VMs for the change to take effect.</p>
-
-<h3>BUM frame from VM-1 for MAC address of VM-2 (Revisited)</h3>
-
-<p>Now let&rsquo;s once again examine what happens when VM-1 issues an ARP request for VM-2&rsquo;s MAC address (1a:bf).</p>
-
-<p>First, the frame hits the flood-and-learn rule of the integration bridge and gets flooded down to the tunnel bridge as desribed in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>. Once in the br-tun, the frames gets matched by the incoming port and resubmitted to table 2. In addition to a default unicast/multicast bit match, table 2 now also matches all ARP requests and resubmitts them to the new table 21. Note how the ARP entry has a higher priority to always match before the default catch-all multicast rule.</p>
-
-<pre><code class="bash ovs-ofctl dump-flows br-tun">table=0, priority=1,in_port=1 actions=resubmit(,2)
-table=2, priority=1,arp,dl_dst=ff:ff:ff:ff:ff:ff actions=resubmit(,21)
-table=2, priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,20)
-table=2, priority=0,dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,22)
-</code></pre>
-
-<p>Inside table 21 are the entries created by the ARP responder feature. The following is an example entry that matches all ARP requests where target IP address field equals the IP of VM-2(10.0.0.9).</p>
-
-<pre><code class="bash ovs-ofctl dump-flows br-tun"> table=21, priority=1,arp,dl_vlan=1,arp_tpa=10.0.0.9 
- actions=move:NXM_OF_ETH_SRC[]-&gt;NXM_OF_ETH_DST[],
- mod_dl_src:fa:16:3e:ab:1a:bf,
- load:0x2-&gt;NXM_OF_ARP_OP[],
- move:NXM_NX_ARP_SHA[]-&gt;NXM_NX_ARP_THA[],
- move:NXM_OF_ARP_SPA[]-&gt;NXM_OF_ARP_TPA[],
- load:0xfa163eab1abf-&gt;NXM_NX_ARP_SHA[],
- load:0xa000009-&gt;NXM_OF_ARP_SPA[],
- IN_PORT
-</code></pre>
-
-<p>The resulting action builds an ARP response by modifying the fields and headers on the original ARP request message, specifically OVS:</p>
-
-<ol>
-<li>Copies the source MAC address (VM-1) to the destination MAC address header</li>
-<li>Spoofs the source MAC address to make it look like it comes from VM-2</li>
-<li>Modifies the operation code of ARP message to 0x2, meaning <strong>reply</strong></li>
-<li>Overwrites the target IP and MAC address fields inside the ARP packet with VM-1&rsquo;s values</li>
-<li>Overwrites the source hardware address with VM-2&rsquo;s MAC</li>
-<li>Overwrites the source IP address with the address of VM-2(0xa000009)</li>
-<li>Sends the packet out the port from which it was received</li>
-</ol>
-
-
-<h3>Unicast frame from VM-1 to VM-2 (Revisited)</h3>
-
-<p>Now that VM-1 has learned the MAC address of VM-2 it can start sending the unicast frames. The first few steps will again be the same. The frame hits the tunnel bridge, gets classified as a unicast and resubmitted to table 20. Table 20 will still have an entry generated by a <strong>learn</strong> action triggered by a packet coming from VM-2, however now it also has and identical entry with a higher priority(priority=2), which was preconfigured by a L2 population feature.</p>
-
-<pre><code class="bash">table=0, priority=1,in_port=1 actions=resubmit(,2)
-table=2, priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,20)
-table=20, priority=2,dl_vlan=1,dl_dst=fa:16:3e:ab:1a:bf actions=strip_vlan,set_tunnel:0x54,output:2
-table=20, priority=1,vlan_tci=0x0001/0x0fff,dl_dst=fa:16:3e:ab:1a:bf actions=load:0-&gt;NXM_OF_VLAN_TCI[],load:0x54-&gt;NXM_NX_TUN_ID[],output:2
-</code></pre>
-
-<h2>Other BUM traffic</h2>
-
-<p>The two features described in this post only affect the ARP traffic to VMs <strong>known</strong> to the Neutron server. All the other BUM traffic will still be flooded as described in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>.</p>
-
-<h2>Results</h2>
-
-<p>As the result of enabling L2 population and ARP responder features we were able to reduce the amount of BUM traffic in the overlay network and reduce the eliminate processing on compute hosts incurred by ARP request flooding.</p>
-
-<p>However one downside of this approach is the increased number of flow entries in tunnel bridges of compute hosts. Specifically, for each known VM there now will be two entries in the tunnel bridge with different priorities. This may have negative impact on performance and is something to keep in mind when designing OpenStack solutions for scale.</p>
-
-<h2>Coming Up</h2>
-
-<p>In the next post I&rsquo;ll show how to overcome the requirement of a direct L2 adjacency between the network node and external subnet. Specifically, I&rsquo;ll use Arista switch to extend a L2 provider network over a L3 leaf-spine Cisco fabric.</p>
 ]]></content>
   </entry>
   

@@ -2,10 +2,10 @@
 <html class="no-js" lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Automating the Build of OpenStack Lab (Part 1) - Network-oriented programming</title>
+  <title>Automating the Build of OpenStack Lab (Part 2) - Network-oriented programming</title>
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Building a simple OpenStack undercloud">
+  <meta name="description" content="Building a BGP L3 Clos fabric">
   
 
   <!-- http://t.co/dKP3o1e -->
@@ -14,16 +14,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">
+  <link rel="canonical" href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">
   <link href="/favicon.png" type="image/png" rel="icon">
   <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
 
   <!-- http://opengraphprotocol.org/ -->
   <meta name="twitter:card" content="summary_large_image">
   <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">
-  <meta property="og:title" content="Automating the Build of OpenStack Lab (Part 1) - Network-oriented programming">
-  <meta property="og:description" content="Building a simple OpenStack undercloud">
+  <meta property="og:url" content="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">
+  <meta property="og:title" content="Automating the Build of OpenStack Lab (Part 2) - Network-oriented programming">
+  <meta property="og:description" content="Building a BGP L3 Clos fabric">
 
   <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
 
@@ -130,7 +130,7 @@
 
 
 
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-08-26T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">26/08/2016</time>
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-09-09T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">09/09/2016</time>
         
            | <a href="#disqus_thread" itemprop="discussionUrl"
              data-disqus-identifier="http://networkop.github.io">Comments</a>
@@ -139,114 +139,142 @@
     
     
     <h1 class="entry-title" itemprop="name headline">
-        Automating the Build of OpenStack Lab (Part 1)
+        Automating the Build of OpenStack Lab (Part 2)
         
     </h1>
     
   </header>
 
 
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post we will explore what&rsquo;s required to perform a zero-touch deployment of an OpenStack cloud. We&rsquo;ll get a 3-node lab up and running inside UNetLab with just a few commands.</p>
+<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post we&rsquo;ll use Chef, unnumbered BGP and Cumulus VX to build a massively scalable &ldquo;Lapukhov&rdquo; Leaf-Spine data centre.</p>
 
 <!--more-->
 
 
 <hr />
 
-<p>Now that I&rsquo;m finally beginning to settle down at my new place of residence I can start spending more time on research and blogging. I have left off right before I was about to start exploring the native OpenStack distributed virtual routing function. However as I&rsquo;d started rebuilding my OpenStack lab from scratch I realised that I was doing a lot of repetitive tasks which can be easily automated. Couple that with the fact that I needed to learn Chef for my new work and you&rsquo;ve got this blogpost describing a few Chef <a href="https://github.com/networkop/chef-unl-os.git">cookbooks</a> (similar to Ansible&rsquo;s playbook) automating all those manual steps described in my earlier blogposts <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">1</a> and <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">2</a>.<br/>
-In addition to that in this post I&rsquo;ll show how to build a very simple OpenStack baremetal provisioner and installer. Some examples of production-grade baremetal provisioners are <a href="https://wiki.openstack.org/wiki/Ironic">Ironic</a>, <a href="http://crowbar.github.io/">Crowbar</a> and <a href="http://maas.io/">MAAS</a>. In our case we&rsquo;ll turn UNetLab VM into an <strong>undercloud</strong>, a server used to provision and deploy our OpenStack lab, an <strong>overcloud</strong>. To do that we&rsquo;ll first install and configure DHCP, TFTP and Apache servers to PXE-boot our UNL OpenStack nodes. Once all the nodes are bootstrapped, we&rsquo;ll use Chef to configure the server networking and kickoff the packstack OpenStack installer.</p>
+<p>In the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">last post</a> we&rsquo;ve seen how to use Chef to automate the build of a 3-node OpenStack cloud. The only thing remaining is to build an underlay network supporting communication between the nodes, which is what we&rsquo;re going to do next. The build process will, again, be relatively simple and will include only a few manual steps, but before we get there let me go over some of the decisions and assumptions I&rsquo;ve made in my network design.</p>
 
-<p><img class="center" src="/images/os-lab-chef.png"></p>
+<h2>High-level design</h2>
 
-<p>In this post I&rsquo;ll try to use Chef recipes that I&rsquo;ve written as much as possible, therefore you won&rsquo;t see the actual configuration commands, e.g. how to configure Apache or DHCP servers. However I will try to describe everything that happens at each step and hopefully that will provide enough incentive for the curious to look into the Chef code and see how it&rsquo;s done. To help with the Chef code understanding let me start with a brief overview of what to look for in a cookbook.</p>
+<p>The need to provide more bandwidth for East-West traffic has made the Clos Leaf-Spine architecture a de facto standard in any data centre network design. The use of virtual overlay networks has obviated the requirement to have a strict VLAN and IP numbering schemes in the underlay. The only requirement for the compute nodes now is to have any-to-any layer 3 connectivity. This is how the underlay network design has converged to a Layer 3 Leaf-Spine architecture.<br/>
+The choice of a routing protocol is not so straight-forward. My fellow countryman Petr Lapukhov and co-authors of <a href="https://tools.ietf.org/html/draft-ietf-rtgwg-bgp-routi3ng-large-dc-11">RFC draft</a> claim that having a single routing protocol in your WAN and DC reduces complexity and makes interoperability and operations a lot easier. This draft presents some of the design principles that can be used to build a L3 data centre with BGP as the only routing protocol. In our lab we&rsquo;re going to implement a single &ldquo;cluster&rdquo; of the multi-tier topology proposed in that RFC.</p>
 
-<h2>How to read a Chef cookbook (Optional)</h2>
+<p><img class="center" src="/images/os-lab-chef-full.png"></p>
 
-<p>A cookbook directory (<strong>/cookbooks/[cookbook_name]</strong>) contains all its configuration scripts in <strong>/recipes</strong>. Each file inside a recipe contains a list of steps to be performed on a server. Each step is an operation (add/delete/update) on a <strong>resource</strong>. Here are some of the common Chef resources:</p>
+<p>In order to help us build this in an automated and scalable way, we&rsquo;re going to use a relatively new feature called <strong>unnumbered BGP</strong>.</p>
 
-<ul>
-<li>Package - allows you to add, remove or update a package</li>
-<li>Template - creates a file from an <strong>erb</strong>-formatted template</li>
-<li>Execute - runs an ad-hoc CLI command</li>
-</ul>
+<h2>Unnumbered BGP as a replacement for IGP</h2>
 
+<p>As we all know, one of the main advantages of interior gateway protocols is the automatic discovery of adjacent routers which is accomplished with the help of link-local multicasts. On the other hand, BGP traditionally required you to explicitly define neighbor&rsquo;s IP address in order to establish a peering relationship with it. This is where IPv6 comes to the rescue. With the help of neighbor discovery protocol and router advertisement messages, it becomes possible to accurately determine the address of the peer BGP router on an intra-fabric link. The only question is how we would exchange IPv4 information over and IPv6-only BGP network.<br/>
+<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the adveritised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
 
-<p>Just these three basic resources allow you to do 95% of administrative tasks on any server. Most importantly they do it in platform-independent (any flavour of Linux) and idempotent (only make changes if current state is different from a desired state) way. Other directories you might want to explore are:</p>
+<h2>Configuration example on Cumulus VX</h2>
 
-<ul>
-<li>/templates - contains all the <strong>erb</strong>-formatted templates</li>
-<li>/attributes - contains recipe variables (file paths, urls etc.)</li>
-<li>/files - contains the non-template files, i.e. files with static content</li>
-</ul>
-
-
-<h2>Bootstrapping the OpenStack nodes</h2>
+<p>In order to implement BGP unnumbered on Cumulus Linux all you need to is:</p>
 
 <ol>
-<li><p>If you haven&rsquo;t done it yet, download a copy of the <strong>UNetLab VM</strong> from the <a href="http://www.unetlab.com/">official website</a>. Set it up inside your hypervisor so that you can access Internet through the first interface <strong>pnet0</strong> (i.e. connect the first NIC of the VM to hypervisor&rsquo;s NAT interface). Make sure the VM has got at least 6GB of RAM and VT-x support enabled for nested virtualization.</p></li>
-<li><p>Follow the official <a href="https://downloads.chef.io/chef-dk/">installation instructions</a> to <strong>install Chef Development Kit</strong> inside UNetLab VM.</p>
+<li>Enable IPv6 router advertisements on all transit links</li>
+<li>Enable BGP on the same interfaces</li>
+</ol>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   wget <a href="https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.16.28-1_amd64.deb">https://packages.chef.io/stable/ubuntu/12.04/chefdk_0.16.28-1_amd64.deb</a>
-</span><span class='line'>   dpkg -i chefdk_0.16.28-1_amd64.deb
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p><strong>Install git</strong> and clone <a href="https://github.com/networkop/chef-unl-os.git">chef cookbooks</a>.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<p>Example Quagga configuration snippet will look like this:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
 <span class='line-number'>3</span>
 <span class='line-number'>4</span>
 <span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   apt-get -y update
-</span><span class='line'>   apt-get -y install git
-</span><span class='line'>   git clone <a href="https://github.com/networkop/chef-unl-os.git">https://github.com/networkop/chef-unl-os.git</a>
-</span><span class='line'>   <span class="nb">cd </span>chef-unl-os
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface swp1
+</span><span class='line'>  ipv6 nd ra-interval 5
+</span><span class='line'>  no ipv6 nd suppress-ra
+</span><span class='line'>
+</span><span class='line'>rouer bgp &lt;ASN&gt;
+</span><span class='line'>  neighbor swp1 interface
+</span><span class='line'>  neighbor swp1 external
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>As you can see, Cumulus simplifies it even more by allowing you to only specify the BGP peering type (external/internal) and learning the value of peer BGP AS dynamically from a neighbor.</p>
+
+<h2>Design assumptions and caveats</h2>
+
+<p>With all the above in mind, this is the list of decisions I&rsquo;ve made while building the fabric configuration:</p>
+
+<ul>
+<li>All switches inside the fabric will be running BGP peerings using <strong>IPv6 link-local</strong> addresses</li>
+<li><strong>eBGP</strong> will be used throughout to simplify configuration automation (all peers will be external)</li>
+<li>Each Leaf/Spine switch will have a <strong>unique IPv4 loopback</strong> address assigned for management purposes (ICMP, SSH)</li>
+<li>On each Leaf switch <strong>all directly connected IPv4</strong> prefixes will get redistributed into BGP</li>
+<li>BGP multipath rule will be &ldquo;relaxed&rdquo; to allow for different AS-PATHs. This is not used in our current topology but is required in an HA Leaf switch design (same IPv4 prefix will be advertised from two Leaf switches with different ASN)</li>
+<li>Loop prevention on Leaf switches will also be &ldquo;relaxed&rdquo;. This, again, is not used in our single &ldquo;cluster&rdquo; topology, however it will allow same Leaf ASNs to be reused in a different cluster.</li>
+</ul>
+
+
+<h2>Implementation steps</h2>
+
+<p>Picking up where we left off after the OpenStack node provisioning described in the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">previous post</a></p>
+
+<ol>
+<li><p>Get the latest <a href="https://github.com/networkop/chef-unl-os">OpenStack lab cookbooks</a></p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    git clone <a href="https://github.com/networkop/chef-unl-os.git">https://github.com/networkop/chef-unl-os.git</a>
+</span><span class='line'>    <span class="nb">cd </span>chef-unl-os
 </span><span class='line'>
 </span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Examine the lab <strong>environment settings</strong> to see what values are going to be used. You can modify that file to your liking.</p>
+<li><p><a href="https://cumulusnetworks.com/cumulus-vx/">Download</a> and import Cumulus VX image similar to how it&rsquo;s described <a href="http://www.unetlab.com/2015/06/adding-cisco-asav-images/">here</a>.</p>
 
-<blockquote><p>Note that the OpenStack node IDs (keys of <em>os_lab</em> hash) MUST have one to one correspondence with the UNL node IDs which will be created at step 5</p></blockquote>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   cat environment/lab.rb
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    /opt/unetlab/addons/qemu/cumulus-vx/hda.qcow2
 </span><span class='line'>
 </span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Run Chef against a local server to setup the <strong>baremetal provisioner</strong>. This step installs and configures DHCP, TFTP and Apache servers. It also creates all the necessary PXE-boot and kickstart files based on our environment settings. Note that a part of the process is the download of a 700MB CentOS image so it might take a while to complete.</p>
+<li><p>Build the topology inside UNL. Make sure that Node IDs inside UNL match the ones in <strong>chef-unl-os/environment/lab.rb</strong> file and that interfaces are connected as shown in the diagram below</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<p> <img class="center" src="/images/os-lab-unl.png"></p></li>
+<li><p>Re-run UNL self-provisioning cookbook to create a <a href="https://github.com/networkop/chef-unl-os/blob/master/cookbooks/pxe/templates/ztp.erb">zero touch provisioning</a> file and update DHCP server configuration with static entries for the switches.</p>
+
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   chef-client -z -E lab -o pxe
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    chef-client -z -E lab -o pxe
 </span><span class='line'>
 </span></code></pre></td></tr></table></div></figure></p>
 
-<p> At the start of the PXE-boot process, DCHP server sends an OFFER which, along with the standard IP information, includes the name of the PXE boot image and the IP address of TFTP server where to get it from. A server loads this image and then searches the TFTP server for the boot configuration file which tells it what kernel to load and where to get a kickstart file. Both kickstart and the actual installation files are accessed via HTTP and served by the same Apache server that runs UNL GUI.</p></li>
-<li><p>From <strong>UNL GUI</strong> create a new lab, add 3 OpenStack nodes and connect them all to <strong>pnet10</strong> interface as described in <a href="http://www.unetlab.com/2014/11/using-cloud-devices/">this guide</a>. Note that the <strong>pnet10</strong> interface has already been created by Chef so you don&rsquo;t have to re-create it again.</p>
+<p>  Cumulus <a href="https://docs.cumulusnetworks.com/display/DOCS/Zero+Touch+Provisioning+-+ZTP">ZTP</a> allows you to run a predefined script on the first boot of the operating system. In our case we inject a UNL VM&rsquo;s public key and enable passwordless <strong>sudo</strong> for cumulus user.</p></li>
+<li><p>Kickoff Chef provisioning to bootstrap and configure the DC fabric.</p>
 
-<blockquote><p>Make sure that the UNL node IDs match the ones defined in the environment setting file</p></blockquote></li>
-<li><p>Fire-up the nodes and watch them being bootstrapped by our UNL VM.</p></li>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>    chef-client -z -E lab fabric.rb
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>  This command instructs Chef provisioning to connect to each switch, download and install the Chef client and run a simple recipe to create quagga configuration file from a template.</p></li>
 </ol>
 
 
-<h2>Server provisioning</h2>
+<p>At the end of step 5 we should have a fully functional BGP-only fabric and all 3 compute nodes should be able to reach each other in at most 4 hops.</p>
 
-<p>Next step is to configure the server networking and kickoff the OpenStack installer. These steps will also be done with a single command:</p>
-
-<p>   <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<figure class='code'><figcaption><span>[root@controller-1 ~]# traceroute 10.0.0.4</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   chef-client -z -E lab lab.rb
-</span><span class='line'>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>traceroute to 10.0.0.4 <span class="o">(</span>10.0.0.4<span class="o">)</span>, <span class="m">30</span> hops max, <span class="m">60</span> byte packets
+</span><span class='line'> <span class="m">1</span>  10.0.0.1 <span class="o">(</span>10.0.0.1<span class="o">)</span>  0.609 ms  0.589 ms  0.836 ms
+</span><span class='line'> <span class="m">2</span>  10.255.255.7 <span class="o">(</span>10.255.255.7<span class="o">)</span>  0.875 ms  2.957 ms  3.083 ms
+</span><span class='line'> <span class="m">3</span>  10.255.255.6 <span class="o">(</span>10.255.255.6<span class="o">)</span>  3.473 ms  5.486 ms  3.147 ms
+</span><span class='line'> <span class="m">4</span>  10.0.0.4 <span class="o">(</span>10.0.0.4<span class="o">)</span>  4.231 ms  4.159 ms  4.115 ms
 </span></code></pre></td></tr></table></div></figure>
-The first part of this script will connect to each prospective OpenStack node and setup its network interfaces and hostnames. The second part of this script will generate a packstack answer file and modify its settings to exclude some of the components we&rsquo;re not going to use (like Nagios, Ceph and Ceilometer). Have a look at <strong>cookbooks/packstack/recipe/default.rb</strong> for the list of modifications. The final step is a command to kickoff the packstack installer which will use another configuration management system, Puppet, to install and configure OpenStack according to the provided answer file.</p>
 
-<p>At the end of these steps you should have a fully functional 3-node OpenStack environment.</p>
 
-<h2>To be continued&hellip;</h2>
 
-<p>This is a part of a 2-post series. In the next post we&rsquo;ll look into how to use the same tools to perform the baremetal provisioning of our physical underlay network.</p>
 </div>
 
 
@@ -270,7 +298,7 @@ The first part of this script will connect to each prospective OpenStack node an
 
 
 
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-08-26T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">26/08/2016</time>
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-09-09T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">09/09/2016</time>
           
 
 <span class="glyphicon glyphicon-tags"></span>&nbsp;
@@ -285,7 +313,7 @@ The first part of this script will connect to each prospective OpenStack node an
         
           <div class="sharing">
   
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/08/26/os-lab-p1/" data-via="" data-counturl="http://networkop.github.io/blog/2016/08/26/os-lab-p1/" >Tweet</a>
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/09/09/os-lab-p2/" data-via="" data-counturl="http://networkop.github.io/blog/2016/09/09/os-lab-p2/" >Tweet</a>
   
   
   
@@ -293,7 +321,7 @@ The first part of this script will connect to each prospective OpenStack node an
   
 	
 	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/08/26/os-lab-p1/" data-counter="right"></script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/09/09/os-lab-p2/" data-counter="right"></script>
 	
 </div>
 
@@ -301,10 +329,8 @@ The first part of this script will connect to each prospective OpenStack node an
         
           <ul class="meta text-muted pager">
             
-            <li class="previous"><a href="/blog/2016/05/21/neutron-l2gw/" title="Previous Post: OpenStack SDN - Interconnecting VMs and physical devices with Cumulus VX L2 gateway">&laquo; OpenStack SDN - Interconnecting VMs and physical devices with Cumulus VX L2 gateway</a></li>
+            <li class="previous"><a href="/blog/2016/08/26/os-lab-p1/" title="Previous Post: Automating the build of OpenStack lab (Part 1)">&laquo; Automating the build of OpenStack lab (Part 1)</a></li>
             
-            
-            <li class="next"><a href="/blog/2016/09/09/os-lab-p2/" title="Next Post: Automating the build of OpenStack lab (Part 2)">Automating the build of OpenStack lab (Part 2) &raquo;</a></li>
             
           </ul>
         
@@ -329,9 +355,9 @@ The first part of this script will connect to each prospective OpenStack node an
   
   <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2016/09/09/os-lab-p2/">Automating the Build of OpenStack Lab (Part 2)</a>
+    <a class="list-group-item active" href="/blog/2016/09/09/os-lab-p2/">Automating the Build of OpenStack Lab (Part 2)</a>
     
-    <a class="list-group-item active" href="/blog/2016/08/26/os-lab-p1/">Automating the Build of OpenStack Lab (Part 1)</a>
+    <a class="list-group-item " href="/blog/2016/08/26/os-lab-p1/">Automating the Build of OpenStack Lab (Part 1)</a>
     
     <a class="list-group-item " href="/blog/2016/05/21/neutron-l2gw/">OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway</a>
     
@@ -496,8 +522,8 @@ The first part of this script will connect to each prospective OpenStack node an
       
         
         // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2016/08/26/os-lab-p1/';
-        var disqus_url = 'http://networkop.github.io/blog/2016/08/26/os-lab-p1/';
+        var disqus_identifier = 'http://networkop.github.io/blog/2016/09/09/os-lab-p2/';
+        var disqus_url = 'http://networkop.github.io/blog/2016/09/09/os-lab-p2/';
         var disqus_script = 'embed.js';
       
     (function () {
