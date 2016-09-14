@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-09-07T13:40:40-07:00</updated>
+  <updated>2016-09-14T14:06:04-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -39,7 +39,7 @@ The choice of a routing protocol is not so straight-forward. My fellow countryma
 <h2>Unnumbered BGP as a replacement for IGP</h2>
 
 <p>As we all know, one of the main advantages of interior gateway protocols is the automatic discovery of adjacent routers which is accomplished with the help of link-local multicasts. On the other hand, BGP traditionally required you to explicitly define neighbor&rsquo;s IP address in order to establish a peering relationship with it. This is where IPv6 comes to the rescue. With the help of neighbor discovery protocol and router advertisement messages, it becomes possible to accurately determine the address of the peer BGP router on an intra-fabric link. The only question is how we would exchange IPv4 information over and IPv6-only BGP network.<br/>
-<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the adveritised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
+<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the advertised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
 
 <h2>Configuration example on Cumulus VX</h2>
 
@@ -665,397 +665,6 @@ neutron
 <p>In the next post I was planning to examine another &ldquo;must have&rdquo; feature of any SDN solution - Distributed Virtual Routing. However due to my current circumstances I may need to take a few weeks' break before going on. Be back soon!</p>
 
 <p><img class="center" src="http://networkop.github.io/images/be-back.jpg"></p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Openstack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway]]></title>
-    <link href="http://networkop.github.io/blog/2016/05/18/neutron-l2gw/"/>
-    <updated>2016-05-18T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2016/05/18/neutron-l2gw</id>
-    <content type="html"><![CDATA[<p>One of the basic function of any data centre network is the ability to communicate with baremetal workloads. In this post we&rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</p>
-
-<!--more-->
-
-
-<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="http://networkop.github.io/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/">downloaded</a> and imported into my lab.</p>
-
-<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-overview.png"></p>
-
-<p>To simulate the baremetal server (10.0.0.100) I&rsquo;ve VRF&rsquo;d an interface on Arista &ldquo;L4&rdquo; switch and connected it directly to a &ldquo;swp3&rdquo; interface of the Cumulus VX. This is not shown on the diagram.</p>
-
-<h2>Solution overview</h2>
-
-<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that comprise this solution:</p>
-
-<ul>
-<li><strong>Hardware switch</strong> implementing the OVSDB hardware vtep schema. This is a special &ldquo;flavour&rdquo; of OVSDB designed specifically to enable connectivity between logical (VXLAN VTEP) and physical (switchport) interfaces.</li>
-<li><strong>L2GW agent</strong> running on a network node. This is the process responsible for connecting to OVSDB server running on a hardware switch and updating that database based on instructions received from a L2GW service plugin.</li>
-<li><strong>L2GW Service Plugin</strong> residing on a control node. The task of this plugin is to notify the L2GW agent and normal L2 OVS agents running on compute hosts about network events and distribute VTEP IP address information between them.</li>
-</ul>
-
-
-<p>Note that in our case both network and control nodes are running on the same VM.</p>
-
-<h2>Cumulux VX configuration</h2>
-
-<p>Cumulux is a debian-based linux distribution, therefore most of the basic networking configuration will be similar to how things are done in Ubuntu. First, let&rsquo;s start by configuring basic IP addressing on Loopback (VTEP IP), Eth0 (OOB management), swp1 and swp2 (fabric) interfaces.</p>
-
-<figure class='code'><figcaption><span>/etc/network/interfaces</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>iface lo inet loopback
-</span><span class='line'>        address 10.0.0.5/32
-</span><span class='line'>
-</span><span class='line'>auto eth0
-</span><span class='line'>iface eth0 inet static
-</span><span class='line'>        address 192.168.91.21/24
-</span><span class='line'>
-</span><span class='line'>auto swp1
-</span><span class='line'>iface swp1 inet static
-</span><span class='line'>        address 169.254.51.5/24
-</span><span class='line'>
-</span><span class='line'>auto swp2
-</span><span class='line'>iface swp2 inet static
-</span><span class='line'>        address 169.254.52.5/24
-</span><span class='line'>
-</span><span class='line'>auto swp3
-</span><span class='line'>iface swp3
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Next, let&rsquo;s enable OSPF</p>
-
-<figure class='code'><figcaption><span>Enable OSPF process</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo sed -i s/zebra<span class="o">=</span>no/zebra<span class="o">=</span>yes/ /etc/quagga/daemons
-</span><span class='line'>sudo sed -i s/ospfd<span class="o">=</span>no/ospfd<span class="o">=</span>yes/ /etc/quagga/daemons
-</span><span class='line'>sudo service quagga restart
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Once OSPFd is running, we can use <code>sudo vtysh</code> to connect to local quagga shell and finalise the configuration.</p>
-
-<figure class='code'><figcaption><span>show run</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface lo
-</span><span class='line'> ip ospf area 0.0.0.0
-</span><span class='line'> link-detect
-</span><span class='line'>!
-</span><span class='line'>interface swp1
-</span><span class='line'> ip ospf area 0.0.0.0
-</span><span class='line'> ip ospf network point-to-point
-</span><span class='line'> link-detect
-</span><span class='line'>!
-</span><span class='line'>interface swp2
-</span><span class='line'> ip ospf area 0.0.0.0
-</span><span class='line'> ip ospf network point-to-point
-</span><span class='line'> link-detect
-</span><span class='line'>!
-</span><span class='line'>router ospf
-</span><span class='line'> ospf router-id 10.0.0.5
-</span><span class='line'> passive-interface default
-</span><span class='line'> no passive-interface swp1
-</span><span class='line'> no passive-interface swp2
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>At this stage our Cumulus VX switch should be fully adjacent to both spines and its loopback IP (10.0.0.5) should be reachable from all OpenStack nodes.</p>
-
-<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack">process</a> is faily simple and involves only a few commands.</p>
-
-<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo sed -i s/START<span class="o">=</span>no/START<span class="o">=</span>yes/g /etc/default/openvswitch-vtep
-</span><span class='line'><span class="nv">$ </span>sudo service openvswitch-vtep start
-</span><span class='line'><span class="nv">$ </span>sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>The last commands runs a bootstrap script that does the following things:</p>
-
-<ul>
-<li>Creates a hardware VTEP OVSDB schema</li>
-<li>Inside that schema creates a new physical switch called &ldquo;L5&rdquo;</li>
-<li>Sets the VTEP IP to 10.0.0.5</li>
-<li>Starts listening to incoming OVSDB connections on 192.168.91.21.</li>
-</ul>
-
-
-<h2>Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h2>
-
-<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that OVSDB is just a database and the OVSDB protocol is just a set of JSON RPC <a href="https://tools.ietf.org/html/rfc7047">calls</a> to work with that database. As it is with any database, an information that can be stored in it is defined by a schema - a structure that represents tables, columns and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
-
-<ul>
-<li><strong>Open_vSwitch <a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf">schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
-<li><strong>Hardware_vtep <a href="http://openvswitch.org/docs/vtep.5.pdf">schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
-</ul>
-
-
-<p>The information from these databases is later consumed by another process that sets up the actual bridges and ports. The first schema is used by the <strong>ovs-vswitchd</strong> process running on all compute hosts to configure ports for VMs, integration and tunnel bridges and VTEP interfaces. In case of a Cumulus switch, the information from &ldquo;hardware_vtep&rdquo; OVSDB is used by a process called <strong>ovs-vtepd</strong> that is responsible for settings up VXLAN VTEP interfaces, provisioning of VLANs on physical switchports and interconnecting them with a linux bridge.</p>
-
-<p>If you want to learn more check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html">awesome post</a> about hardware VTEP and OVS.</p>
-
-<h2>OpenStack Control node configuration</h2>
-
-<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/">other blogs</a>. I included it here for the sake of completeness and also because I had to do some modifications.</p>
-
-<ol>
-<li><p>Clone the L2GW repository</p>
-
-<pre><code class="`"> git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
-</code></pre></li>
-<li><p>Use pip to install the plugin</p>
-
-<pre><code class="`"> pip install ./networking-l2gw/
-</code></pre></li>
-<li><p>Enable L2GW service plugin</p>
-
-<pre><code class="`"> sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' /etc/neutron/neutron.conf
-</code></pre></li>
-<li><p>Copy L2GW configuration files</p>
-
-<pre><code class="`"> cp  /usr/etc/neutron/l2g* /etc/neutron/
-</code></pre></li>
-<li><p>Point L2GW plugin to our Cumulus VX switch</p>
-
-<pre><code class="`"> sudo sed -ri "s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/" /etc/neutron/l2gateway_agent.ini
-</code></pre></li>
-<li><p>Update Neutron database with tables required for L2GW</p>
-
-<pre><code class="`"> systemctl stop neutron-server
- neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
- systemctl start neutron-server
-</code></pre></li>
-<li><p>Update Neutron startup script include L2GW plugin</p>
-
-<pre><code class="`"> sed -ri "s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /" /usr/lib/systemd/system/neutron-server.service
-</code></pre></li>
-<li><p>Create a L2GW systemd unit</p>
-
-<pre><code class="`"> cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
- [Unit]
- Description=OpenStack Neutron L2 Gateway Agent
- After=neutron-server.service
-
- [Service]
- Type=simple
- User=neutron
- ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
- KillMode=process
-
- [Install]
- WantedBy=multi-user.target
- EOF
-</code></pre></li>
-<li><p>Restart both L2GW and neutron server</p>
-
-<pre><code class="`"> systemctl daemon-reload
- systemctl restart neutron-server.service
- systemctl start neutron-l2gateway-agent.service  
-</code></pre></li>
-<li><p>Enter the &ldquo;neutron configuration mode&rdquo;</p>
-
-<pre><code>source ~/keystone_admin
-neutron
-</code></pre></li>
-<li><p>Create a new L2GW</p>
-
-<pre><code>l2-gateway-create --device name="L5",interface_names="swp3" CUMULUS-L2GW
-</code></pre></li>
-<li><p>Create a connection between a &ldquo;private_network&rdquo; and a native vlan of swp3 interface</p>
-
-<pre><code>l2-gateway-connection-create --default-segmentation-id 0 CUMULUS-L2GW private_network
-</code></pre></li>
-</ol>
-
-
-<h2>Verficiation and Traffic Flows</h2>
-
-<p>At this stage everything should be ready for testing. We&rsquo;ll start by examining the traffic flow from a VM-2 (10.0.0.4) to the baremetal server (10.0.0.100).</p>
-
-<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-detailed.png"></p>
-
-<p>The communication starts with VM-2 sending an ARP request for the MAC address of the baremetal server. Packet flow inside the compute host will be exactly the same <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">as before</a>, with packet being flooded from the VM to the intergration and tunnel bridges. Inside the tunnel bridge the packet gets resubmitted to table 22 where head-end replication of ARP request takes place. The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards Cumulux VTEP IP. You can use the <code>ovs-appctl ofproto/trace</code> to see the full path a packet takes inside OVS, similiar to <code>packet-tracer</code> command on Cisco ASA.</p>
-
-<figure class='code'><figcaption><span>ARP request</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>1,arp,dl_vlan<span class="o">=</span>1,arp_tpa<span class="o">=</span>10.0.0.100 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
-</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>1
-</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
-</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">2</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00
-</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
-</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">20</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>0
-</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
-</span><span class='line'>                        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">22</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">dl_vlan</span><span class="o">=</span>1
-</span><span class='line'>                        OpenFlow <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>The packet leaving port 9 will get encapsulated into a VXLAN header with destination IP of 10.0.0.5 and forwarded out the fabric-facing interface eth1.100. When VXLAN packet reaches the vxln69 interface of the Cumulus switch, the ARP frame will get forwarded to <strong>br-vxlan69</strong> Linux bridge, which will flood the frame out the connected physical interface swp3.</p>
-
-<figure class='code'><figcaption><span>bridge fdb show</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>50:00:00:09:00:04 dev swp3 vlan <span class="m">0</span> master br-vxln69
-</span><span class='line'>50:00:00:07:00:03 dev swp3 vlan <span class="m">0</span> master br-vxln69 permanent
-</span><span class='line'>50:00:00:6b:2e:70 dev swp3 vlan <span class="m">0</span> master br-vxln69
-</span><span class='line'>26:21:90:a8:8a:cc dev vxln69 vlan <span class="m">0</span> master br-vxln69 permanent
-</span><span class='line'>fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan <span class="m">65535</span> self permanent
-</span><span class='line'>fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan <span class="m">65535</span> self permanent
-</span><span class='line'>fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan <span class="m">65535</span> self permanent
-</span><span class='line'>fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan <span class="m">65535</span> self permanent
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>The rest of the story is very simple. The ARP packet hits the baremetal server and populates its ARP cache. A unicast response travels all the way back to VM-2, populating the flow entries of all OVS switches along the way. These entries are then used by unicast message travelling from VM-2.</p>
-
-<figure class='code'><figcaption><span>Unicast packet to baremetal server</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>1,dl_vlan<span class="o">=</span>1,dl_dst<span class="o">=</span>50:00:00:6b:2e:70 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
-</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>1
-</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
-</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">2</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00
-</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
-</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">20</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>1,vlan_tci<span class="o">=</span>0x0001/0x0fff,dl_dst<span class="o">=</span>50:00:00:6b:2e:70
-</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x45-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:9
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/">service node</a> to perform the head-end replication. The idea is that a switch that requires a multicast packet to be replicated to multiple destinations, would send it to a service node, which keeps track of all active VTEPs on the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
-
-<h2>Programming Network Node as BUM replication service node</h2>
-
-<p>First of all, we need to tell our Cumulus switch to send all multicast packets to the network node. To do that we need to modify an OVSDB table called &ldquo;Mcast_Macs_Remote&rdquo;. Let&rsquo;s first make sure that this table is empty:</p>
-
-<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovsdb-client dump --pretty tcp:192.168.91.21:6632
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Now let&rsquo;s modify OVSDB manually to force all BUM traffic (unknown-dst is the keyword) to go to 10.0.3.10. The UUID of the logical switch can be found with <code>sudo vtep-ctl list-ls</code> command.</p>
-
-<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>At this stage all BUM traffic hits the network node and gets flooded to the DHCP and the virtual router. In order to force this traffic to be replicated to all compute nodes we can use some of the existing tables of the tunnel bridge. Before we do anything let&rsquo;s have a look at the tables our ARP request has to go through inside the tunnel bridge.</p>
-
-<figure class='code'><figcaption><span>ARP from Cumulus VX inside br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">2</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>4, <span class="nv">priority</span><span class="o">=</span>1,tun_id<span class="o">=</span>0x45 <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:1,resubmit<span class="o">(</span>,10<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>10,priority<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,cookie<span class="o">=</span>0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>We also have a default head-end replication table 22, which forwards all unmatched BUM traffic to all VTEPs:</p>
-
-<figure class='code'><figcaption><span>BUM replication table</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>22, <span class="nv">dl_vlan</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>So what we can do is create a new flow entry that would intercept all ARP packets inside table #4 and resubmit it to tables 10 and 22. Table 10 will take our packet to the intergration bridge of the network node and Table 22 will take a copy of the packet and replicate it to all known VXLAN endpoints.</p>
-
-<figure class='code'><figcaption><span>Manipulating OVS flows</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl add-flow br-tun <span class="s2">&quot;table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)&quot;</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>We can once again use the trace command to see the ARP request flow inside the tunnel bridge.</p>
-
-<figure class='code'><figcaption><span>Manipulating OVS flows</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>2,arp,tun_id<span class="o">=</span>0x45 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
-</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>2
-</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
-</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">4</span> <span class="nv">cookie</span><span class="o">=</span><span class="m">0</span> <span class="nv">priority</span><span class="o">=</span>2,arp,tun_id<span class="o">=</span>0x45
-</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:1,resubmit<span class="o">(</span>,10<span class="o">)</span>,resubmit<span class="o">(</span>,22<span class="o">)</span>
-</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">10</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">priority</span><span class="o">=</span>1
-</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,cookie<span class="o">=</span>0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
-</span><span class='line'>                        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0x91b1a9a9b6e8d608 <span class="nv">priority</span><span class="o">=</span>0
-</span><span class='line'>                        OpenFlow <span class="nv">actions</span><span class="o">=</span>NORMAL
-</span><span class='line'>                                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb36f6e358a37bea6 <span class="nv">priority</span><span class="o">=</span>2,in_port<span class="o">=</span>2
-</span><span class='line'>                                OpenFlow <span class="nv">actions</span><span class="o">=</span>drop
-</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">22</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">dl_vlan</span><span class="o">=</span>1
-</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p><img class="center" src="http://networkop.github.io/images/neutron-l2gw-arp.png"></p>
-
-<p>Now we should be able to clear the ARP cache on the baremetal device and successfully ping both VM-2, VM-1 and a virtual router.</p>
-
-<h2>Conclusion</h2>
-
-<p>The workaround presented above is just a temporary solution to the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily the patch has been implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c">merged</a> into master OVS branch only a few days ago.
-So hopefully, this update trickles down to Cumulus package respositories.</p>
-
-<p>Nevertheless it&rsquo;s a cool project that provides a very important piece of functionality without having to rely on 3rd party SDN controllers.</p>
 ]]></content>
   </entry>
   
@@ -4676,6 +4285,442 @@ The goal is to have configuration that would be copy-paste-friendly and would no
 <hr />
 
 <p>That&rsquo;s it for the basic L2/L3 and routing configuration. In the next post I will show how to automate a standard BGP configuration.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Automating Legacy Network Configuration]]></title>
+    <link href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/"/>
+    <updated>2015-08-14T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2015/08/14/automating-legacy-networks</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to take an already established network, pull out some of the common configuration pieces and put them all into a standard Ansible environment. A lot of configuration files will be omitted for the sake of brevity, however all of them can be found on my <a href="https://github.com/networkop/cisco-ansible-provisioning">github repository</a>.</p>
+
+<!--more-->
+
+
+<h2>Legacy network overview</h2>
+
+<p>The network I&rsquo;m using for demonstration is a cut-down version of a typical enterprise network. At this point of time it consists of a branch office network and a central DC network interconnected via redundant WAN links.
+The branch office consists of a main computer room hosting all core network devices and interconnecting with access switches on each of the office floors. Data Centre consists of a comms rack hosting all networking devices and a compute rack with <abbr title="Top-Of-the-Rack">TOR</abbr> switch connected back to the core.</p>
+
+<p><img class="centre" src="http://networkop.github.io/images/legacy-network-design.png" title="Legacy Network Topology" ></p>
+
+<h2>Ansible environment setup</h2>
+
+<p>As per the Ansible&rsquo;s <a href="http://docs.ansible.com/ansible/playbooks_best_practices.html">best practices</a> all configuration tasks are split into separate <code>roles</code>. Variables will be assigned to groups and we&rsquo;ll use host-specific variables to override them if necessary. A special directory <code>./files</code> will store all Ansible-generated configuration files.</p>
+
+<figure class='code'><figcaption><span>Ansible directory structure</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>drwxr-xr-x  <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:54 host_vars
+</span><span class='line'>drwxrwxrwx  <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 16:32 files
+</span><span class='line'>drwxr-xr-x  <span class="m">7</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:56 group_vars
+</span><span class='line'>drwxr-xr-x  <span class="m">7</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 15:18 roles
+</span><span class='line'>-rw-r--r--  <span class="m">1</span> root root  <span class="m">120</span> Jul <span class="m">12</span> 19:57 ansible.cfg
+</span><span class='line'>-rw-r--r--  <span class="m">1</span> root root  <span class="m">549</span> Jul <span class="m">12</span> 15:20 hosts
+</span><span class='line'>-rw-r--r--  <span class="m">1</span> root root  <span class="m">104</span> Jul <span class="m">12</span> 15:20 init.yml
+</span><span class='line'>-rw-r--r--  <span class="m">1</span> root root  <span class="m">240</span> Jul <span class="m">12</span> 15:20 site.yml
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>All network devices will be defined within two sets of groups - geographical and functional. This dual-homing of devices in multiple groups will give us greater flexibility when it comes to variable assignment and device configuration.</p>
+
+<figure class='code'><figcaption><span>./hosts</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>acme:children<span class="o">]</span>
+</span><span class='line'>DC
+</span><span class='line'>branch-1
+</span><span class='line'>
+</span><span class='line'><span class="o">[</span>DC<span class="o">]</span>
+</span><span class='line'>DC-CORE <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.1.1
+</span><span class='line'>DC-WAN-1 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.1.2
+</span><span class='line'>DC-WAN-2 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.1.3
+</span><span class='line'>DC-TOR <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.1.130
+</span><span class='line'>
+</span><span class='line'><span class="o">[</span>branch-1<span class="o">]</span>
+</span><span class='line'>BR-1-CORE <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.1
+</span><span class='line'>BR-1-WAN-1 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.2
+</span><span class='line'>BR-1-WAN-2 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.3
+</span><span class='line'>BR-1-AS01 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.130
+</span><span class='line'>BR-1-AS02 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.131
+</span><span class='line'>BR-1-AS03 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.132
+</span><span class='line'>
+</span><span class='line'><span class="o">[</span>routers<span class="o">]</span>
+</span><span class='line'>DC-CORE
+</span><span class='line'>DC-WAN-1
+</span><span class='line'>DC-WAN-2
+</span><span class='line'>BR-1-CORE
+</span><span class='line'>BR-1-WAN-1
+</span><span class='line'>BR-1-WAN-2
+</span><span class='line'>
+</span><span class='line'><span class="o">[</span>switches:children<span class="o">]</span>
+</span><span class='line'>access_switches
+</span><span class='line'>core_switches
+</span><span class='line'>
+</span><span class='line'><span class="o">[</span>core_switches<span class="o">]</span>
+</span><span class='line'>DC-CORE
+</span><span class='line'>BR-1-CORE
+</span><span class='line'>
+</span><span class='line'><span class="o">[</span>access_switches<span class="o">]</span>
+</span><span class='line'>DC-TOR
+</span><span class='line'>BR-1-AS01
+</span><span class='line'>BR-1-AS02
+</span><span class='line'>BR-1-AS03
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Create variables</h2>
+
+<p>Now we need to create variables we&rsquo;ll use in our template files. To do that we&rsquo;ll create another directory structure within the <code>./group_vars</code> directory</p>
+
+<figure class='code'><figcaption><span>ls -la ./group_vars</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">13</span> 04:41 access_switches
+</span><span class='line'>-rw-r--r-- <span class="m">1</span> root root  <span class="m">118</span> Jul <span class="m">12</span> 15:21 all
+</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:55 branch-1
+</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:56 branch-2
+</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:54 DC
+</span><span class='line'>-rw-r--r-- <span class="m">1</span> root root  <span class="m">120</span> Jul <span class="m">12</span> 15:21 passwords
+</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 15:20 routers
+</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">13</span> 04:41 switches
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The two files - <code>all</code> and <code>passwords</code> will contain variables relevant to network as a whole and confidential information respectively. Each of the directories within <code>./group_vars</code> corresponds to a particular inventory group. Within those directories there are files containing group-specific variables, like the one below:</p>
+
+<figure class='code'><figcaption><span>./group_vars/routers/common</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>---
+</span><span class='line'>management_interface: Loopback0
+</span><span class='line'>
+</span><span class='line'>external_interface_bw:
+</span><span class='line'>  DC-WAN-1:
+</span><span class='line'>    Ethernet0/1: 10000
+</span><span class='line'>  DC-WAN-2:
+</span><span class='line'>    Ethernet0/1: 5000
+</span><span class='line'>  BR-1-WAN-1:
+</span><span class='line'>    Ethernet0/0: 10000
+</span><span class='line'>  BR-1-WAN-2:
+</span><span class='line'>    Ethernet0/0: 5000
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This file contains management interface for all routed devices as well as external interface bandwidth information which will be used for QoS configuration later.</p>
+
+<h2>Create device configuration templates</h2>
+
+<p>To get started, we need to dump running configuration from all network devices and put it into Jinja templates. This only needs to be done once by running <code>ansible-playbook init.yml</code> command. This playbook uses <code>raw</code> module to get the running configuration from each device and stores this information in <code>./roles/non-standard/templates/{{inventory_hostname}}.j2</code> files.</p>
+
+<h2>System management configuration automation</h2>
+
+<p>Now, it&rsquo;s finally time to do some automation. Since all our devices have similar configuration of AAA, SYSLOG, NTP, VTY and SNMP we can easily remove these parts from <code>non-standard</code> templates and put them into a <code>management</code> role.
+To do this we&rsquo;ll:</p>
+
+<ol>
+<li>Create a template configuration file for each of the system management components (aaa, syslog etc.)</li>
+<li>Remove all IP addresses from those templates and replace them with variables</li>
+<li>Remove the duplicate lines from each of the templates in <code>non-standard</code> role</li>
+</ol>
+
+
+<p>The main management template will have a number of references to other template files</p>
+
+<figure class='code'><figcaption><span>./roles/management/templates/management.j2</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+</pre></td><td class='code'><pre><code class='jinja'><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;services.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">!</span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;aaa.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">!</span>
+</span><span class='line'><span class="x">clock timezone </span><span class="cp">{{</span> <span class="nv">time_zone_name</span> <span class="cp">}}</span><span class="x"> </span><span class="cp">{{</span> <span class="nv">time_zone_hours</span> <span class="cp">}}</span><span class="x"> </span><span class="cp">{{</span> <span class="nv">time_zone_minutes</span> <span class="cp">}}</span><span class="x"></span>
+</span><span class='line'><span class="x">!</span>
+</span><span class='line'><span class="x">ip domain-name </span><span class="cp">{{</span> <span class="nv">domain_name</span> <span class="cp">}}</span><span class="x"></span>
+</span><span class='line'><span class="x">no ip domain-lookup</span>
+</span><span class='line'><span class="x">!</span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;logging.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">!</span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;snmp.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">!</span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;ntp.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">!</span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;ssh.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">!</span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;vty.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Each of the included template files will contain only relevant configuration and will have some of its values replaced with variables:</p>
+
+<figure class='code'><figcaption><span>./roles/management/templates/snmp.j2</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='jinja'><span class='line'><span class="x">snmp-server community </span><span class="cp">{{</span> <span class="nv">snmp_ro_community</span> <span class="cp">}}</span><span class="x"> RO</span>
+</span><span class='line'><span class="x">snmp-server trap-source </span><span class="cp">{{</span> <span class="nv">management_interface</span> <span class="cp">}}</span><span class="x"></span>
+</span><span class='line'><span class="x">snmp-server contact </span><span class="cp">{{</span> <span class="nv">snmp_contact</span> <span class="cp">}}</span><span class="x"></span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">for</span> <span class="nv">ip</span> <span class="k">in</span> <span class="nv">snmp_servers</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">snmp-server host </span><span class="cp">{{</span> <span class="nv">ip</span> <span class="cp">}}</span><span class="x"> </span><span class="cp">{{</span> <span class="nv">snmp_servers</span><span class="o">[</span><span class="nv">ip</span><span class="o">]</span> <span class="cp">}}</span><span class="x"></span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">endfor</span> <span class="cp">%}</span><span class="x"></span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Access switchport configuration</h2>
+
+<p>The trickiest part with automating switchport configuration is picking the right data structure to hold that information. There can be many switchport numbering schemes depending on whether the switches are stacked or the module number within the switch. I&rsquo;ve decided to store all switchport allocation as port ranges defined for a particular VLAN. The variable will be a hash (dictionary) with VLAN number as keys and another dictionary as value. That other dictionary will have a <code>EtherTypeSwitch/Module</code> as a key and list of ranges as values, where each range is defined with a start and stop value. In our case the switches are not stacked so the <code>EtherTypeSwitch/Module</code> key can be reduced to simply <code>EtherTypeModule</code>. The below variable defines VLAN 10 on ports <code>Ethernet0/0-3</code> and <code>Ethernet2/0-3</code>:</p>
+
+<figure class='code'><figcaption><span>./group_vars/switches/access_switches/access_ports</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>---
+</span><span class='line'>access_ports:
+</span><span class='line'>  10:
+</span><span class='line'>    Ethernet0:
+</span><span class='line'>      - - 0
+</span><span class='line'>        - 3
+</span><span class='line'>    Ethernet2:
+</span><span class='line'>      - - 0
+</span><span class='line'>        - 3
+</span><span class='line'>  30:
+</span><span class='line'>    Ethernet3:
+</span><span class='line'>      - - 0
+</span><span class='line'>        - 3
+</span><span class='line'>  50:
+</span><span class='line'>    Ethernet5:
+</span><span class='line'>      - - 0
+</span><span class='line'>        - 3
+</span><span class='line'>  40:
+</span><span class='line'>    Ethernet4:
+</span><span class='line'>      - - 0
+</span><span class='line'>        - 3
+</span><span class='line'>  999:
+</span><span class='line'>    Ethernet0:
+</span><span class='line'>      - - 1
+</span><span class='line'>        - 3
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Should the switch configuration differ from the above &lsquo;standard&rsquo; (e.g. DC-TOR in our case) it can be included in a host-specific file under <code>./host_vars</code> directory which will override the variable defined above.<br/>
+The template which will generate the switchport configuration is designed to have VLAN-specific configuration elements like port shutdown in case the VLAN is unused or an additional voice vlan number.</p>
+
+<figure class='code'><figcaption><span>roles/access-ports/templates/access-ports.j2</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+</pre></td><td class='code'><pre><code class='jinja'><span class='line'><span class="cp">{%</span>- <span class="k">for</span> <span class="nv">vlan</span> <span class="k">in</span> <span class="nv">access_ports</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">  </span><span class="cp">{%</span>- <span class="k">for</span> <span class="nv">sw_module</span> <span class="k">in</span> <span class="nv">access_ports</span><span class="o">[</span><span class="nv">vlan</span><span class="o">]</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">    </span><span class="cp">{%</span>- <span class="k">for</span> <span class="nv">int_range</span> <span class="k">in</span> <span class="nv">access_ports</span><span class="o">[</span><span class="nv">vlan</span><span class="o">][</span><span class="nv">sw_module</span><span class="o">]</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">      </span><span class="cp">{%</span>- <span class="k">for</span> <span class="nv">x</span> <span class="k">in</span> <span class="nv">range</span><span class="o">(</span><span class="nv">int_range</span><span class="o">[</span><span class="m">0</span><span class="o">],</span><span class="nv">int_range</span><span class="o">[</span><span class="m">1</span><span class="o">])</span> <span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">        interface range </span><span class="cp">{{</span> <span class="nv">sw_module</span> <span class="cp">}}</span><span class="x">/</span><span class="cp">{{</span> <span class="nv">x</span> <span class="cp">}}</span><span class="x"></span>
+</span><span class='line'><span class="x">        switchport mode access</span>
+</span><span class='line'><span class="x">        switchport access vlan </span><span class="cp">{{</span> <span class="nv">vlan</span> <span class="cp">}}</span><span class="x"></span>
+</span><span class='line'><span class="x">        switchport spanning-tree portfast</span>
+</span><span class='line'><span class="x">        </span><span class="cp">{%</span> <span class="k">if</span> <span class="nv">vlan</span> <span class="o">==</span> <span class="m">999</span> -<span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">        shutdown</span>
+</span><span class='line'><span class="x">        </span><span class="cp">{%</span> <span class="k">endif</span> -<span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">        </span><span class="cp">{%</span> <span class="k">if</span> <span class="nv">vlan</span> <span class="o">==</span> <span class="m">10</span> -<span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">        switchport voice vlan 20</span>
+</span><span class='line'><span class="x">        </span><span class="cp">{%</span> <span class="k">endif</span> -<span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">      </span><span class="cp">{%</span> <span class="k">endfor</span> -<span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">    </span><span class="cp">{%</span> <span class="k">endfor</span> -<span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="x">  </span><span class="cp">{%</span> <span class="k">endfor</span> -<span class="cp">%}</span><span class="x"></span>
+</span><span class='line'><span class="cp">{%</span> <span class="k">endfor</span> -<span class="cp">%}</span><span class="x"></span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>VLANs configuration</h2>
+
+<p>The other common bit amongst most of the switches is VLAN and STP configuration. This can be easily extracted and put into a separate <code>vlans</code> role. To allocate VLANs we&rsquo;ll use the following variable:</p>
+
+<figure class='code'><figcaption><span>group_vars/switches/vlans</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="l-Scalar-Plain">vlans</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">10</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">DATA</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">20</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">VOICE</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">30</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">MGMT</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">40</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">PRINTER</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">50</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">WLAN</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">999</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">UNUSED</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>QoS configuration</h2>
+
+<p>QoS configuration automation is relatively easy. Once we&rsquo;ve identifies the common configuration commands and removed them from <code>non-standard</code> templates, we will put them into their own <code>wan-qos</code> role and use the <code>external_interface_bw</code> variable defined above to populate the QoS template.</p>
+
+<h2>Site Playbook</h2>
+
+<p>Finally we&rsquo;ll combine all the roles defined above in a single playbook which will generate configuration files for all devices under <code>./files</code> directory.</p>
+
+<figure class='code'><figcaption><span>./site.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
+</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">acme</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">vars_files</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">group_vars/passwords</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">roles</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">non-standard</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">management</span>
+</span><span class='line'>
+</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">routers</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">roles</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">wan-qos</span>
+</span><span class='line'>
+</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">switches</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">roles</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">access-ports</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">vlans</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>By this time <code>.non-standard</code> files should only contain inter-device link and routing configuration. All management, access switchport, VLANs and QoS configuration has been removed and allocated to different roles.</p>
+
+<hr />
+
+<p>This post demonstrated how to abstract common pieces of configuration and lay the groundwork for future site provisioning and enterprise-wide configuration changes. In the next post I&rsquo;ll show how to use the information collected so far to automate the build of a new branch office network.</p>
 ]]></content>
   </entry>
   

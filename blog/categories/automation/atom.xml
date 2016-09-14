@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Automation | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/automation/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-09-07T13:40:40-07:00</updated>
+  <updated>2016-09-14T14:06:04-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -39,7 +39,7 @@ The choice of a routing protocol is not so straight-forward. My fellow countryma
 <h2>Unnumbered BGP as a replacement for IGP</h2>
 
 <p>As we all know, one of the main advantages of interior gateway protocols is the automatic discovery of adjacent routers which is accomplished with the help of link-local multicasts. On the other hand, BGP traditionally required you to explicitly define neighbor&rsquo;s IP address in order to establish a peering relationship with it. This is where IPv6 comes to the rescue. With the help of neighbor discovery protocol and router advertisement messages, it becomes possible to accurately determine the address of the peer BGP router on an intra-fabric link. The only question is how we would exchange IPv4 information over and IPv6-only BGP network.<br/>
-<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the adveritised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
+<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the advertised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
 
 <h2>Configuration example on Cumulus VX</h2>
 

@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Sdn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/sdn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-09-07T13:40:40-07:00</updated>
+  <updated>2016-09-14T14:06:04-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -39,7 +39,7 @@ The choice of a routing protocol is not so straight-forward. My fellow countryma
 <h2>Unnumbered BGP as a replacement for IGP</h2>
 
 <p>As we all know, one of the main advantages of interior gateway protocols is the automatic discovery of adjacent routers which is accomplished with the help of link-local multicasts. On the other hand, BGP traditionally required you to explicitly define neighbor&rsquo;s IP address in order to establish a peering relationship with it. This is where IPv6 comes to the rescue. With the help of neighbor discovery protocol and router advertisement messages, it becomes possible to accurately determine the address of the peer BGP router on an intra-fabric link. The only question is how we would exchange IPv4 information over and IPv6-only BGP network.<br/>
-<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the adveritised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
+<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the advertised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
 
 <h2>Configuration example on Cumulus VX</h2>
 
@@ -552,298 +552,6 @@ OpenFlow actions=resubmit(,4)
   </entry>
   
   <entry>
-    <title type="html"><![CDATA[Openstack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway]]></title>
-    <link href="http://networkop.github.io/blog/2016/05/18/neutron-l2gw/"/>
-    <updated>2016-05-18T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2016/05/18/neutron-l2gw</id>
-    <content type="html"><![CDATA[<p>One of the basic function of any data centre network is the ability to communicate with baremetal workloads. In this post we&rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</p>
-
-<!--more-->
-
-
-<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/">downloaded</a> and imported into my lab.</p>
-
-<p><img class="center" src="/images/neutron-l2gw-overview.png"></p>
-
-<p>To simulate the baremetal server (10.0.0.100) I&rsquo;ve VRF&rsquo;d an interface on Arista &ldquo;L4&rdquo; switch and connected it directly to a &ldquo;swp3&rdquo; interface of the Cumulus VX. This is not shown on the diagram.</p>
-
-<h2>Solution overview</h2>
-
-<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that comprise this solution:</p>
-
-<ul>
-<li><strong>Hardware switch</strong> implementing the OVSDB hardware vtep schema. This is a special &ldquo;flavour&rdquo; of OVSDB designed specifically to enable connectivity between logical (VXLAN VTEP) and physical (switchport) interfaces.</li>
-<li><strong>L2GW agent</strong> running on a network node. This is the process responsible for connecting to OVSDB server running on a hardware switch and updating that database based on instructions received from a L2GW service plugin.</li>
-<li><strong>L2GW Service Plugin</strong> residing on a control node. The task of this plugin is to notify the L2GW agent and normal L2 OVS agents running on compute hosts about network events and distribute VTEP IP address information between them.</li>
-</ul>
-
-
-<p>Note that in our case both network and control nodes are running on the same VM.</p>
-
-<h2>Cumulux VX configuration</h2>
-
-<p>Cumulux is a debian-based linux distribution, therefore most of the basic networking configuration will be similar to how things are done in Ubuntu. First, let&rsquo;s start by configuring basic IP addressing on Loopback (VTEP IP), Eth0 (OOB management), swp1 and swp2 (fabric) interfaces.</p>
-
-<pre><code class="bash /etc/network/interfaces">iface lo inet loopback
-        address 10.0.0.5/32
-
-auto eth0
-iface eth0 inet static
-        address 192.168.91.21/24
-
-auto swp1
-iface swp1 inet static
-        address 169.254.51.5/24
-
-auto swp2
-iface swp2 inet static
-        address 169.254.52.5/24
-
-auto swp3
-iface swp3
-</code></pre>
-
-<p>Next, let&rsquo;s enable OSPF</p>
-
-<pre><code class="bash Enable OSPF process">sudo sed -i s/zebra=no/zebra=yes/ /etc/quagga/daemons
-sudo sed -i s/ospfd=no/ospfd=yes/ /etc/quagga/daemons
-sudo service quagga restart
-</code></pre>
-
-<p>Once OSPFd is running, we can use <code>sudo vtysh</code> to connect to local quagga shell and finalise the configuration.</p>
-
-<pre><code class="bash show run">interface lo
- ip ospf area 0.0.0.0
- link-detect
-!
-interface swp1
- ip ospf area 0.0.0.0
- ip ospf network point-to-point
- link-detect
-!
-interface swp2
- ip ospf area 0.0.0.0
- ip ospf network point-to-point
- link-detect
-!
-router ospf
- ospf router-id 10.0.0.5
- passive-interface default
- no passive-interface swp1
- no passive-interface swp2
-</code></pre>
-
-<p>At this stage our Cumulus VX switch should be fully adjacent to both spines and its loopback IP (10.0.0.5) should be reachable from all OpenStack nodes.</p>
-
-<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack">process</a> is faily simple and involves only a few commands.</p>
-
-<pre><code class="bash">$ sudo sed -i s/START=no/START=yes/g /etc/default/openvswitch-vtep
-$ sudo service openvswitch-vtep start
-$ sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
-</code></pre>
-
-<p>The last commands runs a bootstrap script that does the following things:</p>
-
-<ul>
-<li>Creates a hardware VTEP OVSDB schema</li>
-<li>Inside that schema creates a new physical switch called &ldquo;L5&rdquo;</li>
-<li>Sets the VTEP IP to 10.0.0.5</li>
-<li>Starts listening to incoming OVSDB connections on 192.168.91.21.</li>
-</ul>
-
-
-<h2>Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h2>
-
-<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that OVSDB is just a database and the OVSDB protocol is just a set of JSON RPC <a href="https://tools.ietf.org/html/rfc7047">calls</a> to work with that database. As it is with any database, an information that can be stored in it is defined by a schema - a structure that represents tables, columns and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
-
-<ul>
-<li><strong>Open_vSwitch <a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf">schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
-<li><strong>Hardware_vtep <a href="http://openvswitch.org/docs/vtep.5.pdf">schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
-</ul>
-
-
-<p>The information from these databases is later consumed by another process that sets up the actual bridges and ports. The first schema is used by the <strong>ovs-vswitchd</strong> process running on all compute hosts to configure ports for VMs, integration and tunnel bridges and VTEP interfaces. In case of a Cumulus switch, the information from &ldquo;hardware_vtep&rdquo; OVSDB is used by a process called <strong>ovs-vtepd</strong> that is responsible for settings up VXLAN VTEP interfaces, provisioning of VLANs on physical switchports and interconnecting them with a linux bridge.</p>
-
-<p>If you want to learn more check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html">awesome post</a> about hardware VTEP and OVS.</p>
-
-<h2>OpenStack Control node configuration</h2>
-
-<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/">other blogs</a>. I included it here for the sake of completeness and also because I had to do some modifications.</p>
-
-<ol>
-<li><p>Clone the L2GW repository</p>
-
-<pre><code class="`"> git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
-</code></pre></li>
-<li><p>Use pip to install the plugin</p>
-
-<pre><code class="`"> pip install ./networking-l2gw/
-</code></pre></li>
-<li><p>Enable L2GW service plugin</p>
-
-<pre><code class="`"> sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' /etc/neutron/neutron.conf
-</code></pre></li>
-<li><p>Copy L2GW configuration files</p>
-
-<pre><code class="`"> cp  /usr/etc/neutron/l2g* /etc/neutron/
-</code></pre></li>
-<li><p>Point L2GW plugin to our Cumulus VX switch</p>
-
-<pre><code class="`"> sudo sed -ri "s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/" /etc/neutron/l2gateway_agent.ini
-</code></pre></li>
-<li><p>Update Neutron database with tables required for L2GW</p>
-
-<pre><code class="`"> systemctl stop neutron-server
- neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
- systemctl start neutron-server
-</code></pre></li>
-<li><p>Update Neutron startup script include L2GW plugin</p>
-
-<pre><code class="`"> sed -ri "s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /" /usr/lib/systemd/system/neutron-server.service
-</code></pre></li>
-<li><p>Create a L2GW systemd unit</p>
-
-<pre><code class="`"> cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
- [Unit]
- Description=OpenStack Neutron L2 Gateway Agent
- After=neutron-server.service
-
- [Service]
- Type=simple
- User=neutron
- ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
- KillMode=process
-
- [Install]
- WantedBy=multi-user.target
- EOF
-</code></pre></li>
-<li><p>Restart both L2GW and neutron server</p>
-
-<pre><code class="`"> systemctl daemon-reload
- systemctl restart neutron-server.service
- systemctl start neutron-l2gateway-agent.service  
-</code></pre></li>
-<li><p>Enter the &ldquo;neutron configuration mode&rdquo;</p>
-
-<pre><code>source ~/keystone_admin
-neutron
-</code></pre></li>
-<li><p>Create a new L2GW</p>
-
-<pre><code>l2-gateway-create --device name="L5",interface_names="swp3" CUMULUS-L2GW
-</code></pre></li>
-<li><p>Create a connection between a &ldquo;private_network&rdquo; and a native vlan of swp3 interface</p>
-
-<pre><code>l2-gateway-connection-create --default-segmentation-id 0 CUMULUS-L2GW private_network
-</code></pre></li>
-</ol>
-
-
-<h2>Verficiation and Traffic Flows</h2>
-
-<p>At this stage everything should be ready for testing. We&rsquo;ll start by examining the traffic flow from a VM-2 (10.0.0.4) to the baremetal server (10.0.0.100).</p>
-
-<p><img class="center" src="/images/neutron-l2gw-detailed.png"></p>
-
-<p>The communication starts with VM-2 sending an ARP request for the MAC address of the baremetal server. Packet flow inside the compute host will be exactly the same <a href="/blog/2016/04/22/neutron-native/">as before</a>, with packet being flooded from the VM to the intergration and tunnel bridges. Inside the tunnel bridge the packet gets resubmitted to table 22 where head-end replication of ARP request takes place. The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards Cumulux VTEP IP. You can use the <code>ovs-appctl ofproto/trace</code> to see the full path a packet takes inside OVS, similiar to <code>packet-tracer</code> command on Cisco ASA.</p>
-
-<pre><code class="bash ARP request">$ ovs-appctl ofproto/trace br-tun in_port=1,arp,dl_vlan=1,arp_tpa=10.0.0.100 | grep -E "Rule|actions="
-Rule: table=0 cookie=0xb3c018296c2aa8a3 priority=1,in_port=1
-OpenFlow actions=resubmit(,2)
-        Rule: table=2 cookie=0xb3c018296c2aa8a3 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
-        OpenFlow actions=resubmit(,20)
-                Rule: table=20 cookie=0xb3c018296c2aa8a3 priority=0
-                OpenFlow actions=resubmit(,22)
-                        Rule: table=22 cookie=0xb3c018296c2aa8a3 dl_vlan=1
-                        OpenFlow actions=strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
-</code></pre>
-
-<p>The packet leaving port 9 will get encapsulated into a VXLAN header with destination IP of 10.0.0.5 and forwarded out the fabric-facing interface eth1.100. When VXLAN packet reaches the vxln69 interface of the Cumulus switch, the ARP frame will get forwarded to <strong>br-vxlan69</strong> Linux bridge, which will flood the frame out the connected physical interface swp3.</p>
-
-<pre><code class="bash bridge fdb show">50:00:00:09:00:04 dev swp3 vlan 0 master br-vxln69
-50:00:00:07:00:03 dev swp3 vlan 0 master br-vxln69 permanent
-50:00:00:6b:2e:70 dev swp3 vlan 0 master br-vxln69
-26:21:90:a8:8a:cc dev vxln69 vlan 0 master br-vxln69 permanent
-fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
-fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
-fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan 65535 self permanent
-fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan 65535 self permanent
-</code></pre>
-
-<p>The rest of the story is very simple. The ARP packet hits the baremetal server and populates its ARP cache. A unicast response travels all the way back to VM-2, populating the flow entries of all OVS switches along the way. These entries are then used by unicast message travelling from VM-2.</p>
-
-<pre><code class="bash Unicast packet to baremetal server">$ ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=50:00:00:6b:2e:70 | grep -E "Rule|actions="
-Rule: table=0 cookie=0xb5625033061a8ae5 priority=1,in_port=1
-OpenFlow actions=resubmit(,2)
-        Rule: table=2 cookie=0xb5625033061a8ae5 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
-        OpenFlow actions=resubmit(,20)
-                Rule: table=20 cookie=0xb5625033061a8ae5 priority=1,vlan_tci=0x0001/0x0fff,dl_dst=50:00:00:6b:2e:70
-                OpenFlow actions=load:0-&gt;NXM_OF_VLAN_TCI[],load:0x45-&gt;NXM_NX_TUN_ID[],output:9
-</code></pre>
-
-<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/">service node</a> to perform the head-end replication. The idea is that a switch that requires a multicast packet to be replicated to multiple destinations, would send it to a service node, which keeps track of all active VTEPs on the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
-
-<h2>Programming Network Node as BUM replication service node</h2>
-
-<p>First of all, we need to tell our Cumulus switch to send all multicast packets to the network node. To do that we need to modify an OVSDB table called &ldquo;Mcast_Macs_Remote&rdquo;. Let&rsquo;s first make sure that this table is empty:</p>
-
-<pre><code class="bash">ovsdb-client dump --pretty tcp:192.168.91.21:6632
-</code></pre>
-
-<p>Now let&rsquo;s modify OVSDB manually to force all BUM traffic (unknown-dst is the keyword) to go to 10.0.3.10. The UUID of the logical switch can be found with <code>sudo vtep-ctl list-ls</code> command.</p>
-
-<pre><code class="bash">sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
-</code></pre>
-
-<p>At this stage all BUM traffic hits the network node and gets flooded to the DHCP and the virtual router. In order to force this traffic to be replicated to all compute nodes we can use some of the existing tables of the tunnel bridge. Before we do anything let&rsquo;s have a look at the tables our ARP request has to go through inside the tunnel bridge.</p>
-
-<pre><code class="bash ARP from Cumulus VX inside br-tun">table=0, priority=1,in_port=2 actions=resubmit(,4)
-table=4, priority=1,tun_id=0x45 actions=mod_vlan_vid:1,resubmit(,10)
-table=10,priority=1 actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
-</code></pre>
-
-<p>We also have a default head-end replication table 22, which forwards all unmatched BUM traffic to all VTEPs:</p>
-
-<pre><code class="bash BUM replication table">table=22, dl_vlan=1 actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
-</code></pre>
-
-<p>So what we can do is create a new flow entry that would intercept all ARP packets inside table #4 and resubmit it to tables 10 and 22. Table 10 will take our packet to the intergration bridge of the network node and Table 22 will take a copy of the packet and replicate it to all known VXLAN endpoints.</p>
-
-<pre><code class="bash Manipulating OVS flows">ovs-ofctl add-flow br-tun "table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)"
-</code></pre>
-
-<p>We can once again use the trace command to see the ARP request flow inside the tunnel bridge.</p>
-
-<pre><code>$ ovs-appctl ofproto/trace br-tun in_port=2,arp,tun_id=0x45 | grep -E "Rule|actions="
-Rule: table=0 cookie=0x9f3e746b7ee48bbf priority=1,in_port=2
-OpenFlow actions=resubmit(,4)
-        Rule: table=4 cookie=0 priority=2,arp,tun_id=0x45
-        OpenFlow actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)
-                Rule: table=10 cookie=0x9f3e746b7ee48bbf priority=1
-                OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
-                        Rule: table=0 cookie=0x91b1a9a9b6e8d608 priority=0
-                        OpenFlow actions=NORMAL
-                                Rule: table=0 cookie=0xb36f6e358a37bea6 priority=2,in_port=2
-                                OpenFlow actions=drop
-                Rule: table=22 cookie=0x9f3e746b7ee48bbf dl_vlan=1
-                OpenFlow actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
-</code></pre>
-
-<p><img class="center" src="/images/neutron-l2gw-arp.png"></p>
-
-<p>Now we should be able to clear the ARP cache on the baremetal device and successfully ping both VM-2, VM-1 and a virtual router.</p>
-
-<h2>Conclusion</h2>
-
-<p>The workaround presented above is just a temporary solution to the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily the patch has been implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c">merged</a> into master OVS branch only a few days ago.
-So hopefully, this update trickles down to Cumulus package respositories.</p>
-
-<p>Nevertheless it&rsquo;s a cool project that provides a very important piece of functionality without having to rely on 3rd party SDN controllers.</p>
-]]></content>
-  </entry>
-  
-  <entry>
     <title type="html"><![CDATA[Openstack SDN - Extending a L2 Provider Network Over a L3 Fabric]]></title>
     <link href="http://networkop.github.io/blog/2016/05/11/neutron-routed-extnet/"/>
     <updated>2016-05-11T00:00:00-07:00</updated>
@@ -987,6 +695,118 @@ VLAN=yes
 <h2>Coming Up</h2>
 
 <p>In the next post we&rsquo;ll examine the L2 gateway feature that allows tenant networks to communicate with physical servers through yet another VXLAN-VLAN hardware gateway.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - L2 Population and ARP Proxy]]></title>
+    <link href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/"/>
+    <updated>2016-05-06T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/05/06/neutron-l2pop</id>
+    <content type="html"><![CDATA[<p>In the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a> we&rsquo;ve had a look at how native OpenStack SDN works and what are some of its limitations. In this post we&rsquo;ll tackle the first one of them - overhead created by multicast source replication.</p>
+
+<!--more-->
+
+
+<h2>MAC learning in a controller-less VXLAN overlay</h2>
+
+<p>VXLAN <a href="https://tools.ietf.org/html/rfc7348">standard</a> does not specify any control plane protocol to exchange MAC-IP bindings between VTEPs. Instead it relies on data plane flood-and-learn behaviour, just like a normal switch. To force this behaviour in an underlay, the standard stipulates that each VXLAN network should be mapped to its own multicast address and each VTEP participating in a network should join the corresponding multicast group. That multicast group would be used to flood the <abbr title="Broadcast Unknown unicast and Multicast">BUM</abbr> traffic in an underlay to all subscribed VTEPs thereby populating dynamic MAC address tables.</p>
+
+<p>Default OpenvSwitch implementation <a href="https://github.com/openvswitch/ovs/blob/master/FAQ.md#q-how-much-of-the-vxlan-protocol-does-open-vswitch-currently-support">does not support</a> VXLAN multicast flooding and uses unicast source replication instead. This decision comes with a number of tradeoffs:</p>
+
+<ul>
+<li>Duplicate packets consume additional bandwidth. Extra 100 bytes exchanged every 3 minutes in a 100-nodes environment generate around 500 kbit/s of traffic on average. This can be considered negligible inside modern high-speed DC fabrics.</li>
+<li>Hardware VTEP gateways rely on multicast for MAC learning and VTEP discovery. As we&rsquo;ll see later in the series, these gateways can now be controlled by Neutron just like a normal OVS inside a compute host.</li>
+<li>Duplicate packets are processed by hosts that do not need them, e.g. ARP request is processed by tunnel and integration bridges of all hosts that have VMs in the same broadcast domain. This presents some serious scaling limitation and is addressed by the L2 population feature described in this post.</li>
+</ul>
+
+
+<p>Despite all the tradeoffs, OVS with unicast source replication has become a de-facto standard in most recent OpenStack implementations. The biggest advantage of such approach is the lack of requirement for multicast in the underlay network.</p>
+
+<h2>VXLAN MAC learning with an SDN controller</h2>
+
+<p>Neutron server is aware of all active MAC and IP addresses within the environment. This information can be used to prepopulate forwarding entries on all tunnel bridges. This is accomplished by a <a href="https://github.com/openstack/neutron/tree/master/neutron/plugins/ml2/drivers/l2pop">L2 population</a> driver. However that in itself isn&rsquo;t enough. Whenever a VM doesn&rsquo;t know the destination MAC address, it will send a broadcast ARP request which needs to be intercepted and responded by a local host to stop it from being flooded in the network. The latter is accomplished by a feature called <a href="https://assafmuller.com/2014/05/21/ovs-arp-responder-theory-and-practice/">ARP responder</a> which simulates the functionality commonly known as <strong>ARP proxy</strong> inside the tunnel bridge.</p>
+
+<p><img class="center" src="/images/neutron-l2-arp.png"></p>
+
+<h3>Configuration</h3>
+
+<p>Configuration of these two features is <a href="https://kimizhang.wordpress.com/2014/04/01/how-ml2vxlan-works/">fairly straight-forward</a>. First, we need to add L2 population to the list of supported mechanism drivers on our control node and restart the neutron server.</p>
+
+<pre><code class="bash Update on control node">$ sed -ri 's/(mechanism_drivers.*)/\1,l2population/' /etc/neutron/plugin.ini
+$ service neutron-server restart  
+</code></pre>
+
+<p>Next we need to enable L2 population and ARP responder features on all 3 compute nodes.</p>
+
+<pre><code class="bash Updates on all 3 compute nodes">$ sed -ri 's/.*(arp_responder).*/\1 = true/' /etc/neutron/plugins/ml2/openvswitch_agent.ini
+$ sed -ri 's/.*(l2_population).*/\1 = true/' /etc/neutron/plugins/ml2/openvswitch_agent.ini
+$ service neutron-openvswitch-agent restart
+</code></pre>
+
+<p>Since L2 population is triggered by the <a href="https://assafmuller.com/2014/02/23/ml2-address-population/">port_up</a> messages, we might need to restart both our VMs for the change to take effect.</p>
+
+<h3>BUM frame from VM-1 for MAC address of VM-2 (Revisited)</h3>
+
+<p>Now let&rsquo;s once again examine what happens when VM-1 issues an ARP request for VM-2&rsquo;s MAC address (1a:bf).</p>
+
+<p>First, the frame hits the flood-and-learn rule of the integration bridge and gets flooded down to the tunnel bridge as desribed in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>. Once in the br-tun, the frames gets matched by the incoming port and resubmitted to table 2. In addition to a default unicast/multicast bit match, table 2 now also matches all ARP requests and resubmitts them to the new table 21. Note how the ARP entry has a higher priority to always match before the default catch-all multicast rule.</p>
+
+<pre><code class="bash ovs-ofctl dump-flows br-tun">table=0, priority=1,in_port=1 actions=resubmit(,2)
+table=2, priority=1,arp,dl_dst=ff:ff:ff:ff:ff:ff actions=resubmit(,21)
+table=2, priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,20)
+table=2, priority=0,dl_dst=01:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,22)
+</code></pre>
+
+<p>Inside table 21 are the entries created by the ARP responder feature. The following is an example entry that matches all ARP requests where target IP address field equals the IP of VM-2(10.0.0.9).</p>
+
+<pre><code class="bash ovs-ofctl dump-flows br-tun"> table=21, priority=1,arp,dl_vlan=1,arp_tpa=10.0.0.9 
+ actions=move:NXM_OF_ETH_SRC[]-&gt;NXM_OF_ETH_DST[],
+ mod_dl_src:fa:16:3e:ab:1a:bf,
+ load:0x2-&gt;NXM_OF_ARP_OP[],
+ move:NXM_NX_ARP_SHA[]-&gt;NXM_NX_ARP_THA[],
+ move:NXM_OF_ARP_SPA[]-&gt;NXM_OF_ARP_TPA[],
+ load:0xfa163eab1abf-&gt;NXM_NX_ARP_SHA[],
+ load:0xa000009-&gt;NXM_OF_ARP_SPA[],
+ IN_PORT
+</code></pre>
+
+<p>The resulting action builds an ARP response by modifying the fields and headers on the original ARP request message, specifically OVS:</p>
+
+<ol>
+<li>Copies the source MAC address (VM-1) to the destination MAC address header</li>
+<li>Spoofs the source MAC address to make it look like it comes from VM-2</li>
+<li>Modifies the operation code of ARP message to 0x2, meaning <strong>reply</strong></li>
+<li>Overwrites the target IP and MAC address fields inside the ARP packet with VM-1&rsquo;s values</li>
+<li>Overwrites the source hardware address with VM-2&rsquo;s MAC</li>
+<li>Overwrites the source IP address with the address of VM-2(0xa000009)</li>
+<li>Sends the packet out the port from which it was received</li>
+</ol>
+
+
+<h3>Unicast frame from VM-1 to VM-2 (Revisited)</h3>
+
+<p>Now that VM-1 has learned the MAC address of VM-2 it can start sending the unicast frames. The first few steps will again be the same. The frame hits the tunnel bridge, gets classified as a unicast and resubmitted to table 20. Table 20 will still have an entry generated by a <strong>learn</strong> action triggered by a packet coming from VM-2, however now it also has and identical entry with a higher priority(priority=2), which was preconfigured by a L2 population feature.</p>
+
+<pre><code class="bash">table=0, priority=1,in_port=1 actions=resubmit(,2)
+table=2, priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00 actions=resubmit(,20)
+table=20, priority=2,dl_vlan=1,dl_dst=fa:16:3e:ab:1a:bf actions=strip_vlan,set_tunnel:0x54,output:2
+table=20, priority=1,vlan_tci=0x0001/0x0fff,dl_dst=fa:16:3e:ab:1a:bf actions=load:0-&gt;NXM_OF_VLAN_TCI[],load:0x54-&gt;NXM_NX_TUN_ID[],output:2
+</code></pre>
+
+<h2>Other BUM traffic</h2>
+
+<p>The two features described in this post only affect the ARP traffic to VMs <strong>known</strong> to the Neutron server. All the other BUM traffic will still be flooded as described in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">previous post</a>.</p>
+
+<h2>Results</h2>
+
+<p>As the result of enabling L2 population and ARP responder features we were able to reduce the amount of BUM traffic in the overlay network and reduce the eliminate processing on compute hosts incurred by ARP request flooding.</p>
+
+<p>However one downside of this approach is the increased number of flow entries in tunnel bridges of compute hosts. Specifically, for each known VM there now will be two entries in the tunnel bridge with different priorities. This may have negative impact on performance and is something to keep in mind when designing OpenStack solutions for scale.</p>
+
+<h2>Coming Up</h2>
+
+<p>In the next post I&rsquo;ll show how to overcome the requirement of a direct L2 adjacency between the network node and external subnet. Specifically, I&rsquo;ll use Arista switch to extend a L2 provider network over a L3 leaf-spine Cisco fabric.</p>
 ]]></content>
   </entry>
   
