@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Openstack | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/openstack/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-10-13T03:03:05-07:00</updated>
+  <updated>2016-10-26T14:23:05-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -287,7 +287,7 @@ OpenFlow actions=goto_table:4
 
 <h2>External connectivity</h2>
 
-<p>External connectivity will be very different for VMs with and without a floating IP. Below diagram is a high-level representation of traffic flows in these two cases. We will examine each one of them individually.</p>
+<p>External connectivity will be very different for VMs with and without a floating IP. We will examine each case individually.</p>
 
 <h3>Case 1 - Overload NAT (VM2 with no FIP)</h3>
 
@@ -412,7 +412,7 @@ OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0xb9be3fe6292
 <pre><code class="bash ip netns exec fip-uuid ip neigh | grep 169.254.0.1">169.254.0.1 dev fg-d3bb699d-af lladdr 32:3e:7d:13:ca:78 DELAY
 </code></pre>
 
-<p>The packet is sent to the <strong>br-int</strong> with the destination MAC address of the default gateway.</p>
+<p>The packet is sent to the <strong>br-int</strong> with the destination MAC address of the default gateway, which is learned on port 3.</p>
 
 <pre><code class="bash ovs-appctl fdb/show br-int | grep 32:3e:7d:13:ca:78">  3     3  32:3e:7d:13:ca:78    1
 </code></pre>

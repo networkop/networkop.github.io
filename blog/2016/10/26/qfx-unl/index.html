@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Type-2 and Type-5 EPVN on vQFX 10k in UnetLab - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="Kicking the EVPN tires of virtual QFX 10k in UnetLab.">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2016/10/26/qfx-unl/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2016/10/26/qfx-unl/">
+  <meta property="og:title" content="Type-2 and Type-5 EPVN on vQFX 10k in UnetLab - Network-oriented programming">
+  <meta property="og:description" content="Kicking the EVPN tires of virtual QFX 10k in UnetLab.">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/automation/index.html">Network Automation</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/sdn/index.html">SDN</a>
+                </li>
+                <li>
+                    <a href="/blog/archives">Archives</a>
+                </li>
+				<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-10-26T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">26/10/2016</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Type-2 and Type-5 EPVN on vQFX 10k in UnetLab
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>I was fortunate enough to be given a chance to test the new virtual QFX 10k image from Juniper. In this post I will show how to import this image into UnetLab and demonstrate the basic L2 and L3 EVPN services.</p>
+
+<!--more-->
+
+
+<h2>News about UnetLab</h2>
+
+<p>Those who read my blog regularly know that I&rsquo;m a big fan of a network simulator called UnetLab. For the last two years I&rsquo;ve done all my labbing in UNL and was constantly surprised by how extensible and stable it has been. I believe that projects like this are very important to our networking community because they help train the new generation of network engineers and enable them to expand their horizons. Recently UnetLab team has decided take the next step and create a new version of UNL. This new project, called <a href="https://www.indiegogo.com/projects/eve-ng-emulated-virtual-environment-next-gen#/">EVE-NG</a>, will help users build labs of any size and run full replicas of their production networks, which is ideal for <a href="/blog/2016/02/19/network-ci-intro/">pre-deployment testing</a> of network changes. If you want to learn more, check out the <a href="https://www.indiegogo.com/projects/eve-ng-emulated-virtual-environment-next-gen#/">EVE-NG</a> page on indiegogo.</p>
+
+<h2>Creating vQFX nodes in UnetLab</h2>
+
+<p>Back to the business at hand, vQFX is not publically available yet but is expected to pop up at <a href="http://www.juniper.net/">Juniper.net</a> some time in the future. Similar to a recently released vMX, vQFX will consist of two virtual machines - one running the routing engine (RE) and second simulating the ASIC forwarding piplines (PFE). You can find more information about these images on Juniper&rsquo;s <a href="https://github.com/Juniper/vqfx10k-vagrant">Github page</a>. Images get distributed in multiple formats but in the context of this post we&rsquo;ll only deal with two VMDK files:</p>
+
+<figure class='code'><figcaption><span>vQFX images</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>vqfx10k-re-15.1X53-D60.vmdk
+</span><span class='line'>vqfx10k-pfe-20160609-2.vmdk
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>To be able to use these images in UnetLab, we first need to convert them to <strong>qcow2</strong> format and copy them to the directory where UNL stores all its qemu images:</p>
+
+<figure class='code'><figcaption><span>Importing VMDK images</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> mkdir /opt/unetlab/addons/qemu/qfx_re-15d1X53
+</span><span class='line'> mkdir /opt/unetlab/addons/qemu/qfx_pfe-20160609
+</span><span class='line'>
+</span><span class='line'>/opt/qemu/bin/qemu-img convert -f vmdk -O qcow2 vqfx10k-pfe-20160609-2.vmdk /opt/unetlab/addons/qemu/qfx_pfe-20160609/hda.qcow2
+</span><span class='line'>
+</span><span class='line'>/opt/qemu/bin/qemu-img convert -f vmdk -O qcow2 vqfx10k-re-15.1X53-D60.vmdk /opt/unetlab/addons/qemu/qfx_re-15d1X53/hda.qcow2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Next, we need to create new node definitions for RE and PFE VMs. The easiest way would be to clone the linux node type:</p>
+
+<figure class='code'><figcaption><span>Creating vQFX node definitions</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">cd</span> /opt/unetlab/html/templates
+</span><span class='line'>cp linux.php qfx_pfe.php
+</span><span class='line'>cp linux.php qfx_re.php
+</span><span class='line'>
+</span><span class='line'>sed -i <span class="s1">&#39;s/2048/1024/; s/virtio-net-pci/e1000/; s/Server/Switch/&#39;</span> qfx_re.php
+</span><span class='line'>sed -i <span class="s1">&#39;s/2048/1536/; s/virtio-net-pci/e1000/; s/Server/Switch/&#39;</span> qfx_pfe.php
+</span><span class='line'>
+</span><span class='line'>sed -i <span class="s1">&#39;s/Linux/QFX_RE/g; s/linux/qfx_re/g&#39;</span> qfx_re.php
+</span><span class='line'>sed -i <span class="s1">&#39;s/Linux/QFX_PFE/g; s/linux/qfx_pfe/g&#39;</span> qfx_pfe.php
+</span><span class='line'>
+</span><span class='line'>sed -ri <span class="s1">&#39;s/(.*ethernet.*) = 1/\1 = 2/&#39;</span> qfx_pfe.php
+</span><span class='line'>sed -ri <span class="s1">&#39;s/(.*ethernet.*) = 1/\1 = 8/&#39;</span> qfx_re.php
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now let&rsquo;s add the QFX to the list of nodes by modifying the following file:</p>
+
+<figure class='code'><figcaption><span>/opt/unetlab/html/includes/init.php</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="s1">&#39;openstack&#39;</span>             <span class="o">=</span>&gt;      <span class="s1">&#39;Openstack&#39;</span>,
+</span><span class='line'><span class="s1">&#39;qfx_re&#39;</span>                <span class="o">=</span>&gt;      <span class="s1">&#39;QFX10k-RE&#39;</span>,
+</span><span class='line'><span class="s1">&#39;qfx_pfe&#39;</span>               <span class="o">=</span>&gt;      <span class="s1">&#39;QFX10k-PFE&#39;</span>,
+</span><span class='line'><span class="s1">&#39;mikrotik&#39;</span>              <span class="o">=</span>&gt;      <span class="s1">&#39;MikroTik RouterOS&#39;</span>,
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Optionally, <code>/opt/unetlab/html/includes/__node.php</code> can be modified to change the default naming convention similar to the <code>vmx</code> node.</p>
+
+<p>Once you&rsquo;ve done all the above changes, you should have a working vQFX 10k node available in UNL GUI. For the purpose of demonstration of EVPN features I&rsquo;ve created the following topology:</p>
+
+<p><img class="center" src="/images/qfx-unl.png"></p>
+
+<h2>EVPN L2 and L3 services</h2>
+
+<p>EVPN standards define multiple routes types to distribute NLRI information across the network. The two most &ldquo;significant&rdquo; route types are 2 and 5. Type-2 NLRI was designed to carry the MAC (and optionally IP) address to VTEP IP binding information which is used to populate the dynamic MAC address table. This function, that was previously accomplished by a central SDN controller, is now performed in a scalable, standard-based, controller-independent fashion. <a href="http://www.juniper.net/documentation/en_US/junos16.1/topics/concept/evpn-route-type5-understanding.html">Type-5 NLRI</a> contains IP Prefix to VTEP IP mapping and is similar to the function of traditional L3 VPNs. In order to explore the capabilities of EVPN implementation on vQFX I&rsquo;ve created and artificial scenario with 3 virtual switches, 3 VLANs and 4 hosts.</p>
+
+<p><img class="center" src="/images/qfx-lab.png"></p>
+
+<p>VLAN10 (green) is present on all 3 switches, VLAN20 (purple) is only configured on switches 1 and 2 and VLAN88 (red) only exists on SW3. I&rsquo;ve provided configuration snippets below for reference purposes only and only for SW1. Remaining switches are configured similarly.</p>
+
+<h3>Configuring Basic IP and BGP setup</h3>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>interfaces xe-0/0/0 unit <span class="m">0</span> family inet address 12.12.12.1/24
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/2 unit <span class="m">0</span> family inet address 13.13.13.1/24
+</span><span class='line'><span class="nb">set </span>interfaces lo0 unit <span class="m">0</span> family inet address 99.99.99.1/32
+</span><span class='line'><span class="nb">set </span>routing-options static route 99.99.99.2/32 next-hop 12.12.12.2
+</span><span class='line'><span class="nb">set </span>routing-options static route 99.99.99.3/32 next-hop 13.13.13.3
+</span><span class='line'>
+</span><span class='line'><span class="nb">set </span>routing-options router-id 99.99.99.1
+</span><span class='line'><span class="nb">set </span>routing-options autonomous-system 555
+</span><span class='line'>
+</span><span class='line'><span class="nb">set </span>routing-options autonomous-system 555
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN <span class="nb">type </span>internal
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN <span class="nb">local</span>-address 99.99.99.1
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN family evpn signaling
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN neighbor 99.99.99.2
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN neighbor 99.99.99.3
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Configuring End-host connectivity and IRB</h3>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>vlans BD5010 vlan-id 10
+</span><span class='line'><span class="nb">set </span>vlans BD5010 l3-interface irb.10
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vlan-id 20
+</span><span class='line'><span class="nb">set </span>vlans BD5020 l3-interface irb.20
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/1 unit <span class="m">0</span> family ethernet-switching vlan members 10
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/3 unit <span class="m">0</span> family ethernet-switching vlan members 20
+</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">10</span> family inet address 10.0.0.254/24
+</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">20</span> family inet address 20.0.0.254/24
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Configuring L2 EVPN services</h3>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>protocols evpn encapsulation vxlan
+</span><span class='line'><span class="nb">set </span>protocols evpn extended-vni-list all
+</span><span class='line'><span class="nb">set </span>protocols evpn multicast-mode ingress-replication
+</span><span class='line'>
+</span><span class='line'><span class="nb">set </span>switch-options vtep-source-interface lo0.0
+</span><span class='line'><span class="nb">set </span>switch-options route-distinguisher 555:0
+</span><span class='line'><span class="nb">set </span>switch-options vrf-target target:555:123
+</span><span class='line'>
+</span><span class='line'><span class="nb">set </span>vlans BD5010 vxlan vni 5010
+</span><span class='line'><span class="nb">set </span>vlans BD5010 vxlan ingress-node-replication
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vxlan vni 5020
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vxlan ingress-node-replication
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Configuring L3 EVPN service</h3>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF instance-type vrf
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface irb.10
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface irb.20
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface lo0.10
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF route-distinguisher 555:1
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF vrf-target target:123:5055
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes advertise direct-nexthop
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes encapsulation vxlan
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes vni 5555
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Traffic flow overview</h2>
+
+<p>Once all the nodes have been configured, we can have a closer look at the traffic flows, specifically at how packets are being forwarded and where the L2 and L3 lookups take place.</p>
+
+<h3>L2 forwarding - H1 to H2 (00:50:79:66:68:06)</h3>
+
+<p>Traffic from H1 to H2 will never leave its own broadcast domain. As soon as the packet hits the incoming interface of SW1, MAC address lookup occurs pointing to the remote VTEP interface of SW2.</p>
+
+<figure class='code'><figcaption><span>SW1> show ethernet-switching table | match 00:50:79:66:68:06</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   BD5010              00:50:79:66:68:06   D        vtep.32769             99.99.99.2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Once SW2 decapsulates the packet, the lookup in the MAC address table returns the locally connected interface, where it gets forwarded next.</p>
+
+<figure class='code'><figcaption><span>SW2> show ethernet-switching table | match 00:50:79:66:68:06</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   BD5010              00:50:79:66:68:06   D        xe-0/0/1.0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>L3 forwarding (symmetric) - H3 to H4</h3>
+
+<p>The route to 8.8.8.0/24 is advertised by SW3 in type-5 NLRI</p>
+
+<figure class='code'><figcaption><span>SW1> show route receive-protocol bgp 99.99.99.3 extensive</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>* 5:555:1::0::8.8.8.0::24/304 <span class="o">(</span><span class="m">1</span> entry, <span class="m">1</span> announced<span class="o">)</span>
+</span><span class='line'>     Import Accepted
+</span><span class='line'>     Route Distinguisher: 555:1
+</span><span class='line'>     Route Label: 5555
+</span><span class='line'>     Overlay gateway address: 0.0.0.0
+</span><span class='line'>     Nexthop: 99.99.99.3
+</span><span class='line'>     Localpref: 100
+</span><span class='line'>     AS path: I
+</span><span class='line'>     Communities: target:123:5055 encapsulation0:0:0:0:vxlan router-mac:02:05:86:71:72:00
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This NLRI doesn&rsquo;t contain any overlay gateway address, however it does have a special &ldquo;router-mac&rdquo; community with a globally unique SW3&rsquo;s chassis MAC. This MAC is advertised as normal type-2 MAC address and points to the remote VTEP interface of SW3:</p>
+
+<figure class='code'><figcaption><span>SW1> show ethernet-switching table | match 02:05:86:71:72:00</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>   BD5010              02:05:86:71:72:00   D        vtep.32770             99.99.99.3
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The above two pieces of information are fed into our EVPN-VRF routing table to produce the entry with the following parameters:</p>
+
+<figure class='code'><figcaption><span>SW1> show route table EVPN-VRF.inet.0 detail 8.8.8.8 | match "VTEP|VNI|MAC"</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>Encap VNI: 5555, Decap VNI: 5555
+</span><span class='line'>Source VTEP: 99.99.99.1, Destination VTEP: 99.99.99.3
+</span><span class='line'>SMAC: 02:05:86:71:3b:00, DMAC: 02:05:86:71:72:00
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This is the example of how &ldquo;symmetric&rdquo; IRB routing is performed. Instead of routing the packet at the ingress and switching at the egress node, how it was done in the case of Neutron&rsquo;s <a href="/blog/2016/10/13/os-dvr/">DVR</a>, the routing is performed twice. First the packet is routed into a &ldquo;transit&rdquo; VNI 5555, which glues all the switches in the same EVI together from the L3 perspective. Once the packet reaches the destination node, it gets routed into the intended VNI (5088 in our case) and forwarded out the local interface. This way switches may have different sets of VLANs and IRBs and still be able route packets between VXLANs.</p>
+
+<h3>L3 forwarding (asymmetric) - H1 to H4</h3>
+
+<p>As you may have noticed, the green broadcast domain extends to all three switches, even though hosts are only attached to the first two. Let&rsquo;s see how it will affect the packet flows.
+The flow from H1 to H4 will be similar to the one from H3 to H4 described above. However return packets will get routed on SW3 directly into VXLAN5010, since that switch has an IRB.10 interface and then switched all the way to H1.</p>
+
+<figure class='code'><figcaption><span>SW3> show route forwarding-table destination 10.0.0.1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>Routing table: EVPN-VRF.inet
+</span><span class='line'>Internet:
+</span><span class='line'>Destination        Type RtRef Next hop           Type Index    NhRef Netif
+</span><span class='line'>10.0.0.1/32        dest     <span class="m">0</span> 0:50:79:66:68:5    ucst     <span class="m">1772</span>     <span class="m">1</span> vtep.32770
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This is the example of &ldquo;asymmetric&rdquo; routing, similar to the one exhibited by Neutron <a href="/blog/2016/10/13/os-dvr/">DVR</a>. You would see similar behaviour if you examined the flow between H3 and H2.</p>
+
+<h2>Conclusion</h2>
+
+<p>So why all the hassle configuring EPVN on data centre switches? For one, you can <a href="http://forums.juniper.net/t5/Data-Center-Technologists/MC-LAG-is-dead-Long-live-EVPN-Multi-homing/ba-p/298924">get rid</a> of MLAG in TOR switches and replace it with EVPN multihoming. However, the main benefit is that you can stretch L2 broadcast domains across your whole data centre without the need for an SDN controller. So, for example, we can now easily satisfy the requirement of having external floating IP network on all compute nodes introduced by <a href="/blog/2016/10/13/os-dvr/">Neutron DVR</a>. EVPN-enabled switches can also now perform functions similar to DC gateway routers (the likes of ASR, MX or SR) while giving you the benefits of horizontal scaling of Leaf/Spine networks. As <a href="https://docs.cumulusnetworks.com/display/DOCS/Ethernet+Virtual+Private+Network+-+EVPN">more</a> and <a href="https://eos.arista.com/forum/evpn-control-plane-support-for-vxlan/">more</a> vendors introduce EVPN support, it is poised to become the ultimate DC routing protocol, complementing the functions already performed by the host-based virtual switches, and with all the DC switches <a href="/blog/2016/09/09/os-lab-p2/">running BGP</a> already, introducing EVPN may be as easy as enabling a new address family.</p>
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-10-26T00:00:00-07:00"  data-updated="true" itemprop="datePublished dateCreated">26/10/2016</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/bgp/'>bgp</a> <a class='category label label-primary' href='/blog/categories/unetlab/'>unetlab</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/10/26/qfx-unl/" data-via="" data-counturl="http://networkop.github.io/blog/2016/10/26/qfx-unl/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+	
+	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/10/26/qfx-unl/" data-counter="right"></script>
+	
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2016/10/13/os-dvr/" title="Previous Post: OpenStack SDN - Distributed Virtual Routing">&laquo; OpenStack SDN - Distributed Virtual Routing</a></li>
+            
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item active" href="/blog/2016/10/26/qfx-unl/">Type-2 and Type-5 EPVN on vQFX 10k in UnetLab</a>
+    
+    <a class="list-group-item " href="/blog/2016/10/13/os-dvr/">OpenStack SDN - Distributed Virtual Routing</a>
+    
+    <a class="list-group-item " href="/blog/2016/09/09/os-lab-p2/">Automating the Build of OpenStack Lab (Part 2)</a>
+    
+    <a class="list-group-item " href="/blog/2016/08/26/os-lab-p1/">Automating the Build of OpenStack Lab (Part 1)</a>
+    
+    <a class="list-group-item " href="/blog/2016/05/21/neutron-l2gw/">OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/automation/index.html">
+        <span class="badge">13</span>
+        automation
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/network/index.html">
+        <span class="badge">10</span>
+        network
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/openstack/index.html">
+        <span class="badge">9</span>
+        openstack
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/sdn/index.html">
+        <span class="badge">7</span>
+        sdn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">6</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">5</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/rest/index.html">
+        <span class="badge">4</span>
+        rest
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/devops/index.html">
+        <span class="badge">4</span>
+        devops
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/cisco/index.html">
+        <span class="badge">4</span>
+        cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">2</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">2</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">2</span>
+        routing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
+        <span class="badge">1</span>
+        syncthing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/git/index.html">
+        <span class="badge">1</span>
+        git
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
+        <span class="badge">1</span>
+        pycharm
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/howto/index.html">
+        <span class="badge">1</span>
+        howto
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2016 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2016/10/26/qfx-unl/';
+        var disqus_url = 'http://networkop.github.io/blog/2016/10/26/qfx-unl/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>

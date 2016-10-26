@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Bgp | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/bgp/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-10-13T03:03:05-07:00</updated>
+  <updated>2016-10-26T14:23:05-07:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,244 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Type-2 and Type-5 EPVN on vQFX 10k in UnetLab]]></title>
+    <link href="http://networkop.github.io/blog/2016/10/26/qfx-unl/"/>
+    <updated>2016-10-26T00:00:00-07:00</updated>
+    <id>http://networkop.github.io/blog/2016/10/26/qfx-unl</id>
+    <content type="html"><![CDATA[<p>I was fortunate enough to be given a chance to test the new virtual QFX 10k image from Juniper. In this post I will show how to import this image into UnetLab and demonstrate the basic L2 and L3 EVPN services.</p>
+
+<!--more-->
+
+
+<h2>News about UnetLab</h2>
+
+<p>Those who read my blog regularly know that I&rsquo;m a big fan of a network simulator called UnetLab. For the last two years I&rsquo;ve done all my labbing in UNL and was constantly surprised by how extensible and stable it has been. I believe that projects like this are very important to our networking community because they help train the new generation of network engineers and enable them to expand their horizons. Recently UnetLab team has decided take the next step and create a new version of UNL. This new project, called <a href="https://www.indiegogo.com/projects/eve-ng-emulated-virtual-environment-next-gen#/">EVE-NG</a>, will help users build labs of any size and run full replicas of their production networks, which is ideal for <a href="/blog/2016/02/19/network-ci-intro/">pre-deployment testing</a> of network changes. If you want to learn more, check out the <a href="https://www.indiegogo.com/projects/eve-ng-emulated-virtual-environment-next-gen#/">EVE-NG</a> page on indiegogo.</p>
+
+<h2>Creating vQFX nodes in UnetLab</h2>
+
+<p>Back to the business at hand, vQFX is not publically available yet but is expected to pop up at <a href="http://www.juniper.net/">Juniper.net</a> some time in the future. Similar to a recently released vMX, vQFX will consist of two virtual machines - one running the routing engine (RE) and second simulating the ASIC forwarding piplines (PFE). You can find more information about these images on Juniper&rsquo;s <a href="https://github.com/Juniper/vqfx10k-vagrant">Github page</a>. Images get distributed in multiple formats but in the context of this post we&rsquo;ll only deal with two VMDK files:</p>
+
+<pre><code class="bash vQFX images">vqfx10k-re-15.1X53-D60.vmdk
+vqfx10k-pfe-20160609-2.vmdk
+</code></pre>
+
+<p>To be able to use these images in UnetLab, we first need to convert them to <strong>qcow2</strong> format and copy them to the directory where UNL stores all its qemu images:</p>
+
+<pre><code class="bash Importing VMDK images"> mkdir /opt/unetlab/addons/qemu/qfx_re-15d1X53
+ mkdir /opt/unetlab/addons/qemu/qfx_pfe-20160609
+
+/opt/qemu/bin/qemu-img convert -f vmdk -O qcow2 vqfx10k-pfe-20160609-2.vmdk /opt/unetlab/addons/qemu/qfx_pfe-20160609/hda.qcow2
+
+/opt/qemu/bin/qemu-img convert -f vmdk -O qcow2 vqfx10k-re-15.1X53-D60.vmdk /opt/unetlab/addons/qemu/qfx_re-15d1X53/hda.qcow2
+</code></pre>
+
+<p>Next, we need to create new node definitions for RE and PFE VMs. The easiest way would be to clone the linux node type:</p>
+
+<pre><code class="bash Creating vQFX node definitions">cd /opt/unetlab/html/templates
+cp linux.php qfx_pfe.php
+cp linux.php qfx_re.php
+
+sed -i 's/2048/1024/; s/virtio-net-pci/e1000/; s/Server/Switch/' qfx_re.php
+sed -i 's/2048/1536/; s/virtio-net-pci/e1000/; s/Server/Switch/' qfx_pfe.php
+
+sed -i 's/Linux/QFX_RE/g; s/linux/qfx_re/g' qfx_re.php
+sed -i 's/Linux/QFX_PFE/g; s/linux/qfx_pfe/g' qfx_pfe.php
+
+sed -ri 's/(.*ethernet.*) = 1/\1 = 2/' qfx_pfe.php
+sed -ri 's/(.*ethernet.*) = 1/\1 = 8/' qfx_re.php
+</code></pre>
+
+<p>Now let&rsquo;s add the QFX to the list of nodes by modifying the following file:</p>
+
+<pre><code class="bash /opt/unetlab/html/includes/init.php">'openstack'             =&gt;      'Openstack',
+'qfx_re'                =&gt;      'QFX10k-RE',
+'qfx_pfe'               =&gt;      'QFX10k-PFE',
+'mikrotik'              =&gt;      'MikroTik RouterOS',
+</code></pre>
+
+<p>Optionally, <code>/opt/unetlab/html/includes/__node.php</code> can be modified to change the default naming convention similar to the <code>vmx</code> node.</p>
+
+<p>Once you&rsquo;ve done all the above changes, you should have a working vQFX 10k node available in UNL GUI. For the purpose of demonstration of EVPN features I&rsquo;ve created the following topology:</p>
+
+<p><img class="center" src="/images/qfx-unl.png"></p>
+
+<h2>EVPN L2 and L3 services</h2>
+
+<p>EVPN standards define multiple routes types to distribute NLRI information across the network. The two most &ldquo;significant&rdquo; route types are 2 and 5. Type-2 NLRI was designed to carry the MAC (and optionally IP) address to VTEP IP binding information which is used to populate the dynamic MAC address table. This function, that was previously accomplished by a central SDN controller, is now performed in a scalable, standard-based, controller-independent fashion. <a href="http://www.juniper.net/documentation/en_US/junos16.1/topics/concept/evpn-route-type5-understanding.html">Type-5 NLRI</a> contains IP Prefix to VTEP IP mapping and is similar to the function of traditional L3 VPNs. In order to explore the capabilities of EVPN implementation on vQFX I&rsquo;ve created and artificial scenario with 3 virtual switches, 3 VLANs and 4 hosts.</p>
+
+<p><img class="center" src="/images/qfx-lab.png"></p>
+
+<p>VLAN10 (green) is present on all 3 switches, VLAN20 (purple) is only configured on switches 1 and 2 and VLAN88 (red) only exists on SW3. I&rsquo;ve provided configuration snippets below for reference purposes only and only for SW1. Remaining switches are configured similarly.</p>
+
+<h3>Configuring Basic IP and BGP setup</h3>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>interfaces xe-0/0/0 unit <span class="m">0</span> family inet address 12.12.12.1/24
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/2 unit <span class="m">0</span> family inet address 13.13.13.1/24
+</span><span class='line'><span class="nb">set </span>interfaces lo0 unit <span class="m">0</span> family inet address 99.99.99.1/32
+</span><span class='line'><span class="nb">set </span>routing-options static route 99.99.99.2/32 next-hop 12.12.12.2
+</span><span class='line'><span class="nb">set </span>routing-options static route 99.99.99.3/32 next-hop 13.13.13.3&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set routing-options router-id 99.99.99.1
+</span><span class='line'><span class="nb">set </span>routing-options autonomous-system 555&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set routing-options autonomous-system 555
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN <span class="nb">type </span>internal
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN <span class="nb">local</span>-address 99.99.99.1
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN family evpn signaling
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN neighbor 99.99.99.2
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN neighbor 99.99.99.3
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h3>Configuring End-host connectivity and IRB</h3>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>vlans BD5010 vlan-id 10
+</span><span class='line'><span class="nb">set </span>vlans BD5010 l3-interface irb.10
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vlan-id 20
+</span><span class='line'><span class="nb">set </span>vlans BD5020 l3-interface irb.20
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/1 unit <span class="m">0</span> family ethernet-switching vlan members 10
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/3 unit <span class="m">0</span> family ethernet-switching vlan members 20
+</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">10</span> family inet address 10.0.0.254/24
+</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">20</span> family inet address 20.0.0.254/24
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h3>Configuring L2 EVPN services</h3>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>protocols evpn encapsulation vxlan
+</span><span class='line'><span class="nb">set </span>protocols evpn extended-vni-list all
+</span><span class='line'><span class="nb">set </span>protocols evpn multicast-mode ingress-replication&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set switch-options vtep-source-interface lo0.0
+</span><span class='line'><span class="nb">set </span>switch-options route-distinguisher 555:0
+</span><span class='line'><span class="nb">set </span>switch-options vrf-target target:555:123&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set vlans BD5010 vxlan vni 5010
+</span><span class='line'><span class="nb">set </span>vlans BD5010 vxlan ingress-node-replication
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vxlan vni 5020
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vxlan ingress-node-replication
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h3>Configuring L3 EVPN service</h3>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF instance-type vrf
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface irb.10
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface irb.20
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface lo0.10
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF route-distinguisher 555:1
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF vrf-target target:123:5055
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes advertise direct-nexthop
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes encapsulation vxlan
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes vni 5555
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Traffic flow overview</h2>
+
+<p>Once all the nodes have been configured, we can have a closer look at the traffic flows, specifically at how packets are being forwarded and where the L2 and L3 lookups take place.</p>
+
+<h3>L2 forwarding - H1 to H2 (00:50:79:66:68:06)</h3>
+
+<p>Traffic from H1 to H2 will never leave its own broadcast domain. As soon as the packet hits the incoming interface of SW1, MAC address lookup occurs pointing to the remote VTEP interface of SW2.</p>
+
+<pre><code class="bash SW1> show ethernet-switching table | match 00:50:79:66:68:06">   BD5010              00:50:79:66:68:06   D        vtep.32769             99.99.99.2
+</code></pre>
+
+<p>Once SW2 decapsulates the packet, the lookup in the MAC address table returns the locally connected interface, where it gets forwarded next.</p>
+
+<pre><code class="bash SW2> show ethernet-switching table | match 00:50:79:66:68:06">   BD5010              00:50:79:66:68:06   D        xe-0/0/1.0
+</code></pre>
+
+<h3>L3 forwarding (symmetric) - H3 to H4</h3>
+
+<p>The route to 8.8.8.0/24 is advertised by SW3 in type-5 NLRI</p>
+
+<pre><code class="bash SW1> show route receive-protocol bgp 99.99.99.3 extensive">* 5:555:1::0::8.8.8.0::24/304 (1 entry, 1 announced)
+     Import Accepted
+     Route Distinguisher: 555:1
+     Route Label: 5555
+     Overlay gateway address: 0.0.0.0
+     Nexthop: 99.99.99.3
+     Localpref: 100
+     AS path: I
+     Communities: target:123:5055 encapsulation0:0:0:0:vxlan router-mac:02:05:86:71:72:00
+</code></pre>
+
+<p>This NLRI doesn&rsquo;t contain any overlay gateway address, however it does have a special &ldquo;router-mac&rdquo; community with a globally unique SW3&rsquo;s chassis MAC. This MAC is advertised as normal type-2 MAC address and points to the remote VTEP interface of SW3:</p>
+
+<pre><code class="bash SW1> show ethernet-switching table | match 02:05:86:71:72:00">   BD5010              02:05:86:71:72:00   D        vtep.32770             99.99.99.3
+</code></pre>
+
+<p>The above two pieces of information are fed into our EVPN-VRF routing table to produce the entry with the following parameters:</p>
+
+<pre><code class="bash SW1> show route table EVPN-VRF.inet.0 detail 8.8.8.8 | match "VTEP|VNI|MAC"">Encap VNI: 5555, Decap VNI: 5555
+Source VTEP: 99.99.99.1, Destination VTEP: 99.99.99.3
+SMAC: 02:05:86:71:3b:00, DMAC: 02:05:86:71:72:00
+</code></pre>
+
+<p>This is the example of how &ldquo;symmetric&rdquo; IRB routing is performed. Instead of routing the packet at the ingress and switching at the egress node, how it was done in the case of Neutron&rsquo;s <a href="/blog/2016/10/13/os-dvr/">DVR</a>, the routing is performed twice. First the packet is routed into a &ldquo;transit&rdquo; VNI 5555, which glues all the switches in the same EVI together from the L3 perspective. Once the packet reaches the destination node, it gets routed into the intended VNI (5088 in our case) and forwarded out the local interface. This way switches may have different sets of VLANs and IRBs and still be able route packets between VXLANs.</p>
+
+<h3>L3 forwarding (asymmetric) - H1 to H4</h3>
+
+<p>As you may have noticed, the green broadcast domain extends to all three switches, even though hosts are only attached to the first two. Let&rsquo;s see how it will affect the packet flows.
+The flow from H1 to H4 will be similar to the one from H3 to H4 described above. However return packets will get routed on SW3 directly into VXLAN5010, since that switch has an IRB.10 interface and then switched all the way to H1.</p>
+
+<pre><code class="bash SW3> show route forwarding-table destination 10.0.0.1">Routing table: EVPN-VRF.inet
+Internet:
+Destination        Type RtRef Next hop           Type Index    NhRef Netif
+10.0.0.1/32        dest     0 0:50:79:66:68:5    ucst     1772     1 vtep.32770
+</code></pre>
+
+<p>This is the example of &ldquo;asymmetric&rdquo; routing, similar to the one exhibited by Neutron <a href="/blog/2016/10/13/os-dvr/">DVR</a>. You would see similar behaviour if you examined the flow between H3 and H2.</p>
+
+<h2>Conclusion</h2>
+
+<p>So why all the hassle configuring EPVN on data centre switches? For one, you can <a href="http://forums.juniper.net/t5/Data-Center-Technologists/MC-LAG-is-dead-Long-live-EVPN-Multi-homing/ba-p/298924">get rid</a> of MLAG in TOR switches and replace it with EVPN multihoming. However, the main benefit is that you can stretch L2 broadcast domains across your whole data centre without the need for an SDN controller. So, for example, we can now easily satisfy the requirement of having external floating IP network on all compute nodes introduced by <a href="/blog/2016/10/13/os-dvr/">Neutron DVR</a>. EVPN-enabled switches can also now perform functions similar to DC gateway routers (the likes of ASR, MX or SR) while giving you the benefits of horizontal scaling of Leaf/Spine networks. As <a href="https://docs.cumulusnetworks.com/display/DOCS/Ethernet+Virtual+Private+Network+-+EVPN">more</a> and <a href="https://eos.arista.com/forum/evpn-control-plane-support-for-vxlan/">more</a> vendors introduce EVPN support, it is poised to become the ultimate DC routing protocol, complementing the functions already performed by the host-based virtual switches, and with all the DC switches <a href="/blog/2016/09/09/os-lab-p2/">running BGP</a> already, introducing EVPN may be as easy as enabling a new address family.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[iBGP Fall-over Trick]]></title>

@@ -334,8 +334,6 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
 </span></code></pre></td></tr></table></div></figure>
 
 
-<p></p>
-
 <h2>DVR East-West traffic flow</h2>
 
 <p>Now let&rsquo;s see how the traffic flows have changed with the introduction of DVR.</p>
@@ -455,7 +453,7 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
 
 <h2>External connectivity</h2>
 
-<p>External connectivity will be very different for VMs with and without a floating IP. Below diagram is a high-level representation of traffic flows in these two cases. We will examine each one of them individually.</p>
+<p>External connectivity will be very different for VMs with and without a floating IP. We will examine each case individually.</p>
 
 <h3>Case 1 - Overload NAT (VM2 with no FIP)</h3>
 
@@ -637,7 +635,7 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
 </span></code></pre></td></tr></table></div></figure>
 
 
-<p>The packet is sent to the <strong>br-int</strong> with the destination MAC address of the default gateway.</p>
+<p>The packet is sent to the <strong>br-int</strong> with the destination MAC address of the default gateway, which is learned on port 3.</p>
 
 <figure class='code'><figcaption><span>ovs-appctl fdb/show br-int | grep 32:3e:7d:13:ca:78</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 </pre></td><td class='code'><pre><code class='bash'><span class='line'>  <span class="m">3</span>     <span class="m">3</span>  32:3e:7d:13:ca:78    1
@@ -768,6 +766,8 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
             <li class="previous"><a href="/blog/2016/09/09/os-lab-p2/" title="Previous Post: Automating the build of OpenStack lab (Part 2)">&laquo; Automating the build of OpenStack lab (Part 2)</a></li>
             
             
+            <li class="next"><a href="/blog/2016/10/26/qfx-unl/" title="Next Post: Type-2 and Type-5 EPVN on vQFX 10k in UnetLab">Type-2 and Type-5 EPVN on vQFX 10k in UnetLab &raquo;</a></li>
+            
           </ul>
         
       </footer>
@@ -791,6 +791,8 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
   
   <div id="recent_posts" class="list-group">
     
+    <a class="list-group-item " href="/blog/2016/10/26/qfx-unl/">Type-2 and Type-5 EPVN on vQFX 10k in UnetLab</a>
+    
     <a class="list-group-item active" href="/blog/2016/10/13/os-dvr/">OpenStack SDN - Distributed Virtual Routing</a>
     
     <a class="list-group-item " href="/blog/2016/09/09/os-lab-p2/">Automating the Build of OpenStack Lab (Part 2)</a>
@@ -798,8 +800,6 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
     <a class="list-group-item " href="/blog/2016/08/26/os-lab-p1/">Automating the Build of OpenStack Lab (Part 1)</a>
     
     <a class="list-group-item " href="/blog/2016/05/21/neutron-l2gw/">OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway</a>
-    
-    <a class="list-group-item " href="/blog/2016/05/11/neutron-routed-extnet/">Openstack SDN - Extending a L2 Provider Network Over a L3 Fabric</a>
     
   </div>
 </section>
@@ -835,21 +835,15 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
       </a>
     
     
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">5</span>
-        ansible
-      </a>
-    
-    
     <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">5</span>
+        <span class="badge">6</span>
         unetlab
       </a>
     
     
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">5</span>
+        ansible
       </a>
     
     
@@ -859,9 +853,21 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
       </a>
     
     
+    <a class="list-group-item " href="/blog/categories/devops/index.html">
+        <span class="badge">4</span>
+        devops
+      </a>
+    
+    
     <a class="list-group-item " href="/blog/categories/cisco/index.html">
         <span class="badge">4</span>
         cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">2</span>
+        bgp
       </a>
     
     
@@ -889,21 +895,15 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
       </a>
     
     
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
     <a class="list-group-item " href="/blog/categories/trick/index.html">
         <span class="badge">1</span>
         trick
       </a>
     
     
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
         <span class="badge">1</span>
-        bgp
+        pycharm
       </a>
     
     
