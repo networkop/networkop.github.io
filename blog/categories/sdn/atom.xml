@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Sdn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/sdn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-10-26T14:23:05-07:00</updated>
+  <updated>2016-11-27T06:18:33-08:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,246 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[OpenStack SDN With OVN (Part 1) - Build and Install]]></title>
+    <link href="http://networkop.github.io/blog/2016/11/27/ovn-part1/"/>
+    <updated>2016-11-27T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/11/27/ovn-part1</id>
+    <content type="html"><![CDATA[<p>This is a first of a two-post series dedicated to project OVN. In this post I&rsquo;ll show how to build, install and configure OVN to work with a 3-node RDO OpenStack lab.</p>
+
+<!--more-->
+
+
+<p>Vanilla OpenStack networking has many functional, performance and scaling limitations. Projects like <a href="/blog/2016/05/06/neutron-l2pop/">L2 population</a>, <a href="/blog/2016/05/06/neutron-l2pop/">local ARP responder</a>, <a href="/blog/2016/05/21/neutron-l2gw/">L2 Gateway</a> and <a href="/blog/2016/10/13/os-dvr/">DVR</a> were conceived to address those issues. However good a job these projects do, they still remain a collection of separate projects, each with its own limitations, configuration options and sets of dependencies. That led to an effort outside of OpenStack to develop a special-purpose OVS-only SDN controller that would address those issues in a centralised and consistent manner. This post will be about one such SDN controller, coming directly from the people responsible for OpenvSwitch, Open Virtual Network (OVN).</p>
+
+<h2>OVN quick introduction</h2>
+
+<p>OVN is a distributed SDN controller implementing virtual networks with the help OVS. Even though it is positioned as a <abbr title="Cloud Management System">CMS</abbr>-independent controller, the main use case is still OpenStack. OVN was designed to address the following limitations of vanilla OpenStack networking:</p>
+
+<ul>
+<li>Security groups could not be implemented directly on OVS ports and, therefore, required a dedicated Linux bridge between the VM and the OVS integration bridge.</li>
+<li>Routing and DHCP agents required dedicated network namespaces.</li>
+<li>NAT was implemented using a combination of network namespaces, iptables and proxy-ARP.</li>
+</ul>
+
+
+<p>OVN implements security groups, distributed virtual routing, NAT and distributed DHCP server all inside a single OVS bridge. This dramatically improves performance by reducing the number of inter-process packet handling and ensures that all flows can benefit from kernel fast-path switching.</p>
+
+<p>At a high level, OVN consists of 3 main components:</p>
+
+<ol>
+<li>OVN ML2 Plugin - performs translation between Neutron data model and OVN logical data model stored in Northbound DB.</li>
+<li>OVN northd - the brains of OVN, translates the high level networking abstractions (logical switches, routers and ports) into logical flows. These <a href="https://blog.russellbryant.net/2016/11/11/ovn-logical-flows-and-ovn-trace/">logical flows</a> are not yet OpenFlow flows but similar in concept and a very powerful abstraction. All translated information is stored in Southbound DB.</li>
+<li>OVN controllers - located on each compute node, receive identical copies of logical flows (centralised network view) and exchange logical port to overlay IP binding information via the central Southbound DB. This information is used to perform logical flow translation into OpenFlow which are then programmed into the local instance OVS.</li>
+</ol>
+
+
+<p><img class="center" src="/images/ovn-arch.png"></p>
+
+<p>If you want to learn more about OVN architecture and use cases, <a href="http://docs.openstack.org/developer/networking-ovn/readme.html">OpenStack OVN page</a> has an excellent collection of resources for further reading.</p>
+
+<h2>OpenStack installation</h2>
+
+<p>I&rsquo;ll use RDO packstack to help me build a 1 controller and 2 compute nodes OpenStack lab on CentOS7. I&rsquo;ll use the master trunk to deploy the latest OpenStack Ocata packages. This is required since at the time of writing (Nov 2016) some of the OVN features were not available in OpenStack Newton.</p>
+
+<pre><code class="bash Install latest RDO repositories on all 3 nodes">cd /etc/yum.repos.d/
+wget http://trunk.rdoproject.org/centos7/delorean-deps.repo
+wget https://trunk.rdoproject.org/centos7-master/current/delorean.repo
+</code></pre>
+
+<p>On the controller node, generate a sample answer file and modify settings to match the IPs of individual nodes. Optionally, you can disable some of the unused components like Nagios and Ceilometer similar to how I did it in my <a href="http://networkop.co.uk/blog/2016/04/18/os-unl-lab/">earlier post</a>.</p>
+
+<pre><code class="bash Modify answer file and deploy OpenStack">yum install -y openstack-packstack crudini
+packstack --gen-answer-file=/root/packstack.answer
+crudini --set --existing defautl CONFIG_COMPUTE_HOSTS 169.254.0.12,169.254.0.13
+crudini --set --existing defautl CONFIG_CONTROLLER_HOST 169.254.0.11
+crudini --set --existing defautl CONFIG_NETWORK_HOSTS 169.254.0.11
+packstack --answer-file=/root/packstack.answer
+</code></pre>
+
+<p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/09/09/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay leaf/spine fabric</a> build using Chef.</p>
+
+<p><img class="center" src="/images/ovn-openstack.png"></p>
+
+<h2>OVN Build</h2>
+
+<p>OVN can be built directly from OVS source code. Instead of building and installing OVS on each of the OpenStack nodes individually, I&rsquo;ll build a set of RPM&rsquo;s on the Controller and will use them to install and upgrade OVS/OVN components on the remaining nodes.</p>
+
+<p>Part of OVN build process includes building an OVS kernel module. In order to be able to use kmod RPM on all nodes we need to make sure all nodes use the same version of Linux kernel. The easiest way would be to fetch the latest updates from CentOS repos and reboot the nodes. This step should result in same kernel version on all nodes, which can be checked with <code>uname -r</code> command.</p>
+
+<pre><code class="bash Upgrade kernel on all nodes">yum -y update kernel
+reboot
+</code></pre>
+
+<p>The official <a href="https://github.com/openvswitch/ovs/blob/master/INSTALL.Fedora.rst">OVS installation procedure for CentOS7</a> is pretty accurate and requires only a few modifications to account for the packages missing in the minimal CentOS image I&rsquo;ve used as a base OS.</p>
+
+<pre><code class="bash OVS build procedure">yum install rpm-build autoconf automake libtool systemd-units openssl openssl-devel python python-twisted-core python-zope-interface python-six desktop-file-utils groff graphviz procps-ng libcap-ng libcap-ng-devel
+yum install selinux-policy-devel kernel-devel-`uname -r` git
+git clone https://github.com/openvswitch/ovs.git
+cd ovs
+./boot.sh
+./configure
+make rpm-fedora RPMBUILD_OPT="--without check"
+make rpm-fedora-kmod
+</code></pre>
+
+<p>At the end of the process we should have a set of rpms inside the <code>ovs/rpm/rpmbuild/RPMS/</code> directory.</p>
+
+<h2>OVN Install</h2>
+
+<p>Before we can begin installing OVN, we need to prepare the existing OpenStack environment by disabling and removing legacy Neutron OpenvSwitch agents. Since OVN natively implements L2 and L3 forwarding, DHCP and NAT, we won&rsquo;t need L3 and DHCP agents on any of the Compute nodes. Network node that used to provide North-South connectivity will no longer be needed.</p>
+
+<h3>OpenStack preparation</h3>
+
+<p>First, we need to make sure all Compute nodes have a bridge that would provide access to external provider networks. In my case, I&rsquo;ll move the <code>eth1</code> interface under the OVS <code>br-ex</code> on all Compute nodes.</p>
+
+<pre><code class="bash /etc/sysconfig/network-scripts/ifcfg-eth1">DEVICE=eth1
+NAME=eth1
+DEVICETYPE=ovs
+TYPE=OVSPort
+OVS_BRIDGE=br-ex
+ONBOOT=yes
+BOOTPROTO=none
+</code></pre>
+
+<p>IP address needs to be moved to <code>br-ex</code> interface. Below example is for Compute node #2:</p>
+
+<pre><code class="bash /etc/sysconfig/network-scripts/ifcfg-br-ex">ONBOOT=yes
+DEFROUTE=yes
+IPADDR=169.254.0.12
+PREFIX=24
+GATEWAY=169.254.0.1
+DNS1=8.8.8.8
+DEVICE=br-ex
+NAME=br-ex
+DEVICETYPE=ovs
+OVSBOOTPROTO=none
+TYPE=OVSBridge
+</code></pre>
+
+<p>At the same time OVS configuration on Network/Controller node will need to be completely wiped out. Once that&rsquo;s done, we can remove the Neutron OVS package from all nodes.</p>
+
+<pre><code class="bash Remove legacy Neutron OVS agents">yum remove openstack-neutron-openvswitch
+</code></pre>
+
+<h3>OVS packages installation</h3>
+
+<p>Now everything is ready for OVN installation. First step is to install the kernel module and upgrade the existing OVS package. Reboot may be needed in order for the correct kernel module to be loaded.</p>
+
+<pre><code class="bash Upgrade OVS on all nodes">rpm -i openvswitch-kmod-2.6.90-1.el7.centos.x86_64.rpm
+rpm -U openvswitch-2.6.90-1.el7.centos.x86_64.rpm
+reboot
+</code></pre>
+
+<p>Now we can install OVN. Controllers will be running the <code>ovn-northd</code> process which can be installed as follows:</p>
+
+<pre><code class="bash Install OVN on the Controller">rpm -i openvswitch-ovn-common-*.x86_64.rpm
+rpm -i openvswitch-ovn-central-*.x86_64.rpm
+systemctl start ovn-northd
+</code></pre>
+
+<p>The following packages install the <code>ovn-controller</code> on all Compute nodes:</p>
+
+<pre><code class="bash Install OVN on Compute nodes">rpm -i openvswitch-ovn-common-*.x86_64.rpm
+rpm -i openvswitch-ovn-host-*.x86_64.rpm
+systemctl start ovn-controller
+</code></pre>
+
+<p>The last thing is to install the OVN ML2 plugin, a python library that allows Neutron to talk to OVN Northbound database.</p>
+
+<pre><code class="bash Install OVN ML2 plugin on the Controller">yum install python-networking-ovn
+</code></pre>
+
+<h2>OVN Configuration</h2>
+
+<p>Now that we have all the required packages in place, it&rsquo;s time to reconfigure Neutron to start using OVN instead of a default openvswitch plugin. The installation procedure is described in the official <a href="http://docs.openstack.org/developer/networking-ovn/index.html">Neutron integration guide</a>. At the end, once we&rsquo;ve restarted <code>ovn-northd</code> on the controller and <code>ovn-controller</code> on the compute nodes, we should see the following output on the controller node:</p>
+
+<pre><code class="bash ovs-sbctl show">Chassis "d03bdd51-e687-4078-aa54-0ff8007db0b5"
+    hostname: "compute-3"
+    Encap geneve
+        ip: "10.0.0.4"
+        options: {csum="true"}
+    Encap vxlan
+        ip: "10.0.0.4"
+        options: {csum="true"}
+Chassis "b89b8683-7c74-43df-8ac6-1d57ddefec77"
+    hostname: "compute-2"
+    Encap vxlan
+        ip: "10.0.0.2"
+        options: {csum="true"}
+    Encap geneve
+        ip: "10.0.0.2"
+        options: {csum="true"}
+</code></pre>
+
+<p>This means that all instances of a distributed OVN controller located on each compute node have successfully registered with Southbound OVSDB and provided information about their physical overlay addresses and supported encapsulation types.</p>
+
+<h2>(Optional) Automating everything with Chef</h2>
+
+<p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="/blog/2016/09/09/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
+</span><span class='line'><span class="nb">cd </span>chef-unl-os
+</span><span class='line'>chef-client -z -E lab ovn.rb
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Test topology setup</h2>
+
+<p>Now we should be able to create a test topology with two tenant subnets and an external network interconnected by a virtual router.</p>
+
+<pre><code class="bash Creating a test topology">neutron net-create NET-RED
+neutron net-create NET-BLUE
+neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24
+neutron subnet-create --name SUB-RED NET-RED 20.0.0.0/24
+neutron net-create NET-EXT --provider:network_type flat \
+                           --provider:physical_network extnet \
+                           --router:external --shared
+neutron subnet-create --name SUB-EXT --enable_dhcp=False \
+                      --allocation-pool=start=169.254.0.50,end=169.254.0.99 \
+                      --gateway=169.254.0.1 NET-EXT 169.254.0.0/24
+neutron router-create R1
+neutron router-interface-add R1 SUB-BLUE
+neutron router-interface-add R1 SUB-RED
+neutron router-gateway-set R1 NET-EXT
+</code></pre>
+
+<p>When we attach a few test VMs to each subnet we should be able to successfully ping between the VMs, assuming the security groups are setup to allow ICMP/ND.</p>
+
+<pre><code class="bash Create VMs">curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
+image-create --name='IMG-CIRROS' \
+  --visibility=public \
+  --container-format=bare \
+  --disk-format=qcow2
+nova aggregate-create AGG-RED AZ-RED
+nova aggregate-create AGG-BLUE AZ-BLUE
+nova aggregate-add-host AGG-BLUE compute-2
+nova aggregate-add-host AGG-RED compute-3
+nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
+  --nic net-name=NET-BLUE \
+  --availability-zone AZ-BLUE \
+  VM1
+
+nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
+  --nic net-name=NET-RED \
+  --availability-zone AZ-RED \
+  VM2
+nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
+  --nic net-name=NET-BLUE \
+  --availability-zone AZ-RED \
+  VM3
+openstack floating ip assign 169.254.0.52 VM3
+openstack server add floating ip VM3 169.254.0.52
+</code></pre>
+
+<p><img class="center" src="/images/ovn-topo.png"></p>
+
+<p>In the next post we will use the above virtual topology to explore the dataplane packet flow inside an OVN-managed OpenvSwitch and how it uses the new encapsulation protocol GENEVE to optimise egress forwarding lookups on remote compute nodes.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[OpenStack SDN - Distributed Virtual Routing]]></title>
@@ -1012,153 +1252,6 @@ OpenFlow actions=resubmit(,4)
 <p>In the next post I was planning to examine another &ldquo;must have&rdquo; feature of any SDN solution - Distributed Virtual Routing. However due to my current circumstances I may need to take a few weeks' break before going on. Be back soon!</p>
 
 <p><img class="center" src="/images/be-back.jpg"></p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Openstack SDN - Extending a L2 Provider Network Over a L3 Fabric]]></title>
-    <link href="http://networkop.github.io/blog/2016/05/11/neutron-routed-extnet/"/>
-    <updated>2016-05-11T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2016/05/11/neutron-routed-extnet</id>
-    <content type="html"><![CDATA[<p>In the this post we&rsquo;ll tackle yet another Neutron scalability problem identified in my <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">earlier post</a> - a requirement to have a direct L2 adjacency between the external provider network and the network node.</p>
-
-<!--more-->
-
-
-<h2>Provider vs Tenant networks</h2>
-
-<p>Before we start, let&rsquo;s recap the difference between the <a href="http://docs.openstack.org/mitaka/networking-guide/intro-os-networking-overview.html">two major</a> Neutron network types:</p>
-
-<ul>
-<li>Tenant networks are:
-
-<ul>
-<li>provisioned by tenants</li>
-<li>used for inter-VM (east-west) communication</li>
-<li>use Neutron virtual router as their default gateway</li>
-</ul>
-</li>
-<li>Provider networks are:
-
-<ul>
-<li>provisioned by OpenStack administrator(for use by tenants)</li>
-<li>match existing physical networks</li>
-<li>can be either flat (untagged VLAN) or VLAN-based (multiple VLANs)</li>
-<li>need to be L2 adjacent to network and/or compute nodes</li>
-</ul>
-</li>
-</ul>
-
-
-<p>These two network types are not mutually exclusive. In our case the <strong>admin tenant</strong> network is implemented as a VXLAN-based overlay whose only requirement is to have a layer-3 reachability in the underlay. However tenant network could also have been implemented using a VLAN-based provider network in which case a set of dot1Q tags pre-provisioned in the underlay would have been used for tenant network segregation.</p>
-
-<h2>External provider network</h2>
-
-<p>External network is used by VMs to communicate with the outside world (north-south). Since default gateway is located outside of OpenStack environment this, by definition, is a provider network. Normally, tenant networks will use the non-routable address space and will rely on a Neutron virtual router to perform some form of NAT translation. As we&rsquo;ve seen in the <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">earlier post</a>, Neutron virtual router is directly connected to the external bridge which allows it to &ldquo;borrow&rdquo; ip address from the external provider network to use for two types of NAT operations:</p>
-
-<ul>
-<li>SNAT - a source-based port address translation performed by the Neutron virtual router</li>
-<li>DNAT - a static NAT created for every <a href="https://www.rdoproject.org/networking/difference-between-floating-ip-and-private-ip/">floating ip address</a> configured for a VM</li>
-</ul>
-
-
-<p>In default deployments all NATing functionality is performed by a network node, so external provider network only needs to be L2 adjacent with a limited number of physical hosts. In deployments where <abbr title=" Distributed Virtual Router">DVR</abbr> is used, the virtual router and NAT functionality gets distributed among all compute hosts which means that they, too, now need to be layer-2 adjacent to the external network.</p>
-
-<h2>Solutions overview</h2>
-
-<p>The direct adjacency requirement presents a big problem for deployments where layer-3 routed underlay is used for the tenant networks. There is a limited number of ways to satisfy this requirements, for example:</p>
-
-<ul>
-<li>Span a L2 segment across the whole DC fabric. This means that the fabric needs to be converted to layer-2, reintroducing spanning-tree and all the unique vendor solutions to overcome STP limitations(e.g. TRILL, Fabripath, SPB).</li>
-<li>Build a dedicated physical network. This may not always be feasible, especially considering that it needs to be delivered to all compute hosts.</li>
-<li>Extend the provider network over an existing L3 fabric with VXLAN overlay. This can easily be implemented with just a few commands, however it requires a border leaf switch capable of performing VXLAN-VLAN translation.</li>
-</ul>
-
-
-<h2>Detailed design</h2>
-
-<p>As I&rsquo;ve said in my <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">earlier post</a>, I&rsquo;ve built the leaf-spine fabric out of Cisco IOU virtual switches, however the plan was to start introducing other vendors later in the series. So this time for the border leaf role I&rsquo;ve chosen Arista vEOS switch, however, technically, it could have been any other vendor capable of doing VXLAN-VLAN bridging (e.g. any hardware switch with <a href="http://blog.ipspace.net/2014/06/trident-2-chipset-and-nexus-9500.html">Trident 2</a> or similar ASIC).</p>
-
-<p><img class="center" src="/images/neutron-extnet-l3.png"></p>
-
-<h3>Arista vEOS configuration</h3>
-
-<p>Configuration of Arista switches is very similar to Cisco IOS. In fact, I was able to complete all interface and OSPF routing configuration only with the help of CLI context help. The only bit that was new to me and that I had to lookup in the official guide was the <a href="https://eos.arista.com/vxlan-with-mlag-configuration-guide/">VXLAN configuration</a>. These similarities makes the transition from Cisco to Arista very easy and I can understand (but not approve!) why Cisco would file a lawsuit against Arista for copying its &ldquo;industry-standard CLI&rdquo;.</p>
-
-<pre><code class="text L4 configuration">interface Ethernet1
-   description SPINE-1:Eth0/3
-   no switchport
-   ip address 169.254.41.4/24
-   ip ospf network point-to-point
-!
-interface Ethernet2
-   description SPINE-2:Eth0/3
-   no switchport
-   ip address 169.254.42.4/24
-   ip ospf network point-to-point
-!
-interface Ethernet3
-   description VM-HOST-ONLY:PNET1
-   switchport access vlan 100
-   spanning-tree portfast
-!
-interface Loopback0
-   ip address 10.0.0.4/32
-!
-interface Vxlan1
-   vxlan source-interface Loopback0
-   vxlan udp-port 4789
-   vxlan vlan 100 vni 1000
-   vxlan vlan 100 flood vtep 10.0.3.10
-!
-router ospf 1
-   router-id 10.0.0.4
-   passive-interface default
-   no passive-interface Ethernet1
-   no passive-interface Ethernet2
-   network 0.0.0.0/0 area 0.0.0.0
-!
-</code></pre>
-
-<p>Interface VXLAN1 sets up VXLAN-VLAN bridging between VNI 1000 and VLAN 100. VLAN 100 is used to connect to VMware Workstation&rsquo;s host-only interface, the one that was <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">previously</a> connected directly to the L3 leaf switch. VXLAN interface does the multicast source replication by flooding unknown packets over the layer 3 fabric to the network node (10.0.3.10).</p>
-
-<h3>OpenStack network node configuration</h3>
-
-<p>Since we don&rsquo;t yet have the distributed routing feature enabled, the only OpenStack component that requires any changes is the network node. First, let&rsquo;s remove the physical interface from the external bridge, since it will no longer be used to connect to the external provider network.</p>
-
-<pre><code class="bash Remove the physical interface from the external bridge">$ ovs-vsctl del-port br-ex eth1.300
-</code></pre>
-
-<p>Next let&rsquo;s add the VXLAN interface towards the Loopback IP address of the Arista border leaf switch. The key option sets the VNI which must be equal to the VNI defined on the border leaf.</p>
-
-<pre><code class="bash add the VXLAN interface towards the Arista switch">$ ovs-vsctl add-port br-ex vxlan1 \
--- set interface vxlan1 \
-type=vxlan \
-options:remote_ip=10.0.0.4 \
-options:key=1000
-</code></pre>
-
-<p>Without any physical interfaces attached to the external bridge, the OVS will use the Linux network stack to find the outgoing interface. When a packet hits the <strong>vxlan1</strong> interface of the br-ex, it will get encapsulated in a VXLAN header and passed on to the OS network stack where it will follow the <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">pre-configured</a> static route forwarding all 10/8 traffic towards the leaf-spine fabric. Check out <a href="http://blog.scottlowe.org/2013/05/15/examining-open-vswitch-traffic-patterns/">this article</a> if you want to learn more about different types of interfaces and traffic forwarding behaviours in OpenvSwitch.</p>
-
-<h3>Cleanup</h3>
-
-<p>In order to make changes persistent and prevent the static interface configuration from interfering with OVS, remove all OVS-related configuration and shutdown interface eth1.300.</p>
-
-<pre><code class="bash /etc/sysconfig/network-scripts/ifcfg-eth1.300">ONBOOT=no
-VLAN=yes
-</code></pre>
-
-<h2>Change in the packet flow</h2>
-
-<p>None of the packet flows have changed as the result of this modification. All VMs will still use NAT to break out of the private environment, the NAT&rsquo;d packets will reach the external bridge <strong>br-ex</strong> as described in my <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">earlier post</a>. However this time <strong>br-ex</strong> will forward the packets out the <strong>vxlan1</strong> port which will deliver them to the Arista switch over the same L3 fabric used for east-west communication.</p>
-
-<p>If we did a capture on the fabric-facing interface <strong>eth1</strong> of the control node while running a ping from one of the VMs to the external IP address, we would see a VXLAN-encapsulated packet destined for the Loopback IP of L4 leaf switch.</p>
-
-<p><img class="center" src="/images/neutron-provider-vxlan.png"></p>
-
-<h2>Coming Up</h2>
-
-<p>In the next post we&rsquo;ll examine the L2 gateway feature that allows tenant networks to communicate with physical servers through yet another VXLAN-VLAN hardware gateway.</p>
 ]]></content>
   </entry>
   

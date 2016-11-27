@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-10-26T14:23:05-07:00</updated>
+  <updated>2016-11-27T06:18:33-08:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,363 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[OpenStack SDN With OVN (Part 1) - Build and Install]]></title>
+    <link href="http://networkop.github.io/blog/2016/11/27/ovn-part1/"/>
+    <updated>2016-11-27T00:00:00-08:00</updated>
+    <id>http://networkop.github.io/blog/2016/11/27/ovn-part1</id>
+    <content type="html"><![CDATA[<p>This is a first of a two-post series dedicated to project OVN. In this post I&rsquo;ll show how to build, install and configure OVN to work with a 3-node RDO OpenStack lab.</p>
+
+<!--more-->
+
+
+<p>Vanilla OpenStack networking has many functional, performance and scaling limitations. Projects like <a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">L2 population</a>, <a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">local ARP responder</a>, <a href="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/">L2 Gateway</a> and <a href="http://networkop.github.io/blog/2016/10/13/os-dvr/">DVR</a> were conceived to address those issues. However good a job these projects do, they still remain a collection of separate projects, each with its own limitations, configuration options and sets of dependencies. That led to an effort outside of OpenStack to develop a special-purpose OVS-only SDN controller that would address those issues in a centralised and consistent manner. This post will be about one such SDN controller, coming directly from the people responsible for OpenvSwitch, Open Virtual Network (OVN).</p>
+
+<h2>OVN quick introduction</h2>
+
+<p>OVN is a distributed SDN controller implementing virtual networks with the help OVS. Even though it is positioned as a <abbr title="Cloud Management System">CMS</abbr>-independent controller, the main use case is still OpenStack. OVN was designed to address the following limitations of vanilla OpenStack networking:</p>
+
+<ul>
+<li>Security groups could not be implemented directly on OVS ports and, therefore, required a dedicated Linux bridge between the VM and the OVS integration bridge.</li>
+<li>Routing and DHCP agents required dedicated network namespaces.</li>
+<li>NAT was implemented using a combination of network namespaces, iptables and proxy-ARP.</li>
+</ul>
+
+
+<p>OVN implements security groups, distributed virtual routing, NAT and distributed DHCP server all inside a single OVS bridge. This dramatically improves performance by reducing the number of inter-process packet handling and ensures that all flows can benefit from kernel fast-path switching.</p>
+
+<p>At a high level, OVN consists of 3 main components:</p>
+
+<ol>
+<li>OVN ML2 Plugin - performs translation between Neutron data model and OVN logical data model stored in Northbound DB.</li>
+<li>OVN northd - the brains of OVN, translates the high level networking abstractions (logical switches, routers and ports) into logical flows. These <a href="https://blog.russellbryant.net/2016/11/11/ovn-logical-flows-and-ovn-trace/">logical flows</a> are not yet OpenFlow flows but similar in concept and a very powerful abstraction. All translated information is stored in Southbound DB.</li>
+<li>OVN controllers - located on each compute node, receive identical copies of logical flows (centralised network view) and exchange logical port to overlay IP binding information via the central Southbound DB. This information is used to perform logical flow translation into OpenFlow which are then programmed into the local instance OVS.</li>
+</ol>
+
+
+<p><img class="center" src="http://networkop.github.io/images/ovn-arch.png"></p>
+
+<p>If you want to learn more about OVN architecture and use cases, <a href="http://docs.openstack.org/developer/networking-ovn/readme.html">OpenStack OVN page</a> has an excellent collection of resources for further reading.</p>
+
+<h2>OpenStack installation</h2>
+
+<p>I&rsquo;ll use RDO packstack to help me build a 1 controller and 2 compute nodes OpenStack lab on CentOS7. I&rsquo;ll use the master trunk to deploy the latest OpenStack Ocata packages. This is required since at the time of writing (Nov 2016) some of the OVN features were not available in OpenStack Newton.</p>
+
+<figure class='code'><figcaption><span>Install latest RDO repositories on all 3 nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">cd</span> /etc/yum.repos.d/
+</span><span class='line'>wget http://trunk.rdoproject.org/centos7/delorean-deps.repo
+</span><span class='line'>wget https://trunk.rdoproject.org/centos7-master/current/delorean.repo
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>On the controller node, generate a sample answer file and modify settings to match the IPs of individual nodes. Optionally, you can disable some of the unused components like Nagios and Ceilometer similar to how I did it in my <a href="http://networkop.co.uk/blog/2016/04/18/os-unl-lab/">earlier post</a>.</p>
+
+<figure class='code'><figcaption><span>Modify answer file and deploy OpenStack</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum install -y openstack-packstack crudini
+</span><span class='line'>packstack --gen-answer-file<span class="o">=</span>/root/packstack.answer
+</span><span class='line'>crudini --set --existing defautl CONFIG_COMPUTE_HOSTS 169.254.0.12,169.254.0.13
+</span><span class='line'>crudini --set --existing defautl CONFIG_CONTROLLER_HOST 169.254.0.11
+</span><span class='line'>crudini --set --existing defautl CONFIG_NETWORK_HOSTS 169.254.0.11
+</span><span class='line'>packstack --answer-file<span class="o">=</span>/root/packstack.answer
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p1/">OpenStack</a> and <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">underlay leaf/spine fabric</a> build using Chef.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/ovn-openstack.png"></p>
+
+<h2>OVN Build</h2>
+
+<p>OVN can be built directly from OVS source code. Instead of building and installing OVS on each of the OpenStack nodes individually, I&rsquo;ll build a set of RPM&rsquo;s on the Controller and will use them to install and upgrade OVS/OVN components on the remaining nodes.</p>
+
+<p>Part of OVN build process includes building an OVS kernel module. In order to be able to use kmod RPM on all nodes we need to make sure all nodes use the same version of Linux kernel. The easiest way would be to fetch the latest updates from CentOS repos and reboot the nodes. This step should result in same kernel version on all nodes, which can be checked with <code>uname -r</code> command.</p>
+
+<figure class='code'><figcaption><span>Upgrade kernel on all nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum -y update kernel
+</span><span class='line'>reboot
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The official <a href="https://github.com/openvswitch/ovs/blob/master/INSTALL.Fedora.rst">OVS installation procedure for CentOS7</a> is pretty accurate and requires only a few modifications to account for the packages missing in the minimal CentOS image I&rsquo;ve used as a base OS.</p>
+
+<figure class='code'><figcaption><span>OVS build procedure</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum install rpm-build autoconf automake libtool systemd-units openssl openssl-devel python python-twisted-core python-zope-interface python-six desktop-file-utils groff graphviz procps-ng libcap-ng libcap-ng-devel
+</span><span class='line'>yum install selinux-policy-devel kernel-devel-<span class="sb">`</span>uname -r<span class="sb">`</span> git
+</span><span class='line'>git clone https://github.com/openvswitch/ovs.git
+</span><span class='line'><span class="nb">cd </span>ovs
+</span><span class='line'>./boot.sh
+</span><span class='line'>./configure
+</span><span class='line'>make rpm-fedora <span class="nv">RPMBUILD_OPT</span><span class="o">=</span><span class="s2">&quot;--without check&quot;</span>
+</span><span class='line'>make rpm-fedora-kmod
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At the end of the process we should have a set of rpms inside the <code>ovs/rpm/rpmbuild/RPMS/</code> directory.</p>
+
+<h2>OVN Install</h2>
+
+<p>Before we can begin installing OVN, we need to prepare the existing OpenStack environment by disabling and removing legacy Neutron OpenvSwitch agents. Since OVN natively implements L2 and L3 forwarding, DHCP and NAT, we won&rsquo;t need L3 and DHCP agents on any of the Compute nodes. Network node that used to provide North-South connectivity will no longer be needed.</p>
+
+<h3>OpenStack preparation</h3>
+
+<p>First, we need to make sure all Compute nodes have a bridge that would provide access to external provider networks. In my case, I&rsquo;ll move the <code>eth1</code> interface under the OVS <code>br-ex</code> on all Compute nodes.</p>
+
+<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/ifcfg-eth1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">DEVICE</span><span class="o">=</span>eth1
+</span><span class='line'><span class="nv">NAME</span><span class="o">=</span>eth1
+</span><span class='line'><span class="nv">DEVICETYPE</span><span class="o">=</span>ovs
+</span><span class='line'><span class="nv">TYPE</span><span class="o">=</span>OVSPort
+</span><span class='line'><span class="nv">OVS_BRIDGE</span><span class="o">=</span>br-ex
+</span><span class='line'><span class="nv">ONBOOT</span><span class="o">=</span>yes
+</span><span class='line'><span class="nv">BOOTPROTO</span><span class="o">=</span>none
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>IP address needs to be moved to <code>br-ex</code> interface. Below example is for Compute node #2:</p>
+
+<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/ifcfg-br-ex</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">ONBOOT</span><span class="o">=</span>yes
+</span><span class='line'><span class="nv">DEFROUTE</span><span class="o">=</span>yes
+</span><span class='line'><span class="nv">IPADDR</span><span class="o">=</span>169.254.0.12
+</span><span class='line'><span class="nv">PREFIX</span><span class="o">=</span>24
+</span><span class='line'><span class="nv">GATEWAY</span><span class="o">=</span>169.254.0.1
+</span><span class='line'><span class="nv">DNS1</span><span class="o">=</span>8.8.8.8
+</span><span class='line'><span class="nv">DEVICE</span><span class="o">=</span>br-ex
+</span><span class='line'><span class="nv">NAME</span><span class="o">=</span>br-ex
+</span><span class='line'><span class="nv">DEVICETYPE</span><span class="o">=</span>ovs
+</span><span class='line'><span class="nv">OVSBOOTPROTO</span><span class="o">=</span>none
+</span><span class='line'><span class="nv">TYPE</span><span class="o">=</span>OVSBridge
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At the same time OVS configuration on Network/Controller node will need to be completely wiped out. Once that&rsquo;s done, we can remove the Neutron OVS package from all nodes.</p>
+
+<figure class='code'><figcaption><span>Remove legacy Neutron OVS agents</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum remove openstack-neutron-openvswitch
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>OVS packages installation</h3>
+
+<p>Now everything is ready for OVN installation. First step is to install the kernel module and upgrade the existing OVS package. Reboot may be needed in order for the correct kernel module to be loaded.</p>
+
+<figure class='code'><figcaption><span>Upgrade OVS on all nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>rpm -i openvswitch-kmod-2.6.90-1.el7.centos.x86_64.rpm
+</span><span class='line'>rpm -U openvswitch-2.6.90-1.el7.centos.x86_64.rpm
+</span><span class='line'>reboot
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now we can install OVN. Controllers will be running the <code>ovn-northd</code> process which can be installed as follows:</p>
+
+<figure class='code'><figcaption><span>Install OVN on the Controller</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>rpm -i openvswitch-ovn-common-*.x86_64.rpm
+</span><span class='line'>rpm -i openvswitch-ovn-central-*.x86_64.rpm
+</span><span class='line'>systemctl start ovn-northd
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The following packages install the <code>ovn-controller</code> on all Compute nodes:</p>
+
+<figure class='code'><figcaption><span>Install OVN on Compute nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>rpm -i openvswitch-ovn-common-*.x86_64.rpm
+</span><span class='line'>rpm -i openvswitch-ovn-host-*.x86_64.rpm
+</span><span class='line'>systemctl start ovn-controller
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The last thing is to install the OVN ML2 plugin, a python library that allows Neutron to talk to OVN Northbound database.</p>
+
+<figure class='code'><figcaption><span>Install OVN ML2 plugin on the Controller</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum install python-networking-ovn
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>OVN Configuration</h2>
+
+<p>Now that we have all the required packages in place, it&rsquo;s time to reconfigure Neutron to start using OVN instead of a default openvswitch plugin. The installation procedure is described in the official <a href="http://docs.openstack.org/developer/networking-ovn/index.html">Neutron integration guide</a>. At the end, once we&rsquo;ve restarted <code>ovn-northd</code> on the controller and <code>ovn-controller</code> on the compute nodes, we should see the following output on the controller node:</p>
+
+<figure class='code'><figcaption><span>ovs-sbctl show</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>Chassis <span class="s2">&quot;d03bdd51-e687-4078-aa54-0ff8007db0b5&quot;</span>
+</span><span class='line'>    hostname: <span class="s2">&quot;compute-3&quot;</span>
+</span><span class='line'>    Encap geneve
+</span><span class='line'>        ip: <span class="s2">&quot;10.0.0.4&quot;</span>
+</span><span class='line'>        options: <span class="o">{</span><span class="nv">csum</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="o">}</span>
+</span><span class='line'>    Encap vxlan
+</span><span class='line'>        ip: <span class="s2">&quot;10.0.0.4&quot;</span>
+</span><span class='line'>        options: <span class="o">{</span><span class="nv">csum</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="o">}</span>
+</span><span class='line'>Chassis <span class="s2">&quot;b89b8683-7c74-43df-8ac6-1d57ddefec77&quot;</span>
+</span><span class='line'>    hostname: <span class="s2">&quot;compute-2&quot;</span>
+</span><span class='line'>    Encap vxlan
+</span><span class='line'>        ip: <span class="s2">&quot;10.0.0.2&quot;</span>
+</span><span class='line'>        options: <span class="o">{</span><span class="nv">csum</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="o">}</span>
+</span><span class='line'>    Encap geneve
+</span><span class='line'>        ip: <span class="s2">&quot;10.0.0.2&quot;</span>
+</span><span class='line'>        options: <span class="o">{</span><span class="nv">csum</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This means that all instances of a distributed OVN controller located on each compute node have successfully registered with Southbound OVSDB and provided information about their physical overlay addresses and supported encapsulation types.</p>
+
+<h2>(Optional) Automating everything with Chef</h2>
+
+<p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/chef-unl-os.git
+</span><span class='line'><span class="nb">cd </span>chef-unl-os
+</span><span class='line'>chef-client -z -E lab ovn.rb
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Test topology setup</h2>
+
+<p>Now we should be able to create a test topology with two tenant subnets and an external network interconnected by a virtual router.</p>
+
+<figure class='code'><figcaption><span>Creating a test topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>neutron net-create NET-RED
+</span><span class='line'>neutron net-create NET-BLUE
+</span><span class='line'>neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24
+</span><span class='line'>neutron subnet-create --name SUB-RED NET-RED 20.0.0.0/24
+</span><span class='line'>neutron net-create NET-EXT --provider:network_type flat <span class="se">\</span>
+</span><span class='line'>                           --provider:physical_network extnet <span class="se">\</span>
+</span><span class='line'>                           --router:external --shared
+</span><span class='line'>neutron subnet-create --name SUB-EXT --enable_dhcp<span class="o">=</span>False <span class="se">\</span>
+</span><span class='line'>                      --allocation-pool<span class="o">=</span><span class="nv">start</span><span class="o">=</span>169.254.0.50,end<span class="o">=</span>169.254.0.99 <span class="se">\</span>
+</span><span class='line'>                      --gateway<span class="o">=</span>169.254.0.1 NET-EXT 169.254.0.0/24
+</span><span class='line'>neutron router-create R1
+</span><span class='line'>neutron router-interface-add R1 SUB-BLUE
+</span><span class='line'>neutron router-interface-add R1 SUB-RED
+</span><span class='line'>neutron router-gateway-set R1 NET-EXT
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>When we attach a few test VMs to each subnet we should be able to successfully ping between the VMs, assuming the security groups are setup to allow ICMP/ND.</p>
+
+<figure class='code'><figcaption><span>Create VMs</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img <span class="p">|</span> glance <span class="se">\</span>
+</span><span class='line'>image-create --name<span class="o">=</span><span class="s1">&#39;IMG-CIRROS&#39;</span> <span class="se">\</span>
+</span><span class='line'>  --visibility<span class="o">=</span>public <span class="se">\</span>
+</span><span class='line'>  --container-format<span class="o">=</span>bare <span class="se">\</span>
+</span><span class='line'>  --disk-format<span class="o">=</span>qcow2
+</span><span class='line'>nova aggregate-create AGG-RED AZ-RED
+</span><span class='line'>nova aggregate-create AGG-BLUE AZ-BLUE
+</span><span class='line'>nova aggregate-add-host AGG-BLUE compute-2
+</span><span class='line'>nova aggregate-add-host AGG-RED compute-3
+</span><span class='line'>nova boot --flavor m1.tiny --image <span class="s1">&#39;IMG-CIRROS&#39;</span> <span class="se">\</span>
+</span><span class='line'>  --nic net-name<span class="o">=</span>NET-BLUE <span class="se">\</span>
+</span><span class='line'>  --availability-zone AZ-BLUE <span class="se">\</span>
+</span><span class='line'>  VM1
+</span><span class='line'>
+</span><span class='line'>nova boot --flavor m1.tiny --image <span class="s1">&#39;IMG-CIRROS&#39;</span> <span class="se">\</span>
+</span><span class='line'>  --nic net-name<span class="o">=</span>NET-RED <span class="se">\</span>
+</span><span class='line'>  --availability-zone AZ-RED <span class="se">\</span>
+</span><span class='line'>  VM2
+</span><span class='line'>nova boot --flavor m1.tiny --image <span class="s1">&#39;IMG-CIRROS&#39;</span> <span class="se">\</span>
+</span><span class='line'>  --nic net-name<span class="o">=</span>NET-BLUE <span class="se">\</span>
+</span><span class='line'>  --availability-zone AZ-RED <span class="se">\</span>
+</span><span class='line'>  VM3
+</span><span class='line'>openstack floating ip assign 169.254.0.52 VM3
+</span><span class='line'>openstack server add floating ip VM3 169.254.0.52
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p><img class="center" src="http://networkop.github.io/images/ovn-topo.png"></p>
+
+<p>In the next post we will use the above virtual topology to explore the dataplane packet flow inside an OVN-managed OpenvSwitch and how it uses the new encapsulation protocol GENEVE to optimise egress forwarding lookups on remote compute nodes.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Type-2 and Type-5 EPVN on vQFX 10k in UnetLab]]></title>
@@ -4707,218 +5064,6 @@ The final post will demonstrate how to push configuration to devices inside UNL.
 <h2>Conclusion</h2>
 
 <p>Thanks to DRY and Convention over Configuration principles it&rsquo;s possible to devise a configuration template that will be the same for all Spokes. The actual configuration will consist of multiple components like IKEv2, dynamic VTI, AAA and BGP configuration. I&rsquo;ll try to explain how they all tie together in my upcoming post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Automating New Network Build - Part 2 (BGP)]]></title>
-    <link href="http://networkop.github.io/blog/2015/09/03/automating-bgp-config/"/>
-    <updated>2015-09-03T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2015/09/03/automating-bgp-config</id>
-    <content type="html"><![CDATA[<p>In this post we&rsquo;ll have a look at how to automate a typical BGP setup. This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.</p>
-
-<!--more-->
-
-
-<h2>Requirements and assumptions</h2>
-
-<p>The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link. Secondary WAN link should only be used in case both primary and backdoor links are unavailable.<br/>
-All routed devices within Branch-2 will be running iBGP AS#3 with BR2-CORE playing a role of route-reflector for the two WAN routers. iBGP convergence timers should rely on IGP&rsquo;s timers (OSPF default timers of 10 and 40 seconds). Site&rsquo;s core switch should originate a site summary prefix as well as any other non-standard prefixes falling outside of the standard site summary (e.g. links to 3rd Parties, DMZ etc.). All prefixes originated by the site should be tagged with specific community values in order to be easily identifiable at the remote end.</p>
-
-<p><img class="centre" src="http://networkop.github.io/images/full-network-topo.png" title="Full network topology" ></p>
-
-<h2>eBGP configuration automation</h2>
-
-<p>Each site will have a unique set of eBGP peers, hence, it is logical to put all eBGP-related variables into a site-specific directory <code>group_vars/branch-2/</code>. In order to understand how to configure each eBGP neighbor the following values need to be defined for each eBGP neighbor:</p>
-
-<ol>
-<li>IP addresses</li>
-<li>AS number</li>
-<li>(optional) Routing manipulation policies</li>
-</ol>
-
-
-<p>The above values correspond to the following Ansible variables:</p>
-
-<figure class='code'><figcaption><span>./group_vars/branch-2/bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">ebgp_peers</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-WAN1</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">1.1.1.2</span><span class="p-Indicator">:</span>
-</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">remote-as 1000</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-WAN2</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">2.2.3.2</span><span class="p-Indicator">:</span>
-</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">remote-as 2000</span>
-</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">route-map RM-BGP-PREPEND-OUT out</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-CORE</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">10.0.2.49</span><span class="p-Indicator">:</span>
-</span><span class='line'>       <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">remote-as 2</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Here <code>ebgp_peers</code> variable contains a mapping between network devices and their eBGP neighbors identified by their IP addresses. BGP path manipulation policies ideally should belong to global variables and are defined under the company-wide <code>routing</code> group</p>
-
-<figure class='code'><figcaption><span>./group_vars/routing/route-maps</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">bgp_out_rmap_prepend</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">set as-path prepend {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }}</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>All information defined above will be reused by the <code>bgp</code> template of the <code>routing</code> ansible roles:</p>
-
-<figure class='code'><figcaption><span>./roles/routing/template/bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">route-map RM-BGP-PREPEND-OUT permit 10</span>
-</span><span class='line'><span class="l-Scalar-Plain">{%- for clause in bgp_out_rmap_prepend %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{{ clause }}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{% endfor -%}</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">router bgp {{ site_ASN }}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{%- if inventory_hostname in ebgp_peers %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{%- for neighbor_ip in ebgp_peers[inventory_hostname] %}</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">{%- for option in ebgp_peers[inventory_hostname][neighbor_ip] %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">neighbor {{ neighbor_ip }} {{ option }}</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">{% endfor -%}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{% endfor -%}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{% endif -%}</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>iBGP configuration automation</h2>
-
-<p>Each site will be running a simple iBGP topology with a single route-reflector with two clients. Each routed device within the new branch will need to have it&rsquo;s iBGP role  defined (server or client).</p>
-
-<figure class='code'><figcaption><span>./group_vars/branch-2/bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">ibgp_topo</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">route_reflector</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">BR2-CORE</span><span class="p-Indicator">]</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">rr_clients</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">BR2-WAN1</span><span class="p-Indicator">,</span> <span class="nv">BR2-WAN2</span><span class="p-Indicator">]</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">bgp_originate_redistribute</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-CORE</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">summary</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">static</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">bgp_originate_network</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-WAN1</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Loopback0</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-WAN2</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Loopback0</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Special variables that start with <code>bgp_originate_</code> define which subnets should be originated by which router. RR-server will originate site-wide summary and any 3rd party subnets while WAN routers will inject their own loopbacks in order to be remotely accessible even if BR2-CORE goes down. Specific route maps responsible for prefix origination should be defined in the global scope:</p>
-
-<figure class='code'><figcaption><span>./group_vars/routing/route-maps</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">bgp_redistr_route_maps</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">static</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">match tag {{ tags.static }}</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">set community {{ bgp_comm_static }}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">summary</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">match tag {{ tags.summary }}</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">set community {{ bgp_comm_summary }}</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>The resulting configuration for BR2-CORE will looks like this:</p>
-
-<figure class='code'><figcaption><span>./files/BR2-CORE.bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>route-map RM-BGP-FROM-STATIC permit 10
-</span><span class='line'>  match tag 110
-</span><span class='line'>  set community 3:1
-</span><span class='line'>route-map RM-BGP-FROM-SUMMARY permit 10
-</span><span class='line'>  match tag 210
-</span><span class='line'>  set community 3:0
-</span><span class='line'>
-</span><span class='line'>route-map RM-BGP-PREPEND-OUT permit 10
-</span><span class='line'>  set as-path prepend 3 3 3 3 3 3 3
-</span><span class='line'>!
-</span><span class='line'>ip prefix-list PL-ALL-LOOPBACKS permit 0.0.0.0/0 le 32 ge 32
-</span><span class='line'>!
-</span><span class='line'>route-map RM-BGP-FALLOVER permit 10
-</span><span class='line'>  match ip address prefix PL-ALL-LOOPBACKS
-</span><span class='line'>!
-</span><span class='line'>router bgp 3
-</span><span class='line'>  redistribute static route-map RM-BGP-FROM-SUMMARY
-</span><span class='line'>  redistribute static route-map RM-BGP-FROM-STATIC
-</span><span class='line'>  neighbor 10.0.2.49 remote-as 2
-</span><span class='line'>  neighbor RR-CLIENTS peer-group
-</span><span class='line'>  neighbor RR-CLIENTS remote-as 3
-</span><span class='line'>  neighbor RR-CLIENTS update-source Loopback0
-</span><span class='line'>  neighbor RR-CLIENTS fall-over route-map RM-BGP-FALLOVER
-</span><span class='line'>  neighbor RR-CLIENTS route-reflector-client
-</span><span class='line'>  neighbor 10.0.3.2 peer-group RR-CLIENTS
-</span><span class='line'>  neighbor 10.0.3.3 peer-group RR-CLIENTS
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Conclusion</h2>
-
-<p>This post concludes the series of articles describing how to automate enteprise network configuration. We first looked at how to automate <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">legacy network configuration</a>, interface and OSPF configuration for the <a href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/">new network build</a> and, finally, BGP configuration. Full version of files and scripts can be found in <a href="https://github.com/networkop/cisco-ansible-provisioning">my github repository</a>.</p>
 ]]></content>
   </entry>
   
