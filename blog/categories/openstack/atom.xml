@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Openstack | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/openstack/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-11-27T06:18:33-08:00</updated>
+  <updated>2016-12-10T17:53:59+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -14,9 +14,431 @@
 
   
   <entry>
+    <title type="html"><![CDATA[OpenStack SDN With OVN (Part 2) - Network Engineering Analysis]]></title>
+    <link href="http://networkop.github.io/blog/2016/12/08/ovn-part2/"/>
+    <updated>2016-12-08T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2016/12/08/ovn-part2</id>
+    <content type="html"><![CDATA[<p>In this post we will see how OVN implements virtual networks for OpenStack. The structure of this post is such that starting from the highest level of networking abstraction we will delve deeper into implementation details with each subsequent section. The biggest emphasis will be on how networking data model gets transformed into a set of logical flows, which eventually become OpenFlow flows. The final section will introduce a new overlay protocol GENEVE and explain why VXLAN no longer satisfies the needs of an overlay protocol.</p>
+
+<!--more-->
+
+
+<h2>OpenStack - virtual network topology</h2>
+
+<p>In the <a href="/blog/2016/11/27/ovn-part1/">previous post</a> we have installed OpenStack and created a simple virtual topology as shown below. In OpenStack&rsquo;s data model this topology consists of the following elements:</p>
+
+<ul>
+<li><strong>Network</strong> defines a virtual L2 broadcast domain</li>
+<li><strong>Subnet</strong> attached to the network, defines an IP subnet within the network</li>
+<li><strong>Router</strong> provides connectivity between all directly connected subnets</li>
+<li><strong>Port</strong> VM&rsquo;s point of attachment to the subnet</li>
+</ul>
+
+
+<p><img class="center" src="/images/ovn-zoom1.png"></p>
+
+<p>So far nothing unusual, this is a simple Neutron data model, all that information is stored in Neutron&rsquo;s database and can be queried with <code>neutron</code> CLI commands.</p>
+
+<h2>OVN Northbound DB - logical network topology</h2>
+
+<p>Every call to implement an element for the above data model is forwarded to OVN ML2 driver as defined by the <code>mechanism driver</code> setting of the ML2 plugin. This driver is responsible for the creation of an appropriate data model inside the OVN Northbound DB. The main elements of this data model are:</p>
+
+<ul>
+<li><strong>Switch</strong> equivalent of a Neutron&rsquo;s Subnet, enables L2 forwarding for all attached ports</li>
+<li><strong>Distributed Router</strong> provides distributed routing between directly connected subnets</li>
+<li><strong>Gateway Router</strong> provides connectivity between external networks and distributed routers, implements NAT and Load Balancing</li>
+<li><strong>Port</strong> of a logical switch, attaches VM to the switch</li>
+</ul>
+
+
+<p>This is a visual representation of our network topology inside OVN&rsquo;s Northbound DB, built based on the output of <code>ovn-nbctl show</code> command:</p>
+
+<p><img class="center" src="/images/ovn-zoom2.png"></p>
+
+<p>This topology is pretty similar to Neutron&rsquo;s native data model with the exception of a gateway router. In OVN, a gateway router is a special non-distributed router which performs functions that are very hard or impossible to distribute amongst all nodes, like NAT and Load Balancing. This router only exists on a single compute node which is selected by the scheduler based on the <code>ovn_l3_scheduler</code> setting of the ML2 plugin. It is attached to a distributed router via a point-to-point /30 subnet defined in the <code>ovn_l3_admin_net_cidr</code> setting of the ML2 plugin.</p>
+
+<p>Apart from the logical network topology, Northbound database keeps track of all QoS, NAT and ACL settings and their parent objects. The detailed description of all tables and properties of this database can be found in the official <a href="http://openvswitch.org/support/dist-docs/ovn-nb.5.html">Northbound DB documentation</a>.</p>
+
+<h2>OVN Southbound DB - logical flows</h2>
+
+<p>OVN <a href="http://openvswitch.org/support/dist-docs/ovn-northd.8.html">northd</a> process running on the controller node translates the above logical topology into a set of tables stored in Southbound DB. Each row in those tables is a logical flow and together they form a <strong>forwarding pipeline</strong> by stringing together multiple actions to be performed on a packet. These actions range from packet drop through packet header modification to packet output. The stringing is implemented with a special <code>next</code> action which moves the packet one step down the pipeline starting from table 0. Let&rsquo;s have a look at the <strong>simplified</strong> versions of L2 and L3 forwarding pipelines using examples from our virtual topology.</p>
+
+<h3>L2 datapath</h3>
+
+<p>In the first example we&rsquo;ll explore the L2 datapath between VM1 and VM3. Both VMs are attached to the ports of the same logical switch. The full datapath of a logical switch consists of two parts - ingress and egress datapath (the direction is from the perspective of a logical switch). The ultimate goal of an ingress datapath is to determine the output port or ports (in case of multicast) and pass the packet to the egress datapath. The egress datapath does a few security checks before sending the packet out to its destination. Two things are worth noting at this stage:</p>
+
+<ol>
+<li>The two datapaths can be located either on the same or on two different hypervisor nodes. In the latter case, the packet is passed between the two nodes in an overlay tunnel.</li>
+<li>The egress datapath does not have a destination lookup step which means that all information about the output port MUST be supplied by the ingress datapath. This means that destination lookup does not have to be done twice and it also has some interesting implications on the choice of encapsulation protocol as we&rsquo;ll see in the next section.</li>
+</ol>
+
+
+<p><img class="center" src="/images/ovn-zoom3-l2.png"></p>
+
+<p>Let&rsquo;s have a closer look at each of the stages of the forwarding pipeline. I&rsquo;ll include snippets of logical flows demonstrating the most interesting behaviour at each stage. Full logical datapath is quite long and can be viewed with <code>ovn-sbctl lflow-list [DATAPATH]</code> command. Here is some useful information, collected from the Northbound database, that will be used in the examples below:</p>
+
+<hr />
+
+<table>
+<thead>
+<tr>
+<th> VM# </th>
+<th> IP </th>
+<th> MAC </th>
+<th> Port UUID </th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> VM1 </td>
+<td> 10.0.0.2 </td>
+<td> fa:16:3e:4f:2f:b8 </td>
+<td> 26c23a54-6a91-48fd-a019-3bd8a7e118de </td>
+</tr>
+<tr>
+<td> VM3 </td>
+<td> 10.0.0.5 </td>
+<td> fa:16:3e:2a:60:32 </td>
+<td> 5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879 </td>
+</tr>
+</tbody>
+</table>
+
+
+<hr />
+
+<ul>
+<li><strong>Port security</strong> - makes sure that incoming packet has the correct source MAC and IP addresses.</li>
+</ul>
+
+
+<pre><code>table=0 (ls_in_port_sec_l2), priority=50, match=(inport == "26c23a54-6a91-48fd-a019-3bd8a7e118de"
+  &amp;&amp; eth.src == {fa:16:3e:4f:2f:b8}), action=(next;)
+table=1 (ls_in_port_sec_ip), priority=90, match=(inport == "26c23a54-6a91-48fd-a019-3bd8a7e118de"
+  &amp;&amp; eth.src == fa:16:3e:4f:2f:b8 &amp;&amp; ip4.src == {10.0.0.2}), action=(next;)
+</code></pre>
+
+<ul>
+<li><strong>Egress ACL</strong> - set of tables that implement Neutron&rsquo;s Egress Port Security functionality. Default rules allow all egress traffic from a VM. The first flow below matches all new connections coming from VM1 and marks them for connection tracking with <code>reg0[1] = 1</code>. The next table catches these marked packets and commits them to the connection tracker. Special <code>ct_label=0/1</code> action ensures return traffic is allowed which is a standard behaviour of all stateful firewalls.</li>
+</ul>
+
+
+<pre><code>table=6 (ls_in_acl), priority=2002 , match=(((ct.new &amp;&amp; !ct.est) ||
+  (!ct.new &amp;&amp; ct.est &amp;&amp; !ct.rpl &amp;&amp; ct_label.blocked == 1)) &amp;&amp;
+  (inport == "26c23a54-6a91-48fd-a019-3bd8a7e118de" &amp;&amp; ip4)),
+  action=(reg0[1] = 1; next;)
+table=9 (ls_in_stateful), priority=100  , match=(reg0[1] == 1),
+  action=(ct_commit(ct_label=0/1); next;)
+</code></pre>
+
+<ul>
+<li><strong>ARP Responder</strong> - matches an incoming ARP/ND request and generates an appropriate ARP/ND response. The way it is accomplished is similar to Neutron&rsquo;s native <a href="/blog/2016/05/06/neutron-l2pop/">ARP responder</a> feature. Effectively an ARP request gets transformed into an ARP response by swapping source and destination fields.</li>
+</ul>
+
+
+<pre><code>table=10(ls_in_arp_rsp), priority=50, match=(arp.tpa == 10.0.0.5 &amp;&amp; arp.op == 1),
+  action=(eth.dst = eth.src; eth.src = fa:16:3e:2a:60:32; arp.op = 2; /* ARP reply */
+  arp.tha = arp.sha; arp.sha = fa:16:3e:2a:60:32; arp.tpa = arp.spa; arp.spa = 10.0.0.5;
+  outport = inport; flags.loopback = 1; output;)
+</code></pre>
+
+<ul>
+<li><strong>DHCP Processing</strong> - set of tables that implement the DHCP server functionality using the approach similar to the ARP responder described above.</li>
+</ul>
+
+
+<pre><code>table=12(ls_in_dhcp_response), priority=100, match=(inport == "26c23a54-6a91-48fd-a019-3bd8a7e118de"
+  &amp;&amp; eth.src == fa:16:3e:4f:2f:b8 &amp;&amp; ip4.src == 0.0.0.0 &amp;&amp; ip4.dst == 255.255.255.255
+  &amp;&amp; udp.src == 68 &amp;&amp; udp.dst == 67 &amp;&amp; reg0[3]),
+  action=(eth.dst = eth.src; eth.src = fa:16:3e:94:b6:bc; ip4.dst = 10.0.0.2;
+  ip4.src = 10.0.0.1; udp.src = 67; udp.dst = 68; outport = inport; flags.loopback = 1; output;)
+</code></pre>
+
+<ul>
+<li><strong>Destination Lookup</strong> - implements L2 forwarding based on the destination MAC address of a frame. At this stage the <strong>outport</strong> variable is set to the VM3&rsquo;s port UUID.</li>
+</ul>
+
+
+<pre><code>table=13(ls_in_l2_lkup), priority=50, match=(eth.dst == fa:16:3e:2a:60:32),
+  action=(outport = "5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879"; output;)
+</code></pre>
+
+<ul>
+<li><strong>Ingress ACL</strong> - set of tables that implement Neutron&rsquo;s Ingress Port security. For the sake of argument let&rsquo;s assume that we have enabled inbound SSH connections. The principle is same as before - the packet gets matched in one table and submitted to connection tracking in another table.</li>
+</ul>
+
+
+<pre><code>table=4 (ls_out_acl), priority=2002 , match=(((ct.new &amp;&amp; !ct.est)
+  || (!ct.new &amp;&amp; ct.est &amp;&amp; !ct.rpl &amp;&amp; ct_label.blocked == 1))
+  &amp;&amp; (outport == "26c23a54-6a91-48fd-a019-3bd8a7e118de" &amp;&amp; ip4
+  &amp;&amp; ip4.src == 0.0.0.0/0 &amp;&amp; tcp &amp;&amp; tcp.dst == 22)),
+  action=(reg0[1] = 1; next;
+table=6 (ls_out_stateful), priority=100  , match=(reg0[1] == 1),
+  action=(ct_commit(ct_label=0/1); next;)
+</code></pre>
+
+<ul>
+<li><strong>Port Security</strong> - implements inbound port security for destination VM by checking the sanity of destination MAC and IP addresses.</li>
+</ul>
+
+
+<pre><code>table=7 (ls_out_port_sec_ip), priority=90, match=(outport == "5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879"
+  &amp;&amp; eth.dst == fa:16:3e:2a:60:32 &amp;&amp; ip4.dst == {255.255.255.255, 224.0.0.0/4, 10.0.0.5}),
+  action=(next;)
+table=8 (ls_out_port_sec_l2), priority=50, match=(outport == "5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879"
+  &amp;&amp; eth.dst == {fa:16:3e:2a:60:32}),
+  action=(output;)
+</code></pre>
+
+<h3>L3 datapath</h3>
+
+<p>Similar to a logical switch pipeline, L3 datapath is split into ingress and egress parts. In this example we&rsquo;ll concentrate on  the Gateway router datapath. This router is connected to a distributed logical router via a transit subnet (SWtr) and to an external network via an external bridge (SWex) and performs NAT translation for all VM traffic.</p>
+
+<p><img class="center" src="/images/ovn-zoom3-l3.png"></p>
+
+<p>Here is some useful information about router interfaces and ports that will be used in the examples below.</p>
+
+<hr />
+
+<table>
+<thead>
+<tr>
+<th> SW function </th>
+<th> IP </th>
+<th> MAC </th>
+<th> Port UUID </th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> External </td>
+<td> 169.254.0.54/24 </td>
+<td> fa:16:3e:39:c8:d8 </td>
+<td> lrp-dc1ae9e3-d8fd-4451-aed8-3d6ddc5d095b </td>
+</tr>
+<tr>
+<td> DVR-GW transit </td>
+<td> 169.254.128.2/30 </td>
+<td> fa:16:3e:7e:96:e7 </td>
+<td> lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd </td>
+</tr>
+</tbody>
+</table>
+
+
+<hr />
+
+<ul>
+<li><strong>Port security</strong> - implements sanity check for all incoming packets.</li>
+</ul>
+
+
+<pre><code>table=0 (lr_in_admission), priority=50, match=((eth.mcast || eth.dst == fa:16:3e:7e:96:e7)
+ &amp;&amp; inport == "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"), action=(next;)
+</code></pre>
+
+<ul>
+<li><p><strong>IP Input</strong> - performs additional L3 sanity checks and implements typical IP services of a router (e.g. ICMP/ARP reply)
+<code>
+table=1 (lr_in_ip_input), priority=100, match=(ip4.src == {169.254.128.2, 169.254.128.3}),
+action=(drop;)
+table=1 (lr_in_ip_input), priority=90, match=(inport == "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"
+&amp;&amp; arp.tpa == 169.254.128.2 &amp;&amp; arp.op == 1),
+action=(eth.dst = eth.src; eth.src = fa:16:3e:7e:96:e7; arp.op = 2;
+/* ARP reply */ arp.tha = arp.sha; arp.sha = fa:16:3e:7e:96:e7;
+arp.tpa = arp.spa; arp.spa = 169.254.128.2;
+outport = "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"; flags.loopback = 1; output;)
+table=1 (lr_in_ip_input), priority=90, match=(ip4.dst == 169.254.128.2
+&amp;&amp; icmp4.type == 8 &amp;&amp; icmp4.code == 0),
+action=(ip4.dst &lt;-&gt; ip4.src; ip.ttl = 255; icmp4.type = 0; flags.loopback = 1; next; )
+</code></p></li>
+<li><p><strong>UNSNAT</strong> - translates the destination IP to the real address for packets coming from <strong>external</strong> networks
+<code>
+table=3 (lr_in_unsnat), priority=100, match=(ip &amp;&amp; ip4.dst == 169.254.0.54),
+action=(ct_snat; next;)
+</code></p></li>
+<li><p><strong>DNAT</strong> - implements what is commonly known as static NAT, i.e. performs one-to-one destination IP translation for every configured floating IP.
+<code>
+table=4 (lr_in_dnat), priority=100, match=(ip &amp;&amp; ip4.dst == 169.254.0.52),
+action=(flags.loopback = 1; ct_dnat(10.0.0.5);)
+</code></p></li>
+<li><p><strong>IP routing</strong> - implements L3 forwarding based on the destination IP address. At this stage the <code>outport</code> is decided, IP TTL is decremented and the new next-hop IP is set in register0.</p></li>
+</ul>
+
+
+<pre><code>table=5 (lr_in_ip_routing), priority=1, match=(ip4.dst == 0.0.0.0/0),
+  action=(ip.ttl--; reg0 = 169.254.0.1; reg1 = 169.254.0.54; eth.src = fa:16:3e:39:c8:d8;
+  outport = "lrp-dc1ae9e3-d8fd-4451-aed8-3d6ddc5d095b"; flags.loopback = 1; next;)
+</code></pre>
+
+<ul>
+<li><p><strong>Next Hop Resolver</strong> - discovers the next-hop MAC address for a packet. This could either be a statically configured value when the next-hop is an OVN-managed router or a dynamic binding learned through ARP and stored in a special <code>MAC_Binding</code> table of Southbound DB.
+<code>
+table=6 (lr_in_arp_resolve), priority=100, match=(outport == "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"
+&amp;&amp; reg0 == 169.254.128.1), action=(eth.dst = fa:16:3e:2a:7f:25; next;)
+table=6 (lr_in_arp_resolve), priority=0, match=(ip4),
+action=(get_arp(outport, reg0); next;)
+</code></p></li>
+<li><p><strong>SNAT</strong> - implements what is commonly known as overload NAT. Translates source IP, source UDP/TCP port number and ICMP Query ID to hide them behind a single IP address</p></li>
+</ul>
+
+
+<pre><code>table=0 (lr_out_snat), priority=25, match=(ip &amp;&amp; ip4.src == 10.0.0.0/24),
+  action=(ct_snat(169.254.0.54);)
+</code></pre>
+
+<ul>
+<li><strong>Output</strong> - send the packet out the port determined during the IP routing stage.</li>
+</ul>
+
+
+<pre><code>table=1 (lr_out_delivery), priority=100, match=(outport == "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"),
+  action=(output;)
+</code></pre>
+
+<p>This was a very high-level, abridged and simplified version of how logical datapaths are built in OVN. Hopefully this lays enough groundwork to move on to the official <a href="http://openvswitch.org/support/dist-docs/ovn-northd.8.html">northd documentation</a> which describes both L2 and L3 datapaths in much greater detail.</p>
+
+<p>Apart from the logical flows, Southbound DB also contains a number of tables that establish the logical-to-physical bindings. For example, the <code>Port_Binding</code> table establishes binding between logical switch, logical port, logical port overlay ID (a.k.a. tunnel key) and the unique hypervisor ID. In the next section we&rsquo;ll see how this information is used to translate logical flows into OpenFlow flows at each compute node. For full description of Southbound DB, its tables and their properties refer to the official SB <a href="http://openvswitch.org/support/dist-docs/ovn-sb.5.html">schema documentation</a>.</p>
+
+<h2>OVN Controller - OpenFlow flows</h2>
+
+<p><a href="http://openvswitch.org/support/dist-docs/ovn-controller.8.html">OVN Controller</a> process is the distributed part of OVN SDN controller. This process, running on each compute node, connects to Southbound DB via OVSDB and configures local OVS according to information received from it. It also uses Southbound DB to exchange the physical location information with other hypervisors. The two most important bits of information that OVN controller contributes to Southbound DB are physical location of logical ports and overlay tunnel IP address. These are the last two missing pieces to map logical flows to physical nodes and networks.</p>
+
+<p>The whole flat space of OpenFlow tables is split into multiple areas. Tables 16 to 47 implement an ingress logical pipeline and tables 48 to 63 implement an egress logical pipeline. These tables have no notion of physical ports and are functionally equivalent to logical flows in Southbound DB. Tables 0 and 65 are responsible for mapping between the physical and logical realms. In table 0 packets are matched on the physical incoming port and assigned to a correct logical datapath as was defined by the <code>Port_Binding</code> table. In table 65 the information about the outport, that was determined during the ingress pipeline processing, is mapped to a local physical interface and the packet is sent out.</p>
+
+<p>To demonstrate the details of OpenFlow implementation, I&rsquo;ll use the traffic flow between VM1 and external destination (8.8.8.8). For the sake of brevity I will only cover the major steps of packet processing inside OVS, omitting security checks and ARP/DHCP processing.</p>
+
+<p><img class="center" src="/images/ovn-zoom4-openflow.png"></p>
+
+<p>When packets traverse OpenFlow tables they get labelled or annotated with special values to simplify matching in subsequent tables. For example, when table 0 matches the incoming port, it annotates the packet with the datapath ID. Since it would have been impractical to label packets with globally unique UUIDs from Soutbound DB, these UUIDs get mapped to smaller values called <strong>tunnel keys</strong>. To make things even more confusing, each port will have a local kernel ID, unique within each hypervisor. We&rsquo;ll need both tunnel keys and local port IDs to be able to track the packets inside the OVS. The figure below depicts all port and datapath IDs that have been collected from the Soutbound DB and local OVSDB on each hypervisor. Local port numbers are attached with a dotted line to their respective tunnel keys.</p>
+
+<p><img class="center" src="/images/ovn-zoom4-tunnelkey.png"></p>
+
+<p>When VM1 sends the first packet to 8.8.8.8, it reaches OVS on local port 13. OVN Controller knows that this port belongs to VM1 and installs an OpenFlow rule to match all packets from this port and annotate them with datapath ID (OXM_OF_METADATA), incoming port ID (NXM_NX_REG14), conntrack zone (NXM_NX_REG13). It then moves these annotated packets to the first table of the ingress pipeline.
+<code>
+table=0, priority=100,in_port=13 actions=load:0x2-&gt;NXM_NX_REG13[],
+  load:0x2-&gt;OXM_OF_METADATA[],load:0x2-&gt;NXM_NX_REG14[],
+  resubmit(,16)
+</code></p>
+
+<p>Skipping to the L2 MAC address lookup stage, the output port (0x1) is decided based on the destination MAC address and saved in register 15.
+<code>
+table=29, priority=50,metadata=0x2,dl_dst=fa:16:3e:0d:df:ea
+  actions=load:0x1-&gt;NXM_NX_REG15[],resubmit(,32)
+</code></p>
+
+<p>Finally, the packet reaches the last table where it is sent out the physical patch port interface towards R1.
+<code>
+table=65, priority=100,reg15=0x1,metadata=0x2 actions=output:1
+</code></p>
+
+<p>The other end of this patch port is connected to a local instance of distributed router R1. That means our packet, unmodified, re-enters OpenFlow table 0, only this time on a different port. Local port 2 is associated with a logical pipeline of a router, hence <code>metadata</code> for this packet is set to 4.
+<code>
+table=0, priority=100,in_port=2 actions=load:0x4-&gt;OXM_OF_METADATA[],
+  load:0x1-&gt;NXM_NX_REG14[],resubmit(,16)
+</code></p>
+
+<p>The packet progresses through logical router datapath and finally gets to table 21 where destination IP lookup take place. It matches the catch-all <strong>default route</strong> rule and the values for its next-hop IP (0xa9fe8002), MAC address (fa:16:3e:2a:7f:25) and logical output port (0x03) are set.
+<code>
+table=21, priority=1,ip,metadata=0x4 actions=dec_ttl(),load:0xa9fe8002-&gt;NXM_NX_XXREG0[96..127],
+  load:0xa9fe8001-&gt;NXM_NX_XXREG0[64..95],mod_dl_src:fa:16:3e:2a:7f:25,
+  load:0x3-&gt;NXM_NX_REG15[],load:0x1-&gt;NXM_NX_REG10[0],resubmit(,22)
+</code></p>
+
+<p>Table 65 converts the logical output port 3 to physical port 6, which is yet another patch port connected to a transit switch.
+<code>
+table=65, priority=100,reg15=0x3,metadata=0x4 actions=output:6
+</code></p>
+
+<p>The packet once again re-enters OpenFlow pipeline from table 0, this time from port 5. Table 0 maps incoming port 5 to the logical datapath of a transit switch with Tunnel key 7.</p>
+
+<pre><code>table=0, priority=100,in_port=5 actions=load:0x7-&gt;OXM_OF_METADATA[],
+  load:0x1-&gt;NXM_NX_REG14[],resubmit(,16)
+</code></pre>
+
+<p>Destination lookup determines the output port (2) but this time, instead of entering the egress pipeline locally, the packet gets sent out the physical tunnel port (7) which points to the IP address of a compute node hosting the GW router. The headers of an overlay packet are populated with logical datapath ID (0x7), logical input port (copied from register 14) and logical output port (0x2).
+<code>
+table=29, priority=50,metadata=0x7,dl_dst=fa:16:3e:7e:96:e7
+  actions=load:0x2-&gt;NXM_NX_REG15[],resubmit(,32)
+table=32, priority=100,reg15=0x2,metadata=0x7 actions=load:0x7-&gt;NXM_NX_TUN_ID[0..23],
+  set_field:0x2/0xffffffff-&gt;tun_metadata0,move:NXM_NX_REG14[0..14]-&gt;NXM_NX_TUN_METADATA0[16..30],
+  output:7
+</code></p>
+
+<p>When packet reaches the destination node, it once again enters the OpenFlow table 0, but this time all information is extracted from the tunnel keys.</p>
+
+<pre><code>table=0, priority=100,in_port=17 actions=move:NXM_NX_TUN_ID[0..23]-&gt;OXM_OF_METADATA[0..23],
+  move:NXM_NX_TUN_METADATA0[16..30]-&gt;NXM_NX_REG14[0..14],
+  move:NXM_NX_TUN_METADATA0[0..15]-&gt;NXM_NX_REG15[0..15],
+  resubmit(,33)
+</code></pre>
+
+<p>At the end of the transit switch datapath the packet gets sent out port 12, whose peer is patch port 16.
+<code>
+table=65, priority=100,reg15=0x2,metadata=0x7 actions=output:12
+</code></p>
+
+<p>The packet re-enters OpenFlow table 0 from port 16, where it gets mapped to the logical datapath of a gateway router.
+<code>
+table=0, priority=100,in_port=16 actions=load:0x2-&gt;NXM_NX_REG11[],
+  load:0x6-&gt;NXM_NX_REG12[],load:0x6-&gt;OXM_OF_METADATA[],
+  load:0x2-&gt;NXM_NX_REG14[],resubmit(,16)
+</code></p>
+
+<p>Similar to a distributed router R1, table 21 determines the next-hop MAC address for a packet and saves the output port in register 15.
+<code>
+table=21, priority=1,ip,metadata=0x6 actions=dec_ttl(),load:0xa9fe0001-&gt;NXM_NX_XXREG0[96..127],
+  load:0xa9fe0036-&gt;NXM_NX_XXREG0[64..95],mod_dl_src:fa:16:3e:39:c8:d8,
+  load:0x1-&gt;NXM_NX_REG15[],load:0x1-&gt;NXM_NX_REG10[0],resubmit(,22)
+</code></p>
+
+<p>The first table of an egress pipeline source-NATs packets to external IP address of the GW router.
+<code>
+table=48, priority=33,ip,metadata=0x6,nw_src=10.0.0.2
+  actions=ct(commit,table=49,zone=NXM_NX_REG12[0..15],nat(src=169.254.0.56))
+</code></p>
+
+<p>The modified packet is sent out the physical port 14 towards the external switch.
+<code>
+table=65, priority=100,reg15=0x1,metadata=0x6 actions=output:14
+</code></p>
+
+<p>External switch determines the output port connected to the <code>br-ex</code> on a local hypervisor and send the packet out.
+<code>
+table=0, priority=100,in_port=13 actions=load:0x5-&gt;NXM_NX_REG11[],
+  load:0x3-&gt;NXM_NX_REG12[],load:0x3-&gt;OXM_OF_METADATA[],
+  load:0x2-&gt;NXM_NX_REG14[],resubmit(,16)
+table=29, priority=0,metadata=0x3 actions=load:0xfffe-&gt;NXM_NX_REG15[],resubmit(,32)
+table=33, priority=100,reg15=0xfffe,metadata=0x3
+  actions=load:0x1-&gt;NXM_NX_REG13[],load:0x1-&gt;NXM_NX_REG15[],
+  resubmit(,34),load:0xfffe-&gt;NXM_NX_REG15[]
+table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
+</code></p>
+
+<p>As we&rsquo;ve just seen, OpenFlow repeats the logical topology by interconnecting logical datapaths of switches and routers with virtual point-to-point patch cables. This may seem like an unnecessary modelling element with a potential for a performance impact. However, when flows get installed in kernel datapath, these patch ports <a href="http://galsagie.github.io/2015/11/23/ovn-l3-deepdive">do not exist</a>, which means that there isn&rsquo;t any performance impact on packets in fastpath.</p>
+
+<h2>Physical network - GENEVE overlay</h2>
+
+<p>Before we wrap up, let us have a quick look at the new overlay protocol GENEVE. The goal of any overlay protocol is to transport all the necessary tunnel keys. With VXLAN the only tunnel key that could be transported is the Virtual Network Identifier (VNI). In OVN&rsquo;s case these tunnel keys include not only the logical datapath ID (commonly known as VNI) but also both input and output port IDs. You could have carved up the 24 bits of VXLAN tunnel ID to encode all this information but this would only have given you 256 unique values per key. Some other overlay protocols, like STT have even bigger tunnel ID header size but they, too, have a strict upper limit.</p>
+
+<p>GENEVE was designed to have a variable-length header. The first few bytes are well-defined fixed size fields followed by variable-length Options. This kind of structure allows software developers to innovate at their own pace while still getting the benefits of hardware offload for the fixed-size portion of the header. OVN developers <a href="http://openvswitch.org/support/dist-docs/ovn-architecture.7.html">decided</a> to use Options header type 0x80 to store the 15-bit logical ingress port ID and a 16-bit egress port ID (an extra bit is for logical multicast groups).</p>
+
+<p><img class="center" src="/images/ovn-zoom5-geneve.png"></p>
+
+<p>The figure above shows the ICMP ping coming from VM1(10.0.0.2) to Google&rsquo;s DNS. As I&rsquo;ve showed in the previous section, GENEVE is used between the ingress and egress pipelines of a transit switch (SWtr), whose datapath ID is encoded in the VNI field (0x7). Packets enter the transit switch on port 1 and leave it on port 2. These two values are encoded in the <code>00010002</code> value of the <code>Options Data</code> field.</p>
+
+<p>So now that GENEVE has taken over as the inter-hypervisor overlay protocol, does that mean that VXLAN is dead? OVN still supports VXLAN but only for interconnects with 3rd party devices like VXLAN-VLAN gateways or VXLAN TOR switches. Rephrasing the official OVN <a href="http://openvswitch.org/support/dist-docs/ovn-architecture.7.html">documentation</a>, VXLAN gateways will continue to be supported but they will have a reduced feature set due to lack of extensibility.</p>
+
+<h2>Conclusion</h2>
+
+<p>OpenStack networking has always been one of the first use cases of any new SDN controller. All the major SDN platforms like ACI, NSX, Contrail, VSP or ODL have some form of OpenStack integration. And it made sense, since native Neutron networking has always been one of the biggest pain points in OpenStack deployments. As I&rsquo;ve just demonstrated, OVN can now do all of the common networking functionality natively, without having to rely on 3rd party agents. In addition to that it has a fantastic <a href="http://openvswitch.org/support/dist-docs/">documentation</a>, implements all forwarding inside a single OVS bridge and it is an open-source project. As an OpenStack networking solution it is still, perhaps, a few months away from being production ready - active/active HA is not supported with OVSDB, GW router scheduling options are limited, lack of native support for DNS and Metadata proxy. However I anticipate that starting from the next OpenStack release (Ocata, Feb 2017) OVN will be ready for mass deployment even by companies without an army of OVS/OpenStack developers. And when that happens there will even less need for proprietary OpenStack SDN platforms.</p>
+]]></content>
+  </entry>
+  
+  <entry>
     <title type="html"><![CDATA[OpenStack SDN With OVN (Part 1) - Build and Install]]></title>
     <link href="http://networkop.github.io/blog/2016/11/27/ovn-part1/"/>
-    <updated>2016-11-27T00:00:00-08:00</updated>
+    <updated>2016-11-27T00:00:00+00:00</updated>
     <id>http://networkop.github.io/blog/2016/11/27/ovn-part1</id>
     <content type="html"><![CDATA[<p>This is a first of a two-post series dedicated to project OVN. In this post I&rsquo;ll show how to build, install and configure OVN to work with a 3-node RDO OpenStack lab.</p>
 
@@ -43,7 +465,7 @@
 <ol>
 <li>OVN ML2 Plugin - performs translation between Neutron data model and OVN logical data model stored in Northbound DB.</li>
 <li>OVN northd - the brains of OVN, translates the high level networking abstractions (logical switches, routers and ports) into logical flows. These <a href="https://blog.russellbryant.net/2016/11/11/ovn-logical-flows-and-ovn-trace/">logical flows</a> are not yet OpenFlow flows but similar in concept and a very powerful abstraction. All translated information is stored in Southbound DB.</li>
-<li>OVN controllers - located on each compute node, receive identical copies of logical flows (centralised network view) and exchange logical port to overlay IP binding information via the central Southbound DB. This information is used to perform logical flow translation into OpenFlow which are then programmed into the local instance OVS.</li>
+<li>OVN controllers - located on each compute node, receive identical copies of logical flows (centralised network view) and exchange logical port to overlay IP binding information via the central Southbound DB. This information is used to perform logical flow translation into OpenFlow which are then programmed into the local OVS instance.</li>
 </ol>
 
 
@@ -70,7 +492,7 @@ crudini --set --existing defautl CONFIG_NETWORK_HOSTS 169.254.0.11
 packstack --answer-file=/root/packstack.answer
 </code></pre>
 
-<p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/09/09/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay leaf/spine fabric</a> build using Chef.</p>
+<p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/09/09/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
 
 <p><img class="center" src="/images/ovn-openstack.png"></p>
 
@@ -256,7 +678,7 @@ openstack server add floating ip VM3 169.254.0.52
   <entry>
     <title type="html"><![CDATA[OpenStack SDN - Distributed Virtual Routing]]></title>
     <link href="http://networkop.github.io/blog/2016/10/13/os-dvr/"/>
-    <updated>2016-10-13T00:00:00-07:00</updated>
+    <updated>2016-10-13T00:00:00+01:00</updated>
     <id>http://networkop.github.io/blog/2016/10/13/os-dvr</id>
     <content type="html"><![CDATA[<p>In this post we&rsquo;ll explore how DVR is implemented in OpenStack Neutron and what are some of its benefits and shortcomings.</p>
 
@@ -720,7 +1142,7 @@ OpenFlow actions=pop_vlan,NORMAL
   <entry>
     <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 2)]]></title>
     <link href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/"/>
-    <updated>2016-09-09T00:00:00-07:00</updated>
+    <updated>2016-09-09T00:00:00+01:00</updated>
     <id>http://networkop.github.io/blog/2016/09/09/os-lab-p2</id>
     <content type="html"><![CDATA[<p>In this post we&rsquo;ll use Chef, unnumbered BGP and Cumulus VX to build a massively scalable &ldquo;Lapukhov&rdquo; Leaf-Spine data centre.</p>
 
@@ -849,7 +1271,7 @@ traceroute to 10.0.0.4 (10.0.0.4), 30 hops max, 60 byte packets
   <entry>
     <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 1)]]></title>
     <link href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/"/>
-    <updated>2016-08-26T00:00:00-07:00</updated>
+    <updated>2016-08-26T00:00:00+01:00</updated>
     <id>http://networkop.github.io/blog/2016/08/26/os-lab-p1</id>
     <content type="html"><![CDATA[<p>In this post we will explore what&rsquo;s required to perform a zero-touch deployment of an OpenStack cloud. We&rsquo;ll get a 3-node lab up and running inside UNetLab with just a few commands.</p>
 
@@ -944,314 +1366,6 @@ The first part of this script will connect to each prospective OpenStack node an
 <h2>To be continued&hellip;</h2>
 
 <p>This is a part of a 2-post series. In the next post we&rsquo;ll look into how to use the same tools to perform the baremetal provisioning of our physical underlay network.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway]]></title>
-    <link href="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/"/>
-    <updated>2016-05-21T00:00:00-07:00</updated>
-    <id>http://networkop.github.io/blog/2016/05/21/neutron-l2gw</id>
-    <content type="html"><![CDATA[<p>One of the basic function of any data centre network is the ability to communicate with baremetal servers. In this post we&rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</p>
-
-<!--more-->
-
-
-<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/">downloaded</a> and imported into my lab.</p>
-
-<p><img class="center" src="/images/neutron-l2gw-overview.png"></p>
-
-<p>To simulate the baremetal server (10.0.0.100) I&rsquo;ve VRF&rsquo;d an interface on Arista &ldquo;L4&rdquo; switch and connected it directly to a &ldquo;swp3&rdquo; interface of the Cumulus VX. This is not shown on the diagram.</p>
-
-<h2>Solution overview</h2>
-
-<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that compose this solution:</p>
-
-<ul>
-<li><strong>Hardware switch</strong> implementing the OVSDB hardware vtep schema. This is a special &ldquo;flavour&rdquo; of OVSDB designed specifically to enable connectivity between logical (VXLAN VTEP) and physical (switchport) interfaces.</li>
-<li><strong>L2GW agent</strong> running on a network node. This is the process responsible for connecting to OVSDB server running on a hardware switch and updating that database based on instructions received from a L2GW service plugin.</li>
-<li><strong>L2GW Service Plugin</strong> residing on a control node. The task of this plugin is to notify the L2GW agent and normal L2 OVS agents running on compute hosts about network events and distribute VTEP IP address information between them.</li>
-</ul>
-
-
-<p>Note that in our case both network and control nodes are running on the same VM.</p>
-
-<h2>Cumulux VX configuration</h2>
-
-<p>Cumulux is a debian-based linux distribution, therefore most of the basic networking configuration will be similar to how things are done in Ubuntu. First, let&rsquo;s start by configuring basic IP addressing on Loopback (VTEP IP), Eth0 (OOB management), swp1 and swp2 (fabric) interfaces.</p>
-
-<pre><code class="bash /etc/network/interfaces">iface lo inet loopback
-        address 10.0.0.5/32
-
-auto eth0
-iface eth0 inet static
-        address 192.168.91.21/24
-
-auto swp1
-iface swp1 inet static
-        address 169.254.51.5/24
-
-auto swp2
-iface swp2 inet static
-        address 169.254.52.5/24
-
-auto swp3
-iface swp3
-</code></pre>
-
-<p>Next, let&rsquo;s enable OSPF</p>
-
-<pre><code class="bash Enable OSPF process">sudo sed -i s/zebra=no/zebra=yes/ /etc/quagga/daemons
-sudo sed -i s/ospfd=no/ospfd=yes/ /etc/quagga/daemons
-sudo service quagga restart
-</code></pre>
-
-<p>Once OSPFd is running, we can use <code>sudo vtysh</code> to connect to local quagga shell and finalise the configuration.</p>
-
-<pre><code class="bash show run">interface lo
- ip ospf area 0.0.0.0
- link-detect
-!
-interface swp1
- ip ospf area 0.0.0.0
- ip ospf network point-to-point
- link-detect
-!
-interface swp2
- ip ospf area 0.0.0.0
- ip ospf network point-to-point
- link-detect
-!
-router ospf
- ospf router-id 10.0.0.5
- passive-interface default
- no passive-interface swp1
- no passive-interface swp2
-</code></pre>
-
-<p>At this stage our Cumulus VX switch should be fully adjacent to both spines and its loopback IP (10.0.0.5) should be reachable from all OpenStack nodes.</p>
-
-<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack">process</a> is fairly simple and involves only a few commands.</p>
-
-<pre><code class="bash">$ sudo sed -i s/START=no/START=yes/g /etc/default/openvswitch-vtep
-$ sudo service openvswitch-vtep start
-$ sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
-</code></pre>
-
-<p>The last command runs a bootstrap script that does the following things:</p>
-
-<ul>
-<li>Creates a hardware VTEP OVSDB schema</li>
-<li>Inside that schema creates a new physical switch called &ldquo;L5&rdquo;</li>
-<li>Sets the VTEP IP to 10.0.0.5</li>
-<li>Starts listening to incoming OVSDB connections on 192.168.91.21</li>
-</ul>
-
-
-<h2>Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h2>
-
-<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that <a href="https://tools.ietf.org/html/rfc7047">OVSDB</a> is just a database and OVSDB protocol is just a set of JSON RPC calls to work with that database. Information that can be stored in the database is defined by a schema - a structure that represents tables and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
-
-<ul>
-<li><strong><a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf">Open_vSwitch schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
-<li><strong><a href="http://openvswitch.org/docs/vtep.5.pdf">Hardware_vtep schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
-</ul>
-
-
-<p>The information from these databases is later consumed by another process that sets up the actual bridges and ports. The first schema is used by the <strong>ovs-vswitchd</strong> process running on all compute hosts to configure ports and flows of integration and tunnel bridges. In case of a Cumulus switch, the information from <strong>hardware_vtep</strong> OVSDB is used by a process called <strong>ovs-vtepd</strong> that is responsible for settings up VXLAN VTEP interfaces, provisioning of VLANs on physical switchports and interconnecting them with a Linux bridge.</p>
-
-<p>If you want to learn more, check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html">awesome post</a> about hardware VTEP and OVS.</p>
-
-<h2>OpenStack Control node configuration</h2>
-
-<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/">another blog</a>. It&rsquo;s included it this post because I had to do some modifications and also for the sake of completeness.</p>
-
-<ol>
-<li><p>Clone the L2GW repository</p>
-
-<pre><code class="`"> git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
-</code></pre></li>
-<li><p>Use pip to install the plugin</p>
-
-<pre><code class="`"> pip install ./networking-l2gw/
-</code></pre></li>
-<li><p>Enable the L2GW service plugin</p>
-
-<pre><code class="`"> sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' \
- /etc/neutron/neutron.conf
-</code></pre></li>
-<li><p>Copy L2GW configuration files into the neutron configuration directory</p>
-
-<pre><code class="`"> cp  /usr/etc/neutron/l2g* /etc/neutron/
-</code></pre></li>
-<li><p>Point the L2GW plugin to our Cumulus VX switch</p>
-
-<pre><code class="`"> sudo sed -ri "s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/" /etc/neutron/l2gateway_agent.ini
-</code></pre></li>
-<li><p>Update Neutron database with the new schema required by L2GW plugin</p>
-
-<pre><code class="`"> systemctl stop neutron-server
- neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
- systemctl start neutron-server
-</code></pre></li>
-<li><p>Update Neutron startup script to load the L2GW plugin configuration file</p>
-
-<pre><code class="`"> sed -ri "s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /" /usr/lib/systemd/system/neutron-server.service
-</code></pre></li>
-<li><p>Create a L2GW systemd unit file</p>
-
-<pre><code class="`"> cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
- [Unit]
- Description=OpenStack Neutron L2 Gateway Agent
- After=neutron-server.service
-
- [Service]
- Type=simple
- User=neutron
- ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
- KillMode=process
-
- [Install]
- WantedBy=multi-user.target
- EOF
-</code></pre></li>
-<li><p>Restart both L2GW and neutron server</p>
-
-<pre><code class="`"> systemctl daemon-reload
- systemctl restart neutron-server.service
- systemctl start neutron-l2gateway-agent.service  
-</code></pre></li>
-<li><p>Enter the &ldquo;neutron configuration mode&rdquo;</p>
-
-<pre><code>source ~/keystone_admin
-neutron
-</code></pre></li>
-<li><p>Create a new L2 gateway device</p>
-
-<pre><code>l2-gateway-create --device name="L5",interface_names="swp3" CUMULUS-L2GW
-</code></pre></li>
-<li><p>Create a connection between a &ldquo;private_network&rdquo; and a native vlan (dot1q 0) of swp3 interface</p>
-
-<pre><code>l2-gateway-connection-create --default-segmentation-id 0 CUMULUS-L2GW private_network
-</code></pre></li>
-</ol>
-
-
-<h2>Verification and Traffic Flows</h2>
-
-<p>At this stage everything should be ready for testing. We&rsquo;ll start by examining the following traffic flow:</p>
-
-<ul>
-<li>From VM-2 10.0.0.4/fa:16:3e:d7:0e:14</li>
-<li>To baremetal server 10.0.0.100/50:00:00:6b:2e:70</li>
-</ul>
-
-
-<p><img class="center" src="/images/neutron-l2gw-detailed.png"></p>
-
-<p>The communication starts with VM-2 sending an ARP request for the MAC address of the baremetal server. Packet flow inside the compute host will be exactly the same <a href="/blog/2016/04/22/neutron-native/">as before</a>, with packet being flooded from the VM to the integration and tunnel bridges. Inside the tunnel bridge the packet gets resubmitted to table 22 where head-end replication of ARP request takes place.</p>
-
-<p>The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards the Cumulux VTEP IP. We&rsquo;ll use the <code>ovs-appctl ofproto/trace</code> command to see the full path a packet takes inside OVS, which is similar to <code>packet-tracer</code> command of Cisco ASA. To simulate an ARP packet we need to specify the incoming port(in_port), EtherType(arp), internal VLAN number for our tenant(dl_vlan) and an ARP request target IP address(arp_tpa). You can find the full list of fields that can be matched in <a href="http://openvswitch.org/support/dist-docs/ovs-ofctl.8.txt">this document</a>.</p>
-
-<pre><code class="bash ARP request to the baremetal server">$ ovs-appctl ofproto/trace br-tun in_port=1,arp,dl_vlan=1,arp_tpa=10.0.0.100 | grep -E "Rule|actions="
-Rule: table=0 cookie=0xb3c018296c2aa8a3 priority=1,in_port=1
-OpenFlow actions=resubmit(,2)
-        Rule: table=2 cookie=0xb3c018296c2aa8a3 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
-        OpenFlow actions=resubmit(,20)
-                Rule: table=20 cookie=0xb3c018296c2aa8a3 priority=0
-                OpenFlow actions=resubmit(,22)
-                        Rule: table=22 cookie=0xb3c018296c2aa8a3 dl_vlan=1
-                        OpenFlow actions=strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
-</code></pre>
-
-<p>The packet leaving port 9 will get encapsulated into a VXLAN header with destination IP of 10.0.0.5 and forwarded out the fabric-facing interface eth1.100. When VXLAN packet reaches the <strong>vxln69</strong> interface (10.0.0.5) of the Cumulus switch, the <strong>br-vxlan69</strong> Linux bridge floods the frame out the second connected interface - <strong>swp3</strong>.</p>
-
-<pre><code class="bash brctl show br-vxln69">bridge name        bridge id          STP enabled     interfaces
-br-vxln69          8000.500000070003  no              swp3
-                                                      vxln69
-</code></pre>
-
-<p>The rest of the story is very simple. When ARP packet hits the baremetal server it populates its ARP cache. A unicast response travels all the way back to the Cumulus switch, gets matched by the static MAC (0e:14) entry created based on information provided by the L2GW plugin. This entry points to the VTEP IP of Compute host 2(10.0.2.10) which is where it gets forwarded next.</p>
-
-<pre><code class="bash bridge fdb show">50:00:00:09:00:04 dev swp3 vlan 0 master br-vxln69
-50:00:00:07:00:03 dev swp3 vlan 0 master br-vxln69 permanent
-50:00:00:6b:2e:70 dev swp3 vlan 0 master br-vxln69
-26:21:90:a8:8a:cc dev vxln69 vlan 0 master br-vxln69 permanent
-fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
-fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
-fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan 65535 self permanent
-fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan 65535 self permanent
-</code></pre>
-
-<p>The packet travels through compute host 2, populating the flow entries of all OVS bridges along the way. These entries are then used by subsequent unicast packets travelling from VM-2.</p>
-
-<pre><code class="bash Unicast packet to the baremetal server">$ ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=50:00:00:6b:2e:70 | grep -E "Rule|actions="
-Rule: table=0 cookie=0xb5625033061a8ae5 priority=1,in_port=1
-OpenFlow actions=resubmit(,2)
-        Rule: table=2 cookie=0xb5625033061a8ae5 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
-        OpenFlow actions=resubmit(,20)
-                Rule: table=20 cookie=0xb5625033061a8ae5 priority=1,vlan_tci=0x0001/0x0fff,dl_dst=50:00:00:6b:2e:70
-                OpenFlow actions=load:0-&gt;NXM_OF_VLAN_TCI[],load:0x45-&gt;NXM_NX_TUN_ID[],output:9
-</code></pre>
-
-<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/">service node</a> to perform the head-end replication. The idea is that a switch that needs to flood a multicast packet, would send it to a service node which keeps track of all active VTEPs in the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node, however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
-
-<h2>Programming Network Node as BUM replication service node</h2>
-
-<p>First of all, we need to tell our Cumulus switch to send all multicast packets to the network node. To do that we need to modify OVSDB table called &ldquo;Mcast_Macs_Remote&rdquo;. You can view the contents of the database using the <code>ovsdb-client dump --pretty tcp:192.168.91.21:6632</code> command to make sure that this table is empty. Using the VTEP control command we need to force all <strong>unknown-dst</strong> (BUM) traffic to go to the network node(10.0.3.10). The UUID of the logical switch can be found with <code>sudo vtep-ctl list-ls</code> command.</p>
-
-<pre><code class="bash Forward all BUM traffic to OpenStack network node">sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
-</code></pre>
-
-<p>At this stage all BUM traffic hits the network node and gets flooded to the DHCP and the virtual router namespaces. In order to force this traffic to also be replicated to all compute nodes we can use some of the existing tables of the tunnel bridge. Before we do anything let&rsquo;s have a look at the tables our ARP request has to go through inside the tunnel bridge.</p>
-
-<pre><code class="bash Packet from Cumulus VTEP inside br-tun">table=0, priority=1,in_port=2 actions=resubmit(,4)
-table=4, priority=1,tun_id=0x45 actions=mod_vlan_vid:1,resubmit(,10)
-table=10,priority=1 actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
-</code></pre>
-
-<p>We also have a default head-end replication table 22 which floods all BUM traffic received from the integration bridge to all VTEPs:</p>
-
-<pre><code class="bash BUM replication table">table=22, dl_vlan=1 actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
-</code></pre>
-
-<p>So what we can do is create a new flow entry that would intercept all ARP packets inside Table 4 and resubmit them to tables 10 and 22. Table 10 will take our packet up to the integration bridge of the network node, since we still need to be able to talk the virtual router and the DHCP. Table 22 will receive a copy of the packet and flood it to all known VXLAN endpoints.</p>
-
-<pre><code class="bash Manipulating OVS flows">ovs-ofctl add-flow br-tun "table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)"
-</code></pre>
-
-<p>We can once again use the trace command to see the ARP request flow inside the tunnel bridge.</p>
-
-<pre><code class="bash ARP request received from the Cumulus switch">$ ovs-appctl ofproto/trace br-tun in_port=2,arp,tun_id=0x45 | grep -E "Rule|actions="
-Rule: table=0 cookie=0x9f3e746b7ee48bbf priority=1,in_port=2
-OpenFlow actions=resubmit(,4)
-        Rule: table=4 cookie=0 priority=2,arp,tun_id=0x45
-        OpenFlow actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)
-                Rule: table=10 cookie=0x9f3e746b7ee48bbf priority=1
-                OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
-                        Rule: table=0 cookie=0x91b1a9a9b6e8d608 priority=0
-                        OpenFlow actions=NORMAL
-                                Rule: table=0 cookie=0xb36f6e358a37bea6 priority=2,in_port=2
-                                OpenFlow actions=drop
-                Rule: table=22 cookie=0x9f3e746b7ee48bbf dl_vlan=1
-                OpenFlow actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
-</code></pre>
-
-<p><img class="center" src="/images/neutron-l2gw-arp.png"></p>
-
-<p>Now we should be able to clear the ARP cache on baremetal device and successfully ping both VM-2, VM-1 and the virtual router.</p>
-
-<h2>Conclusion</h2>
-
-<p>The workaround presented above is just a temporary solution for the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily, the patch implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c">merged</a> into master OVS branch only a few days ago. So hopefully, this update trickles down to Cumulus package repositories soon.</p>
-
-<p>Despite all the issues, Neutron L2 gateway plugin is a cool project that provides a very important piece of functionality without having to rely on 3rd party SDN controllers. Let&rsquo;s hope it will continue to be supported and developed by the community.</p>
-
-<h2>Coming up</h2>
-
-<p>In the next post I was planning to examine another &ldquo;must have&rdquo; feature of any SDN solution - Distributed Virtual Routing. However due to my current circumstances I may need to take a few weeks' break before going on. Be back soon!</p>
-
-<p><img class="center" src="/images/be-back.jpg"></p>
 ]]></content>
   </entry>
   
