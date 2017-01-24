@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Sdn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/sdn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-12-10T18:05:56+00:00</updated>
+  <updated>2017-01-24T21:16:34+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -492,7 +492,7 @@ crudini --set --existing defautl CONFIG_NETWORK_HOSTS 169.254.0.11
 packstack --answer-file=/root/packstack.answer
 </code></pre>
 
-<p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/09/09/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
+<p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/08/26/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
 
 <p><img class="center" src="/images/ovn-openstack.png"></p>
 
@@ -611,7 +611,7 @@ Chassis "b89b8683-7c74-43df-8ac6-1d57ddefec77"
 
 <h2>(Optional) Automating everything with Chef</h2>
 
-<p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="/blog/2016/09/09/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
+<p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="/blog/2016/08/26/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
 
 <p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
@@ -665,8 +665,8 @@ nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
   --nic net-name=NET-BLUE \
   --availability-zone AZ-RED \
   VM3
-openstack floating ip assign 169.254.0.52 VM3
-openstack server add floating ip VM3 169.254.0.52
+openstack floating ip create NET-EXT
+openstack server add floating ip VM3 169.254.0.53
 </code></pre>
 
 <p><img class="center" src="/images/ovn-topo.png"></p>

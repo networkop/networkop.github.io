@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2016-12-10T18:05:56+00:00</updated>
+  <updated>2017-01-24T21:16:34+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,375 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Getting Started With NETCONF and YANG on Cisco IOS XE]]></title>
+    <link href="http://networkop.github.io/blog/2017/01/25/netconf-intro/"/>
+    <updated>2017-01-25T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2017/01/25/netconf-intro</id>
+    <content type="html"><![CDATA[<p>Everyone who has any interest in network automation inevitably comes across NETCONF and YANG. These technologies have mostly been implemented for and adopted by big telcos and service providers, while support in the enterprise/DC gear has been virtually non-existent. Things are starting to change now as NETCONF/YANG support has been introduced in the latest IOS XE software train. That&rsquo;s why I think it&rsquo;s high time I started another series of posts dedicated to YANG, NETCONF, RESTCONF and various open-source tools to interact with those interfaces.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>To kick things off I will show how to use <a href="http://ncclient.readthedocs.io/en/latest/">ncclient</a> and <a href="https://github.com/mbj4668/pyang">pyang</a> to configure interfaces on Cisco IOS XE device. In order to make sure everyone is on the same page and to provide some reference points for the remaining parts of the post, I would first need to cover some basic theory about NETCONF, XML and YANG.</p>
+
+<h2>NETCONF primer</h2>
+
+<p>NETCONF is a network management protocol that runs over a secure transport (SSH, TLS etc.). It defines a set of commands (<abbr title="Remote Procedure Call">RPCs</abbr>) to change the state of a network device, however it does not define the structure of the exchanged information. The only requirement is for the payload to be a well-formed XML document. Effectively NETCONF provides a way for a network device to expose its API and in that sense it is very similar to <a href="http://networkop.github.io/blog/2016/01/01/rest-for-neteng/">REST</a>. Here are some basic NETCONF operations that will be used later in this post:</p>
+
+<ul>
+<li><strong>hello</strong> - messages exchanged when the NETCONF session is being established, used to advertise the list of supported capabilities.</li>
+<li><strong>get-config</strong> - used by clients to retrieve the configuration from a network device.</li>
+<li><strong>edit-config</strong> - used by clients to edit the configuration of a network device.</li>
+<li><strong>close-session</strong> - used by clients to gracefully close the NETCONF session.</li>
+</ul>
+
+
+<p>All of these standard NETCONF operations are implemented in <a href="http://ncclient.readthedocs.io/en/latest/">ncclient</a> Python library which is what we&rsquo;re going to use to talk to CSR1k.</p>
+
+<h2>XML primer</h2>
+
+<p>There are several ways to exchange structured data over the network. HTML, YAML, JSON and XML are all examples of structured data formats. XML encodes data elements in tags and nests them inside one another to create complex tree-like data structures. Thankfully we are not going to spend much time dealing with XML in this post, however there are a few basic concepts that might be useful for the overall understanding:</p>
+
+<ul>
+<li><strong>Root</strong> - Every XML document has one root element containing one or more child elements.</li>
+<li><strong>Path</strong> - is a way of addressing a particular element inside a tree.</li>
+<li><strong>Namespaces</strong> - provide name isolation for potentially duplicate elements. As we&rsquo;ll see later, the resulting XML document may be built from several YANG models and namespaces are required to make sure there are no naming conflicts between elements.</li>
+</ul>
+
+
+<p>The first two concepts are similar to paths in a Linux filesystem where all of the files are laid out in a tree-like structure with root partition at its top. Namespace is somewhat similar to a unique URL identifying a particular server on the network. Using namespaces you can address multiple unique <code>/etc/hosts</code> files by prepending the host address to the path.</p>
+
+<p>As with other structured data formats, XML by itself does not define the structure of the document. We still need something to organise a set of XML tags, specify what is mandatory and what is optional and what are the value constraints for the elements. This is exactly what YANG is used for.</p>
+
+<h2>YANG primer</h2>
+
+<p>YANG was conceived as a human-readable way to model the structure of an XML document. Similar to a programming language it has some primitive data types (integers, boolean, strings), several basic data structures (containers, lists, leafs) and allows users to define their own data types. The goal is to be able to formally model any network device configuration.</p>
+
+<p>Anyone who has ever used Ansible to <a href="http://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/">generate text network configuration files</a> is familiar with network modelling. Coming up with a naming conventions for variables, deciding how to split them into different files, creating data structures for variables representing different parts of configuration are all a part of network modelling. YANG is similar to that kind of modelling, only this time the models are already created for you. There are three main sources of YANG models today:</p>
+
+<ol>
+<li><strong>Equipment Vendors</strong> create their own &ldquo;native&rdquo; models to interact with their devices.</li>
+<li><strong>Standards bodies</strong> (e.g. IETF and IEEE) were supposed to be the driving force of model creation. However in reality they have managed to produce only a few models that cover basic functionality like interface configuration and routing. Half of these models are still in the &ldquo;DRAFT&rdquo; stage.</li>
+<li><strong>OpenConfig</strong> working group was formed by major telcos and SPs to fill the gap left by IETF. OpenConfig has produced the most number of models so far ranging from LLDP and VLAN to segment routing and BGP configurations. Unfortunately these models are only supported by high-end SP gear and we can only hope that they will find their way into the lower-end part of the market.</li>
+</ol>
+
+
+<p>Be sure to check of these and many other YANG models on the <a href="https://github.com/YangModels/yang">YangModels</a> Github repo.</p>
+
+<h2>Environment setup</h2>
+
+<p>My test environment consists of a single instance of Cisco CSR1k running IOS XE 16.04.01. For the sake of simplicity I&rsquo;m not using any network emulator and simply run it as a stand-alone VM inside VMWare Workstation. CSR1k has the following configuration applied:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>username admin privilege 15 secret admin
+</span><span class='line'>!
+</span><span class='line'>interface GigabitEthernet1
+</span><span class='line'>  ip address 192.168.145.51 255.255.255.0
+</span><span class='line'>  no shutdown
+</span><span class='line'>!
+</span><span class='line'>netconf-yang
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The last command is all what&rsquo;s required to enable NETCONF/YANG support.</p>
+
+<p>On the same hypervisor I have my development CentOS7 VM, which is connected to the same network as the first interface of CSR1k. My VM is able to ping and ssh into the CSR1k. We will need the following additional packages installed:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum install openssl-devel python-devel python-pip gcc
+</span><span class='line'>pip install ncclient pyang pyangbind ipython
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Device configuration workflow</h2>
+
+<p>The following workflow will be performed in both interactive Python shell (e.g. iPython) and Linux bash shell. The best way to follow along is to have two sessions opened, one with each of the shells. This will save you from having to rerun import statements every time you re-open a python shell.</p>
+
+<h3>1. Discovering device capabilities</h3>
+
+<p>The first thing you have to do with any NETCONF-capable device is discover its capabilities. We&rsquo;ll use ncclient&rsquo;s <a href="http://ncclient.readthedocs.io/en/latest/manager.html">manager</a> module to establish a session to CSR1k. Method <code>.connect()</code> of the manager object takes device IP, port and login credentials as input and returns a reference to a NETCONF session established with the device.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ncclient</span> <span class="kn">import</span> <span class="n">manager</span>
+</span><span class='line'>
+</span><span class='line'><span class="n">m</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">host</span><span class="o">=</span><span class="s">&#39;192.168.145.51&#39;</span><span class="p">,</span> <span class="n">port</span><span class="o">=</span><span class="mi">830</span><span class="p">,</span> <span class="n">username</span><span class="o">=</span><span class="s">&#39;admin&#39;</span><span class="p">,</span>
+</span><span class='line'>                    <span class="n">password</span><span class="o">=</span><span class="s">&#39;admin&#39;</span><span class="p">,</span> <span class="n">device_params</span><span class="o">=</span><span class="p">{</span><span class="s">&#39;name&#39;</span><span class="p">:</span> <span class="s">&#39;csr&#39;</span><span class="p">})</span>
+</span><span class='line'>
+</span><span class='line'><span class="k">print</span> <span class="n">m</span><span class="o">.</span><span class="n">server_capabilities</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>When the session is established, server capabilities advertised in the <strong>hello</strong> message get saved in the <code>server_capabilities</code> variable. Last command should print a long list of all capabilities and supported YANG models.</p>
+
+<h3>2. Obtaining YANG models</h3>
+
+<p>The task we have set for ourselves is to configure an interface. CSR1k supports both native (Cisco-specific) and IETF-standard ways of doing it. In this post I&rsquo;ll show how to use the IETF models to do that. First we need to identify which model to use. Based on the discovered capabilities we can guess that <strong>ietf-ip</strong> could be used to configure IP addresses, so let&rsquo;s get this model first. One way to get a YANG model is to search for it on the Internet, and since its an IETF model, it most likely can be found in of the <a href="https://tools.ietf.org/html/rfc7277">RFCs</a>.
+Another way to get it is to download it from the device itself. All devices supporting <a href="https://tools.ietf.org/html/rfc6022">RFC6022</a> must be able to send the requested model in response to the <code>get_schema</code> call. Let&rsquo;s see how we can download the <strong>ietf-ip</strong> YANG model:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">schema</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">get_schema</span><span class="p">(</span><span class="s">&#39;ietf-ip&#39;</span><span class="p">)</span>
+</span><span class='line'><span class="k">print</span> <span class="n">schema</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At this stage the model is embedded in the XML response and we still need to extract it and save it in a file. To do that we&rsquo;ll use python <code>lxml</code> library to parse the received XML document, pick the first child from the root of the tree (<strong>data</strong> element) and save it into a variable. A helper function <a href="https://github.com/networkop/yang/blob/master/helpers.py">write_file</a> simply saves the Python string contained in the <code>yang_text</code> variable in a file.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">xml.etree.ElementTree</span> <span class="kn">as</span> <span class="nn">ET</span>
+</span><span class='line'><span class="n">root</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">fromstring</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">xml</span><span class="p">)</span>
+</span><span class='line'><span class="n">yang_text</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">root</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">text</span>
+</span><span class='line'><span class="n">write_file</span><span class="p">(</span><span class="s">&#39;ietf-ip.yang&#39;</span><span class="p">,</span> <span class="n">yang_text</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Back at the Linux shell we can now start using pyang. The most basic function of pyang is to convert the YANG model into one of the <a href="https://github.com/mbj4668/pyang#features">many supported formats</a>. For example, tree format can be very helpful for high-level understanding of the structure of a YANG model. It produces a tree-like representation of a YANG model and annotates element types and constraints using syntax described in <a href="https://tools.ietf.org/html/rfc7277#section-1.2">this RFC</a>.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>pyang -f tree ietf-ip.yang <span class="p">|</span> head -
+</span><span class='line'>module: ietf-ip
+</span><span class='line'>  augment /if:interfaces/if:interface:
+</span><span class='line'>    +--rw ipv4!
+</span><span class='line'>    <span class="p">|</span>  +--rw enabled?      boolean
+</span><span class='line'>    <span class="p">|</span>  +--rw forwarding?   boolean
+</span><span class='line'>    <span class="p">|</span>  +--rw mtu?          uint16
+</span><span class='line'>    <span class="p">|</span>  +--rw address* <span class="o">[</span>ip<span class="o">]</span>
+</span><span class='line'>    <span class="p">|</span>  <span class="p">|</span>  +--rw ip               inet:ipv4-address-no-zone
+</span><span class='line'>    <span class="p">|</span>  <span class="p">|</span>  +--rw <span class="o">(</span>subnet<span class="o">)</span>
+</span><span class='line'>    <span class="p">|</span>  <span class="p">|</span>     +--:<span class="o">(</span>prefix-length<span class="o">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>From the output above we can see the <strong>ietf-ip</strong> augments or extends the <strong>interface</strong> model. It adds new configurable (rw) containers with a list of IP prefixes to be assigned to an interface. Another thing we can see is that this model cannot be used on its own, since it doesn&rsquo;t specify the name of the interface it augments. This model can only be used together with <code>ietf-interfaces</code> YANG model which models the basic interface properties like MTU, state and description. In fact <code>ietf-ip</code> relies on a number of YANG models which are specified as imports at the beginning of the model definition.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>module ietf-ip {
+</span><span class='line'> namespace &quot;urn:ietf:params:xml:ns:yang:ietf-ip&quot;;
+</span><span class='line'> prefix ip;
+</span><span class='line'> import ietf-interfaces {
+</span><span class='line'>   prefix if;
+</span><span class='line'> }
+</span><span class='line'> import ietf-inet-types {
+</span><span class='line'>   prefix inet;
+</span><span class='line'> }
+</span><span class='line'> import ietf-yang-types {
+</span><span class='line'>   prefix yang;
+</span><span class='line'> }
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Each import statement specifies the model and the prefix by which it will be referred later in the document. These prefixes create a clear separation between namespaces of different models.</p>
+
+<p>We would need to download all of these models and use them together with the <strong>ietf-ip</strong> throughout the rest of this post. Use the procedure described above to download the <strong>ietf-interfaces</strong>, <strong>ietf-inet-types</strong> and <strong>ietf-yang-types</strong> models.</p>
+
+<h3>3. Instantiating YANG models</h3>
+
+<p>Now we can use <a href="https://github.com/robshakir/pyangbind">pyangbind</a>, an extension to pyang, to build a Python module based on the downloaded YANG models and start building interface configuration. Make sure your <code>$PYBINDPLUGIN</code> variable is set like its described <a href="https://github.com/robshakir/pyangbind">here</a>.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang --plugindir <span class="nv">$PYBINDPLUGIN</span> -f pybind -o ietf_ip_binding.py ietf-ip.yang ietf-interfaces.yang ietf-inet-types.yang ietf-inet-types.yang
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The resulting <code>ietf_ip_binding.py</code> is now ready for use inside the Python shell. Note that we import <code>ietf_interfaces</code> as this is the parent object for <code>ietf_ip</code>. The details about how to work with generated Python binding can be found on pyangbind&rsquo;s <a href="https://github.com/robshakir/pyangbind">Github page</a>.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ietf_ip_binding</span> <span class="kn">import</span> <span class="n">ietf_interfaces</span>
+</span><span class='line'><span class="n">model</span> <span class="o">=</span> <span class="n">ietf_interfaces</span><span class="p">()</span>
+</span><span class='line'><span class="n">model</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</span><span class='line'><span class="p">{</span><span class="s">&#39;interfaces&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;interface&#39;</span><span class="p">:</span> <span class="p">{}},</span> <span class="s">&#39;interfaces-state&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;interface&#39;</span><span class="p">:</span> <span class="p">{}}}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>To setup an IP address, we first need to create a model of an interface we&rsquo;re planning to manipulate. We can then use <code>.get()</code> on the model&rsquo;s instance to see the list of all configurable parameters and their defaults.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">new_interface</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s">&#39;GigabitEthernet2&#39;</span><span class="p">)</span>
+</span><span class='line'><span class="n">new_interface</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</span><span class='line'><span class="p">{</span><span class="s">&#39;description&#39;</span><span class="p">:</span> <span class="s">u&#39;&#39;</span><span class="p">,</span>
+</span><span class='line'> <span class="s">&#39;enabled&#39;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+</span><span class='line'> <span class="s">&#39;ipv4&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;address&#39;</span><span class="p">:</span> <span class="p">{},</span>
+</span><span class='line'>  <span class="s">&#39;enabled&#39;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+</span><span class='line'>  <span class="s">&#39;forwarding&#39;</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+</span><span class='line'>  <span class="s">&#39;mtu&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">,</span>
+</span><span class='line'>  <span class="s">&#39;neighbor&#39;</span><span class="p">:</span> <span class="p">{}},</span>
+</span><span class='line'> <span class="s">&#39;ipv6&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;address&#39;</span><span class="p">:</span> <span class="p">{},</span>
+</span><span class='line'>  <span class="s">&#39;autoconf&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s">&#39;create-global-addresses&#39;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+</span><span class='line'>   <span class="s">&#39;create-temporary-addresses&#39;</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+</span><span class='line'>   <span class="s">&#39;temporary-preferred-lifetime&#39;</span><span class="p">:</span> <span class="il">86400L</span><span class="p">,</span>
+</span><span class='line'>   <span class="s">&#39;temporary-valid-lifetime&#39;</span><span class="p">:</span> <span class="il">604800L</span><span class="p">},</span>
+</span><span class='line'>  <span class="s">&#39;dup-addr-detect-transmits&#39;</span><span class="p">:</span> <span class="il">1L</span><span class="p">,</span>
+</span><span class='line'>  <span class="s">&#39;enabled&#39;</span><span class="p">:</span> <span class="bp">True</span><span class="p">,</span>
+</span><span class='line'>  <span class="s">&#39;forwarding&#39;</span><span class="p">:</span> <span class="bp">False</span><span class="p">,</span>
+</span><span class='line'>  <span class="s">&#39;mtu&#39;</span><span class="p">:</span> <span class="il">0L</span><span class="p">,</span>
+</span><span class='line'>  <span class="s">&#39;neighbor&#39;</span><span class="p">:</span> <span class="p">{}},</span>
+</span><span class='line'> <span class="s">&#39;link-up-down-trap-enable&#39;</span><span class="p">:</span> <span class="s">u&#39;&#39;</span><span class="p">,</span>
+</span><span class='line'> <span class="s">&#39;name&#39;</span><span class="p">:</span> <span class="s">u&#39;GigabitEthernet2&#39;</span><span class="p">,</span>
+</span><span class='line'> <span class="s">&#39;type&#39;</span><span class="p">:</span> <span class="s">u&#39;&#39;</span><span class="p">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The simples thing we can do is modify the interface description.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">new_interface</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="s">&#39;NETCONF-CONFIGURED PORT&#39;</span>
+</span><span class='line'><span class="n">new_interface</span><span class="o">.</span><span class="n">get</span><span class="p">()[</span><span class="s">&#39;description&#39;</span><span class="p">]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>New objects are added by calling <code>.add()</code> on the parent object and passing unique key as an argument.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">ipv4_addr</span> <span class="o">=</span> <span class="n">new_interface</span><span class="o">.</span><span class="n">ipv4</span><span class="o">.</span><span class="n">address</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s">&#39;12.12.12.2&#39;</span><span class="p">)</span>
+</span><span class='line'><span class="n">ipv4_addr</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</span><span class='line'><span class="p">{</span><span class="s">&#39;ip&#39;</span><span class="p">:</span> <span class="s">u&#39;12.12.12.2&#39;</span><span class="p">,</span> <span class="s">&#39;netmask&#39;</span><span class="p">:</span> <span class="s">u&#39;&#39;</span><span class="p">,</span> <span class="s">&#39;prefix-length&#39;</span><span class="p">:</span> <span class="mi">0</span><span class="p">}</span>
+</span><span class='line'><span class="n">ipv4_addr</span><span class="o">.</span><span class="n">netmask</span> <span class="o">=</span> <span class="s">&#39;255.255.255.0&#39;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At the time of writing pyangbind only supported serialisation into JSON format which means we have to do a couple of extra steps to get the required XML. For now let&rsquo;s dump the contents of our interface model instance into a file.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">pyangbind.lib.pybindJSON</span> <span class="kn">as</span> <span class="nn">pybindJSON</span>
+</span><span class='line'><span class="n">json_data</span> <span class="o">=</span> <span class="n">pybindJSON</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">&#39;ietf&#39;</span><span class="p">)</span>
+</span><span class='line'><span class="n">write_file</span><span class="p">(</span><span class="s">&#39;new_interface.json&#39;</span><span class="p">,</span><span class="n">json_data</span><span class="p">)</span>
+</span><span class='line'><span class="k">print</span> <span class="n">json_data</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>4. Applying configuration changes</h3>
+
+<p>Even though pyanbind does not support XML, it is possible to use <a href="https://github.com/mbj4668/pyang/wiki/XmlJson">other pyang plugins</a> to generate XML from JSON.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang -f jtox -o interface.jtox ietf-ip.yang ietf-interfaces.yang ietf-inet-types.yang ietf-yang-types.yang
+</span><span class='line'>json2xml -t config -o interface.xml interface.jtox interface.json
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The resulting <code>interface.xml</code> file contains the XML document ready to be sent to the device. I&rsquo;ll use <a href="https://github.com/networkop/yang/blob/master/helpers.py">read_file</a> helper function to read its contents and save it into a variable. We should still have a NETCONF session opened from one of the previous steps and we&rsquo;ll use the <a href="https://tools.ietf.org/html/rfc6241#section-7.2">edit-config</a> RPC call to apply our changes to the running configuration of CSR1k.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">xml</span> <span class="o">=</span> read_file<span class="o">(</span><span class="s1">&#39;interface.xml&#39;</span><span class="o">)</span>
+</span><span class='line'><span class="nv">reply</span> <span class="o">=</span> m.edit_config<span class="o">(</span><span class="nv">target</span><span class="o">=</span><span class="s1">&#39;running&#39;</span>, <span class="nv">config</span><span class="o">=</span>xml<span class="o">)</span>
+</span><span class='line'>print<span class="o">(</span><span class="s2">&quot;Success? {}&quot;</span>.format<span class="o">(</span>reply.ok<span class="o">))</span>
+</span><span class='line'>m.close_session<span class="o">()</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>If the change was applied successfully <code>reply.ok</code> should return <code>True</code> and we can close the session to the device.</p>
+
+<h3>Verifying changes</h3>
+
+<p>Going back to the CSR1k&rsquo;s CLI we should see our changes reflected in the running configuration:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>Router#sh run int gi 2
+</span><span class='line'>Building configuration...
+</span><span class='line'>
+</span><span class='line'>Current configuration : 126 bytes
+</span><span class='line'>!
+</span><span class='line'>interface GigabitEthernet2
+</span><span class='line'> description NETCONF-CONFIGURED PORT
+</span><span class='line'> ip address 12.12.12.2 255.255.255.0
+</span><span class='line'> negotiation auto
+</span><span class='line'>end
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>All-in-one scripts</h3>
+
+<p>Checkout <a href="https://github.com/networkop/yang">this</a> Github page for Python scripts that implement the above workflow in a more organised way.</p>
+
+<hr />
+
+<p>In this post I have merely scratched the surface of YANG modelling and network device programming. In the following posts I am planning to take a closer look at the RESTCONF interface, internal structure of a YANG model, Ansible integration and other YANG-related topics until I run out of interest. So until that happens&hellip; stay tuned.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[OpenStack SDN With OVN (Part 2) - Network Engineering Analysis]]></title>
@@ -623,7 +992,7 @@
 </span></code></pre></td></tr></table></div></figure>
 
 
-<p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p1/">OpenStack</a> and <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
+<p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">OpenStack</a> and <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
 
 <p><img class="center" src="http://networkop.github.io/images/ovn-openstack.png"></p>
 
@@ -807,7 +1176,7 @@
 
 <h2>(Optional) Automating everything with Chef</h2>
 
-<p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
+<p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
 
 <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
@@ -901,8 +1270,8 @@
 </span><span class='line'>  --nic net-name<span class="o">=</span>NET-BLUE <span class="se">\</span>
 </span><span class='line'>  --availability-zone AZ-RED <span class="se">\</span>
 </span><span class='line'>  VM3
-</span><span class='line'>openstack floating ip assign 169.254.0.52 VM3
-</span><span class='line'>openstack server add floating ip VM3 169.254.0.52
+</span><span class='line'>openstack floating ip create NET-EXT
+</span><span class='line'>openstack server add floating ip VM3 169.254.0.53
 </span></code></pre></td></tr></table></div></figure>
 
 
@@ -5260,112 +5629,6 @@ For additional information about git workflow and working with Github you can ch
 <p>Now that we&rsquo;ve setup our development environment we&rsquo;ll move on to the actual REST SDK development in the next post. Don&rsquo;t forget to add all your newly created files and directories to git and push them to Github.</p>
 
 <p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/63d8d13e48e61e896185eb7afee3759c1f2cd5a9">public repository on Github</a></p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[REST API for Network Engineers]]></title>
-    <link href="http://networkop.github.io/blog/2016/01/01/rest-for-neteng/"/>
-    <updated>2016-01-01T00:00:00+00:00</updated>
-    <id>http://networkop.github.io/blog/2016/01/01/rest-for-neteng</id>
-    <content type="html"><![CDATA[<p>This is the first, introductory, post in a series dedicated to REST APIs for Network Engineers. In this post we&rsquo;ll learn what REST API is, what are the most common tools and ways to consume it. Later in the series I&rsquo;ll show how to build a REST client to control <a href="http://www.unetlab.com/">UnetLab</a>, a very popular network emulation environment.</p>
-
-<!--more-->
-
-
-<h2>Management interface evolution</h2>
-
-<p>Since the early dawn of networking, devices have been configured through <abbr title="Virtual Terminal User Interface">VTY</abbr>s. The transport has evolved from telnet to ssh but the underlying rule still maintained that network is configured manually, device-by-device by a human administrator. It&rsquo;s obvious that this approach does not scale and is prone to human error, however it still remains the most prevalent method of network device configuration. <br/>
-The first attempt to tackle these issues has been made in 1988 with the introduction of SNMP. The basic idea was to monitor and manage network devices using a strictly-defined data structures called <abbr title="Management Information Base">MIB</abbr>s. Unfortunately, due to several architectural issues and poor vendor implementation, SNMP has ended up being used mainly for basic monitoring tasks.<br/>
-The idea of programmatic management of network devices later resulted in the creation of NETCONF protocol. Despite being almost 10 years old, this protocol is still not widely used due to limited vendor support, however things may improve as the <abbr title="Yet Another Next Generation">YANG</abbr>-based network configuration gains greater adoption.<br/>
-Finally, with the advent of SDN, REST has become a new de-facto standard for network provisioning. It is supported by most of the latest products of all the major vendors. Let&rsquo;s take a closer look at what REST is and how it works.</p>
-
-<h2>REpresentational State Transfer overview</h2>
-
-<p>Technically speaking, REST is not a protocol but a <a href="https://en.wikipedia.org/wiki/Representational_state_transfer">software architectural pattern</a>. To put it in simple words, it describes <strong>a way</strong> to exchange information rather than the structure of that information. Think of it as another transport (like telnet or ssh for VTY) for payloads of any format. Most commonly payload will get encoded as <abbr title="JavaScript Object Notation">JSON</abbr>, however the structure of JSON is not defined and is different for each application. This rather <em>weak</em> definition opens up huge opportunities for potential use cases:</p>
-
-<ol>
-<li><p>The most basic use case is a Web application with client retrieving and updating information on a server. A good example in networking world would be the native interfaces of Cisco ACI or VMWare NSX. Each time you create an object (a network or a tenant) in a Web GUI, your client sends a request to server&rsquo;s REST interface.</p></li>
-<li><p>The more advanced use case is for communication between distributed software components over a network environment. This is how all management and control plane communications are designed inside OpenStack. For example, every time a new VM is created, <abbr title="Compute controller">Nova</abbr> sends a request to <abbr title="Network controller">Neutron</abbr>&rsquo;s REST API interface to allocate an IP address and a port for that VM.</p></li>
-</ol>
-
-
-<h2>REST under the hood</h2>
-
-<p>REST is an API that allows clients to perform read/write operations on data stored on the server. REST uses HTTP to perform a set of actions commonly known as <strong>CRUD</strong>:</p>
-
-<ul>
-<li>Create</li>
-<li>Read</li>
-<li>Update</li>
-<li>Delete</li>
-</ul>
-
-
-<p>Assuming we want to manipulate a &lsquo;device&rsquo; object on a server we can send an <code>HTTP GET</code> request to <code>/api/devices</code> and get a response with a payload containing a full list of known devices.<br/>
-If we want to add a new device, we need to construct a payload with device attributes (e.g. IP address, Hostname) and send it attached to an <code>HTTP POST</code> request.<br/>
-To update a device we need to send the full updated payload with <code>HTTP PUT</code> method.</p>
-
-<p><img class="centre" src="http://networkop.github.io/images/rest-crud.png" title="Basic REST actions" ></p>
-
-<p>Note that both Update and Delete API calls refer to a specific number in url <code>/api/devices/{ID}</code>. That is a <abbr title="Universally Unique IDentifier">UUID</abbr> that server assigns to every new object and is returned in <code>Location</code> header of <code>201 Created</code> message sent in response to Create request.</p>
-
-<h2>REST API Constraints</h2>
-
-<p>For API to be considered <strong>RESTful</strong> it needs comply with a number of <a href="http://www.restapitutorial.com/lessons/whatisrest.html">formal constraints</a>. One of the most important constraint of all is the stateless nature of the interface. That means that no cookie or session information should be stored on the server, and every request is treated independently from every other request. The implication here is that all state needs to be maintained on the client and information needs to be cacheable in order to improve interface responsiveness.</p>
-
-<p>It&rsquo;s worth noting that an API can still be considered RESTful even if a server <em>does</em> store a session cookie, however all requests must still be treated independently. The last point means there&rsquo;s no <em>configuration modes</em> like we&rsquo;ve seen in traditional CLIs where all commands issued in &ldquo;interface configuration mode&rdquo; will be applied to that specific interface. With RESTful API each request from a client must reference a full path to an object including its UUID within the system.</p>
-
-<h2>Using REST</h2>
-
-<h3>cURL</h3>
-
-<p>cURL is a light-weight Linux command-line tool for transferring data. It&rsquo;s very simple to get started and very frequently used to make HTTP requests. For example, this is how you would issue a Read request to get a list of devices configured on an imaginary SDN controller:</p>
-
-<figure class='code'><figcaption><span>Get all devices using cURL</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>curl -X GET http://sdn-controller.org:8181/api/devices
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Obviously this tool is very good for fast prototyping and troubleshooting but becomes too cumbersome for anything involving more than a few commands.</p>
-
-<h3>Browser plugins</h3>
-
-<p>There&rsquo;s plenty of GUI-based clients that can be added-on to most popular browsers. <a href="https://www.getpostman.com/">Postman</a> and <a href="https://addons.mozilla.org/en-us/firefox/addon/restclient/">RESTClient</a> are amongst the most popular ones. In addition to basic functionality, these plugins allow you to store and issue sequence of requests which can be very handy for live demonstrations. Unfortunately that&rsquo;s where most of the people stop learning about REST API and assume this is the intended way to interact with a server.</p>
-
-<h3><abbr title="Software Development Kit">SDK</abbr></h3>
-
-<p>SDK is a collection of tools and libraries that allow users to build a full-blown applications with complex internal logic. Instead of caring about the exact syntax of API calls, SDK libraries provide a simple programming interface. For example, this is how you would run the same command we did earlier with cURL:</p>
-
-<figure class='code'><figcaption><span>Get all devices using SDK</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">controller</span> <span class="o">=</span> <span class="n">sdk</span><span class="o">.</span><span class="n">Controller</span><span class="p">(</span><span class="s">&#39;sdn-controller.org&#39;</span><span class="p">,</span> <span class="mi">8181</span><span class="p">)</span>
-</span><span class='line'><span class="n">response</span> <span class="o">=</span> <span class="n">controller</span><span class="o">.</span><span class="n">get_devices</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>We first create an instance of a controller with specific hostname and port number and then issue a <code>.get_devices()</code> call on it to obtain the list of all known devices. SDK library will do all the dirty work constructing HTTP request in the background and return the parsed information from HTTP response. We can then use that information to perform some complex logic, like start only Router devices (but not switches and firewalls):</p>
-
-<figure class='code'><figcaption><span>Start all Routers using SDK</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">routers_started</span> <span class="o">=</span> <span class="p">[</span><span class="n">device</span><span class="o">.</span><span class="n">start</span><span class="p">()</span> <span class="k">for</span> <span class="n">device</span> <span class="ow">in</span> <span class="n">response</span><span class="o">.</span><span class="n">get_payload</span><span class="p">()</span> <span class="k">if</span> <span class="n">device</span><span class="o">.</span><span class="n">type</span> <span class="o">==</span> <span class="s">&#39;Router&#39;</span><span class="p">]</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>As you can see, we can use all capabilities of a programming language to write a succinct and powerful code, something that would be extremely difficult to do with cURL or Postman. That&rsquo;s why the focus of this series of posts will be on the SDK, how to build one from scratch and how to use it.</p>
-
-<h2>UNetLab REST SDK</h2>
-
-<p>In the upcoming posts I&rsquo;ll show how to develop a REST SDK to control UnetLab. My final goal would be to be able to create and fully configure an arbitrary network topology. The whole series will be broken up into several posts going over:</p>
-
-<ol>
-<li><a href="http://networkop.github.io/blog/2016/01/03/dev-env-setup-rest/">UnetLab SDK development environment setup</a>.
-I&rsquo;ll show how to setup PyCharm to work with UNL running in a hypervisor on a Windows machine.</li>
-<li><a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">First steps with REST API for UNetLab</a>.
-In this post I&rsquo;ll show how to work with HTTP and perform basic operations like login/logoff and object creation in UNL.</li>
-<li><a href="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/">Advanced actions with UNetLab SDK</a>.
-The final post will demonstrate how to push configuration to devices inside UNL. To wrap up I&rsquo;ll write a sample app to spin up and provision a three-node topology without making a single GUI click.</li>
-</ol>
-
 ]]></content>
   </entry>
   
