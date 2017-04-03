@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Ansible | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/ansible/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-01-24T21:16:34+00:00</updated>
+  <updated>2017-04-03T20:55:29+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,337 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices]]></title>
+    <link href="http://networkop.github.io/blog/2017/04/04/ansible-yang/"/>
+    <updated>2017-04-04T00:00:00+01:00</updated>
+    <id>http://networkop.github.io/blog/2017/04/04/ansible-yang</id>
+    <content type="html"><![CDATA[<p>In this post I will show how to use IETF, OpenConfig and vendor-specific YANG models in Ansible to configure BGP peering and verify state of physical interfaces between IOS-XE and JUNOS devices.</p>
+
+<!--more-->
+
+
+<p>The idea of using Ansible for <a href="http://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/">configuration changes</a> and <a href="https://github.com/networktocode/ntc-ansible">state verification</a> is not new. However the approach I&rsquo;m going to demonstrate in this post, using YANG and NETCONF, will have a few notable differences:</p>
+
+<ol>
+<li>I will not use any templates and absolutely no XML/JSON for device config generation</li>
+<li>All changes will be pushed through a single, vendor and model-independent Ansible module</li>
+<li>State verification will be done with no pattern-matching or screen-scraping</li>
+<li>All configuration and operational state will be based on a couple of YAML files</li>
+<li>To demonstrate the model-agnostic behaviour I will use a mixture of vendor&rsquo;s native, IETF and OpenConfig YANG models</li>
+</ol>
+
+
+<p>I hope this promise is exciting enough so without further ado, let&rsquo;s get cracking.</p>
+
+<h2>Environment setup</h2>
+
+<p>The test environment will consist of a single instance of CSR1000v running IOS-XE version 16.4.1 and a single instance of vMX running JUNOS version 17.1R1.8. The VMs containing the two devices are deployed within a single hypervisor and connected with one interface to the management network and back-to-back with the second  pair of interfaces for BGP peering.</p>
+
+<p><img class="center" src="/images/ansible-yang.png"></p>
+
+<p>Each device contains some basic initial configuration to allow it be reachable from the Ansible server.</p>
+
+<pre><code class="text IOS-XE initial configuration">interface GigabitEthernet1
+ip address 192.168.145.51 255.255.255.0
+!
+netconf-yang
+netconf-yang cisco-odm polling enable
+netconf-yang cisco-odm actions parse Interfaces
+</code></pre>
+
+<p>vMX configuration is quite similar. Static MAC address is <a href="http://noshut.ru/2015/09/how-to-run-juniper-vmx-in-unetlab/">required</a> in order for <code>ge</code> interfaces to work.</p>
+
+<pre><code class="text vMX initial configuration">set system login user admin class super password admin123
+set system services netconf
+set interface fxp0 unit 0 family inet address 192.168.145.53/24
+set interface ge-0/0/0 mac 00:0c:29:fc:1a:b7
+</code></pre>
+
+<h2>Ansible playbook configuration</h2>
+
+<p>My <a href="https://github.com/networkop/yang/tree/master/ansible-101">Ansible-101</a> repository contains two plays - one for configuration and one for state verification. The local inventory file contains details about the two devices along with the login credentials. All the work will be performed by a custom Ansible module stored in the <code>./library</code> directory. This module is a wrapper for a <code>ydk_yaml</code> module described in my <a href="/blog/2017/03/13/yaml-yang/">previous post</a>. I had to heavily modify the original <code>ydk_yaml</code> module to work around some Ansible limitations, like the lack of support for <strong>set</strong> data structures.<br/>
+This custom Ansible module also relies on a number of <a href="/blog/2017/02/22/odl-ydk/">YDK</a> Python bindings to be pre-installed. Refer to my <a href="https://github.com/networkop/yang/tree/master/yaml-101">YAML</a>, <a href="https://github.com/networkop/yang/tree/master/oper-101">Operational</a> and <a href="https://github.com/networkop/yang/tree/master/junos-101">JUNOS</a> repositories for the instructions on how to install those modules.<br/>
+The desired configuration and expected operational state are documented inside a couple of device-specific host variable files. For each device there is a configuration file <code>config.yaml</code>, describing the desired configuration state. For IOS-XE there is an additional file <code>verify.yaml</code>, describing the expected operational state using the IETF interface YANG model (I couldn&rsquo;t find how to get the IETF or OpenConfig state models to work on Juniper). <br/>
+All of these files follow the same structure:</p>
+
+<ul>
+<li>Root container can be either <code>config</code> or <code>verify</code> and defines how the enclosed data is supposed to be used</li>
+<li>First nested container has to match the top-most container of a YANG model. For example it could be <strong>bgp-state</strong> for <a href="https://github.com/YangModels/yang/blob/master/vendor/cisco/xe/1641/cisco-bgp-state.yang">cisco-bgp-state.yang</a> or <strong>openconfig-bgp</strong> for <a href="https://github.com/openconfig/public/blob/master/release/models/bgp/openconfig-bgp.yang">openconfig-bgp.yang</a> model</li>
+<li>The remaining nested data has to follow the structure of the original YANG model as described in my <a href="/blog/2017/03/13/yaml-yang/">previous post</a>.</li>
+</ul>
+
+
+<p>Here&rsquo;s how IOS-XE will be configured, using IETF interfaca YANG models (to unshut the interface) and Cisco&rsquo;s native YANG model for interface IP and BGP settings:</p>
+
+<h2><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">&lt;/h2&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;config</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">interfaces</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">GigabitEthernet3</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">enabled</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">true</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">native</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">gigabitethernet</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="nl">&amp;lsquo</span><span class="l-Scalar-Plain">;3&amp;rsquo;</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">description</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">P2P link</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">primary</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.12.1</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">mask</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">255.255.255.0</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">loopback</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">0</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">description</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">ROUTER ID</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">primary</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1.1.1.1</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">mask</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">255.255.255.255</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">router</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">bgp</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65111</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">bgp</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">router_id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1.1.1.1</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">neighbor</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.12.2</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">remote_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65222</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">redistribute</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">connected</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">empty</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">empty</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>For JUNOS configuration, instead of the default humongous native model, I&rsquo;ll use a set of much more light-weight OpenConfig YANG models to configure interfaces, BGP and redistribution policies:</p>
+
+<h2><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+<span class='line-number'>56</span>
+<span class='line-number'>57</span>
+<span class='line-number'>58</span>
+<span class='line-number'>59</span>
+<span class='line-number'>60</span>
+<span class='line-number'>61</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">&lt;/h2&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;config</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">openconfig-interfaces</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">ge-0/0/0</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">subinterfaces</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">subinterface</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">index</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">0</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">ipv4</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">addresses</span><span class="p-Indicator">:</span>
+</span><span class='line'>                  <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span>
+</span><span class='line'>                    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.12.2/24</span>
+</span><span class='line'>                      <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>                        <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.2.2</span>
+</span><span class='line'>                        <span class="l-Scalar-Plain">prefix_length</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">24</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">lo0</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">subinterfaces</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">subinterface</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">index</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">0</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">ipv4</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">addresses</span><span class="p-Indicator">:</span>
+</span><span class='line'>                  <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span>
+</span><span class='line'>                    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">2.2.2.2/32</span>
+</span><span class='line'>                      <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>                        <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">2.2.2.2</span>
+</span><span class='line'>                        <span class="l-Scalar-Plain">prefix_length</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">32</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">openconfig-policy</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">policy_definitions</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">policy_definition</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">CONNECTED-&gt;BGP</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">statements</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">statement</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Loopback0</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">conditions</span><span class="p-Indicator">:</span>
+</span><span class='line'>                  <span class="l-Scalar-Plain">match_interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>                    <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>                      <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">lo0</span>
+</span><span class='line'>                      <span class="l-Scalar-Plain">subinterface</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">0</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">actions</span><span class="p-Indicator">:</span>
+</span><span class='line'>                  <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>                    <span class="l-Scalar-Plain">accept_route</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">empty</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">openconfig-bgp</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">global&lt;em&gt;</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">as&lt;/em&gt;</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65222</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">neighbors</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">neighbor</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">neighbor_address</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.12.1</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">peer_group</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">YANG</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">peer_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65111</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">peer_groups</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">peer_group</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">peer_group_name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">YANG</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">peer_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65111</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">apply_policy</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">export_policy</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">CONNECTED-&gt;BGP</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Configuration</h2>
+
+<p>Both devices now can be configured with just a single command:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook config.yaml
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Behind the scenes, Ansible calls my custom <code>ydk_module</code> and passes to it the full configuration state and device credentials. This module then constructs an empty YDK binding based on the name of a YANG model and <a href="/blog/2017/03/13/yaml-yang/">populates it recursively</a> with the data from the <code>config</code> container. Finally, it pushes the data to the device with the help of YDK NETCONF service provider.</p>
+
+<h2>Verification</h2>
+
+<p>There&rsquo;s one side to YANG which I have carefully avoided until now and it&rsquo;s operational state models. These YANG models are built similarly to configuration models, but with a different goal - to extract the running state from a device. The reason why I&rsquo;ve avoided them is that, unlike the configuration models, the current support for state models is limited and somewhat brittle.<br/>
+For example, JUNOS natively only supports state models as RPCs, where each RPC represents a certain <code>show</code> command which, I assume, when passed to the devices gets evaluated, its output parsed and result returned back to the client. With IOX-XE things are a little better with a few of the operational models available in the current 16.4 release. You can check out my <a href="https://github.com/networkop/yang/tree/master/oper-101">Github repo</a> for some examples of how to check the interface and BGP neighbor state between the two IOS-XE devices. However, most of the models are still missing (I&rsquo;m not counting the MIB-mapped YANG models) in the current release. The next few releases, though, are promised to come with an improved state model support, including some OpenConfig models, which is going to be super cool.<br/>
+So in this post, since I couldn&rsquo;t get JUNOS OpenConfig models report any state and my IOS-XE BGP state model wouldn&rsquo;t return any output unless the BGP peering was with another Cisco device or in the <strong>Idle</strong> state, I&rsquo;m going to have to resort to simply checking the state of physical interfaces. This is how a sample operational state file would look like (question marks are YAML&rsquo;s special notation for sets which is how I decided to encode Enum data type):</p>
+
+<h2><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">&lt;/h2&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;verify</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">interfaces-state</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">GigabitEthernet3</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">oper_status</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="p-Indicator">?</span> <span class="l-Scalar-Plain">up</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Loopback0</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">oper_status</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="p-Indicator">?</span> <span class="l-Scalar-Plain">up</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">GigabitEthernet2</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">oper_status</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="p-Indicator">?</span> <span class="l-Scalar-Plain">down</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Once again, all expected state can be verified with a single command:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook verify.yaml
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>If the state defined in that YAML file matches the data returned by the IOS-XE device, the playbook completes successfully. You can check that it works by shutting down one of the <code>GigabitEthernet3</code> or <code>Loopback0</code> interfaces and observing how Ansible module returns an error.</p>
+
+<h2>Outro</h2>
+
+<p>Now that I&rsquo;ve come to the end of my YANG series of posts I feel like I need to provide some concise and critical summary of everything I&rsquo;ve been through. However, if there&rsquo;s one thing I&rsquo;ve learned in the last couple of months about YANG, it&rsquo;s that things are changing very rapidly. Both Cisco and Juniper are working hard introducing new models and improving support for the existing ones. So one thing to keep in mind, if you&rsquo;re reading this post a few months after it was published (April 2017), is that some or most of the above limitations may not exist and it&rsquo;s always worth checking what the latest software release has to offer.</p>
+
+<p>Finally, I wanted to say that I&rsquo;m a strong believer that YANG models are the way forward for network device configuration and state verification, despite the timid scepticism of the networking industry. I think that there are two things that may improve the industry&rsquo;s perception of YANG and help increase its adoption:</p>
+
+<ol>
+<li><p>Support from networking vendors - we&rsquo;ve already seen Cisco changing by introducing YANG support on IOS-XE instead of producing another dubious One-PK clone. So big thanks to them and I hope that other vendors will follow suit.</p></li>
+<li><p>Tools - this part, IMHO, is the most crucial. In order for people to start using YANG models we have to have the right tools that would be versatile enough to allow network engineers to be limited only by their imagination and at the same time be as robust as the CLI. So I wanted to give a big shout out to all the people contributing to open-source projects like <strong>pyang</strong>, <strong>YDK</strong> and many others that I have missed or don&rsquo;t know about. You&rsquo;re doing a great job guys, don&rsquo;s stop.</p></li>
+</ol>
+
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Verifying TDD Scenarios]]></title>
@@ -1763,54 +2094,6 @@ Branch master set up to track remote branch master from origin.
 
 <p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.
 In the next post I will show how to setup Ansible to work with Cisco devices.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Building a Simple Network TDD Framework]]></title>
-    <link href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/"/>
-    <updated>2015-06-15T00:00:00+01:00</updated>
-    <id>http://networkop.github.io/blog/2015/06/15/simple-tdd-framework</id>
-    <content type="html"><![CDATA[<p>In the following series of posts I will show how to build a simple Test-Driven Development framework
-for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of <a href="http://docs.ansible.com/list_of_files_modules.html">Ansible</a> <em>modules</em> and <em>playbooks</em>. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. <abbr title="Software-Defined Network">SDN</abbr>. The reader is assumed to have only a basic networking, linux and python programming skills.</p>
-
-<!--more-->
-
-
-<h2>Before we begin (optional section)</h2>
-
-<p>Before we go on, I&rsquo;d like to put a little disclaimer about terms being used in this post. <abbr title="Test-Driven Development">TDD</abbr>, and its counterpart <abbr title="Behaviour-Driven Development">BDD</abbr>,
-are well-known and accepted practices in development world. Both rely on the assumption that tests will be written
-before the code and will <em>drive</em> code development. This seemingly unnatural approach became extremely popular with the advent of <a href="http://agilemanifesto.org/">Agile</a> and is still being widely used, specifically in web development. What I will be developing will look more like a BDD rather than TDD, since it will be testing overall system behaviour rather than small self-contained portions of configuration. However, I still prefer to use the term TDD, firstly, because it&rsquo;s easier to understand for people from a non-dev background, secondly, because it&rsquo;s very hard/impossible to test small portions of network configuration (like routing protocol configuration), and lastly, since my tests will rely heavily on traceroutes, TDD may as well stand for Traceroute-Driven Development.</p>
-
-<h2>How will it work?</h2>
-
-<p>Traffic flow patterns, a.k.a. traffic paths is one bit of information that even higher-level management is able to comprehend. With a nice network diagram it is easy to show how low-latency traffic from Network_A will flow to Network_B through private VPN link on Router_X, while an internet-bound traffic will traverse a low-cost, high-latency Internet link on Router_Y. The TDD framework will use the same idea but in a text format</p>
-
-<pre><code class="text TDD scenario file example">1. Testing of Primary Link
-  1. From Router1 to Router2 via Router4, Router5
-  2. From Router2 to Router1 via Router5, Router4
-2. Testing of Backup Link
-  1. From Router4 to Router1 via Router3
-  2. From Router4 to Router2 via Router7
-</code></pre>
-
-<p>This format can be understood by both network engineers and their clients and can be used as a basis for network acceptance and verification testing. At the same time it follows a strictly defined format which can be parsed, processed and actioned by a program. I&rsquo;ll show how to write an Ansible module that parses this text, runs a traceroute and checks if the test was successful.<br/>
-These tests can also be used during regression testing of the network each time network configuration changes. This kind of verification offers a much more reliable result compared to visual examination of traceroute results and routing tables.</p>
-
-<h2>Step-by-step procedure</h2>
-
-<p>This is how I see the whole development process now (before I started). Some section may get added/removed in the process. I&rsquo;ll try to write at least one post a week aiming to complete the series in under one month.</p>
-
-<ol>
-<li><a href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">Development environment setup</a></li>
-<li><a href="http://networkop.github.io/blog/2015/06/24/ansible-intro/">Getting started with Ansible for Cisco IOS</a></li>
-<li><a href="http://networkop.github.io/blog/2015/07/03/parser-modules/">Developing Ansible library to gather facts from Cisco devices</a></li>
-<li><a href="http://networkop.github.io/blog/2015/07/10/test-verification/">Developing Ansible library to verify test scenarios</a></li>
-</ol>
-
-
-<p>A <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">quickstart guide</a> for those interested to see the final product in action.</p>
 ]]></content>
   </entry>
   

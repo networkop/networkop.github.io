@@ -1,0 +1,370 @@
+<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+
+  <title><![CDATA[Category: Odl | Network-oriented programming]]></title>
+  <link href="http://networkop.github.io/blog/categories/odl/atom.xml" rel="self"/>
+  <link href="http://networkop.github.io/"/>
+  <updated>2017-04-03T20:55:29+01:00</updated>
+  <id>http://networkop.github.io/</id>
+  <author>
+    <name><![CDATA[Michael Kashin]]></name>
+    <email><![CDATA[mmkashin@gmail.com]]></email>
+  </author>
+  <generator uri="http://octopress.org/">Octopress</generator>
+
+  
+  <entry>
+    <title type="html"><![CDATA[Configuring Cisco IOS XE With YDK and OpenDaylight]]></title>
+    <link href="http://networkop.github.io/blog/2017/02/22/odl-ydk/"/>
+    <updated>2017-02-22T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2017/02/22/odl-ydk</id>
+    <content type="html"><![CDATA[<p>Now it&rsquo;s time to turn our gaze to the godfather of YANG models and one of the most famous open-source SDN controllers, OpenDaylight. In this post I&rsquo;ll show how to connect Cisco IOS XE device to ODL and use Yang Development Kit to push a simple BGP configuration through ODL&rsquo;s RESTCONF interface.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>In the previous posts about <a href="/blog/2017/01/25/netconf-intro/">NETCONF</a> and <a href="/blog/2017/02/15/restconf-yang/">RESTCONF</a> I&rsquo;ve demonstrated how to interact with Cisco IOS XE device directly from the Linux shell of my development VM. This approach works fine in some cases, e.g. whenever I setup a new DC fabric, I would make calls directly to the devices I&rsquo;m configuring. However, it becomes impractical in the Ops world where change is constant and involves a large number of devices. This is where centralised service orchestrators come to the fore. The prime examples of such platforms are Network Services Orchestrator from Tail-f/Cisco and open-source project OpenDaylight. In this post we&rsquo;ll concentrate on ODL and how to make it work with Cisco IOS XE. Additionally, I&rsquo;ll show how to use an open-source tool <a href="https://developer.cisco.com/site/ydk/">YDK</a> to generate Python bindings for native YANG models and how it compares with <strong>pyangbind</strong>.</p>
+
+<h2>OpenDaylight primer</h2>
+
+<p>OpenDaylight is a swiss army knife of SDN controllers. At the moment it is comprised of dozens of projects implementing all possible sorts of SDN functionality starting from Openflow controller all the way up to L3VPN orchestrator. ODL speaks most of the modern Southbound protocols like Openflow, SNMP, NETCONF and BGP. The brain of the controller is in the Service Abstraction Layer, a framework to model all network-related characteristics and properties. All logic inside SAL is modelled in YANG which is why I called it the godfather of YANG models. Towards the end users ODL exposes Java function calls for applications running on the same host and REST API for application running remotely.</p>
+
+<p><img class="center" src="/images/odl-sal.jpg"></p>
+
+<p>OpenDaylight has several commercial offerings from companies involved in its development. Most notable ones are from Brocade and Cisco. Here I will allow myself a bit of a rant, feel free to skip it to go straight to the technical stuff.</p>
+
+<p>One thing I find interesting is that Cisco are being so secretive about their Open SDN Controller, perhaps due to the earlier market pressure to come up with a single SDN story, but still have a very large number of contributors to this open-source project. It could be the case of having an egg in each basket, but the number of Cisco&rsquo;s employees involved in ODL development is substantial. I wonder if, now that the use cases for ACI and ODL have finally formed and ACI still not showing the uptake originally expected, Cisco will change their strategy and start promoting ODL more aggressively, or at least stop hiding it deep in the bowels of <a href="cisco.com">cisco.com</a>. Or, perhaps, it will always stay in the shade of Tail-f&rsquo;s NSC and Insieme&rsquo;s ACI and will be used only for customer with unique requirements, e.g. to have both OpenStack and network devices managed through the same controller.</p>
+
+<h2>Environment setup</h2>
+
+<p>We&rsquo;ll use the same environment we&rsquo;ve setup in the <a href="/blog/2017/01/25/netconf-intro/">previous posts</a>, consisting of a CSR1K and a Linux VM connected to the same network inside my hypervisor. IOS XE device needs to have <code>netconf-yang</code> configured in order to enable the northbound NETCONF interface.</p>
+
+<p>On the same Linux VM, I&rsquo;ve downloaded and launched the latest version of ODL (Boron-SR2), and enabled NETCONF and RESTCONF plugins.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>unzip distribution-karaf-0.5.2-Boron-SR2.zip
+</span><span class='line'>mv distribution-karaf-0.5.2-Boron-SR2 odl-0.5.2
+</span><span class='line'><span class="nb">cd </span>odl-0.5.2/
+</span><span class='line'>./bin/karaf
+</span><span class='line'>opendaylight-user@root&gt;feature:install odl-netconf-connector-all
+</span><span class='line'>opendaylight-user@root&gt;feature:install odl-restconf-all
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>We&rsquo;ll use NETCONF to connect to Cisco IOS XE device and RESTCONF to interact with ODL from a Linux shell.</p>
+
+<p><img class="center" src="/images/odl-ydk.png"></p>
+
+<p>It might be useful to turn on logging in karaf console to catch any errors we might encounter later:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>opendaylight-user@root&gt;log:tail
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Connecting IOS XE to ODL</h2>
+
+<p>According to ODL <a href="http://docs.opendaylight.org/en/stable-boron/user-guide/netconf-user-guide.html">NETCONF</a> user guide, in order to connect a new device to the controller, we need to create an XML document which will include the IP, port and user credentials of the IOS XE device. Here&rsquo;s the excerpt from the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1">full XML document</a>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='xml'><span class='line'><span class="nt">&lt;module</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:config&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;type</span> <span class="na">xmlns:prefix=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>prefix:sal-netconf-connector<span class="nt">&lt;/type&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;name&gt;</span>CSR1K<span class="nt">&lt;/name&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;address</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>192.168.145.51<span class="nt">&lt;/address&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;port</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>830<span class="nt">&lt;/port&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;username</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>admin<span class="nt">&lt;/username&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;password</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>admin<span class="nt">&lt;/password&gt;</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Assuming this XML is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1">new_device.xml.1</a>, we can use <code>curl</code> to send it to ODL&rsquo;s netconf-connector plugin:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/xml<span class="p">&amp;</span>rdquo<span class="p">;</span> -X POST <span class="se">\</span>
+</span><span class='line'> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
+</span><span class='line'>&lt;/a&gt; /topology/topology-netconf/node/controller-config/yang-ext:mount/config:modules<span class="se">\</span>
+</span><span class='line'>  -d @new_device.xml.1
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>When the controller gets this information it will try to connect to the device via NETCONF and do the following three things:</p>
+
+<ul>
+<li>Discover device capabilities advertised in the Hello message</li>
+<li>Download all YANG models advertised by the device into the <code>./cache/schema</code> directory</li>
+<li>Go through all of the imports in each model and verify that they can be satisfied</li>
+</ul>
+
+
+<p>After ODL downloads all of the 260 available models (can take up to 20 minutes) we will see the following errors in the karaf console:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>Netconf device does not provide all yang models reported in hello message capabilities
+</span><span class='line'>Unable to build schema context, unsatisfied imports
+</span><span class='line'>Initialization in sal failed, disconnecting from device
+</span><span class='line'>No more sources <span class="k">for</span> schema context
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Due to inconsistencies between the advertised and the available models, ODL fails to build the full device YANG schema context, which ultimately results in inability to connect the device to the controller. However, we won&rsquo;t need all of the 260 models advertised by the device. In fact, most of the configuration can be done through a single Cisco native YANG model, <code>ned</code>. With ODL it is possible to override the default capabilities advertised in the Hello message and &ldquo;pin&rdquo; only the ones that are going to be used. Assuming that ODL has downloaded most of the models at the previous step, we can simply tell it use the selected few with the following additions to the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2">XML document</a>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='xml'><span class='line'><span class="nt">&lt;yang-module-capabilities</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;override&gt;</span>true<span class="nt">&lt;/override&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;capability</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>      urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types<span class="ni">&amp;amp;</span>revision=2013-07-15
+</span><span class='line'>    <span class="nt">&lt;/capability&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;capability</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>      <span class="nt">&lt;a</span> <span class="na">href=</span><span class="s">&quot;http://cisco.com/ns/yang/ned/ios?module=ned&amp;amp;amp;revision=2016-10-24&quot;</span><span class="nt">&gt;</span>http://cisco.com/ns/yang/ned/ios?module=ned<span class="ni">&amp;amp;</span>amp;revision=2016-10-24<span class="nt">&lt;/a&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;/capability&gt;</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Assuming the updated XML is saved in <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2">new_device.xml.2</a> file, the following command will update the current configuration of <strong>CSR1K</strong> device:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/xml<span class="p">&amp;</span>rdquo<span class="p">;</span> -X PUT <span class="se">\</span>
+</span><span class='line'>&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A/topology/topology-netconf/node/controller-config%0A/yang-ext:mount/config:modules/module%0A/odl-sal-netconf-connector-cfg:sal-netconf-connector%0A/CSR1K&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
+</span><span class='line'>/topology/topology-netconf/node/controller-config
+</span><span class='line'>/yang-ext:mount/config:modules/module
+</span><span class='line'>/odl-sal-netconf-connector-cfg:sal-netconf-connector
+</span><span class='line'>/CSR1K&lt;/a&gt; -d @new_device.xml.2
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>We can then verify that the device has been successfully mounted to the controller:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/operational%0A/network-topology:network-topology/&quot;</span>&gt;http://localhost:8181/restconf/operational
+</span><span class='line'>/network-topology:network-topology/&lt;/a&gt; <span class="p">|</span> python -m json.tool
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The output should look similar to the following with the connection-status set to <code>connected</code> and no detected <code>unavailable-capabilities</code>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:connection-status&amp;rdquo;:</span> <span class="err">&amp;ldquo;connected&amp;rdquo;,</span>
+</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:host&amp;rdquo;:</span> <span class="err">&amp;ldquo;</span><span class="mf">192.168</span><span class="err">.</span><span class="mf">145.51</span><span class="err">&amp;rdquo;,</span>
+</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:port&amp;rdquo;:</span> <span class="mi">830</span><span class="err">,</span>
+</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:unavailable-capabilities&amp;rdquo;:</span> <span class="p">{}</span><span class="err">,</span>
+</span><span class='line'><span class="err">&amp;ldquo;node-id&amp;rdquo;:</span> <span class="err">&amp;ldquo;CSR</span><span class="mi">1</span><span class="err">K&amp;rdquo;</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>At this point we should be able to interact with IOS XE&rsquo;s native YANG model through ODL&rsquo;s RESTCONF interface using the following URL</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
+</span><span class='line'>&lt;/a&gt; /topology/topology-netconf/node/CSR1K/yang-ext:mount/ned:native
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The only thing that&rsquo;s missing is the actual configuration data. To generate it, I&rsquo;ll use a new open-source tool called YDK.</p>
+
+<h2>YDK primer</h2>
+
+<p>Yang Development Kit is a suite of tools to work with NETCONF/RESTCONF interfaces of a network device. The way I see it, YDK accomplishes two things:</p>
+
+<ul>
+<li>Generates API bindings for programming languages (Python and C++) from YANG models</li>
+<li>Creates an abstraction layer to interact with southbound protocols (NETCONF or RESTCONF) in a uniform way</li>
+</ul>
+
+
+<p>There&rsquo;s a lot of overlap between the tools that we&rsquo;ve used <a href="/blog/2017/02/15/restconf-yang/">before</a> and YDK. Effectively YDK combines in itself the functions of a NETCONF client, a REST client, pyangbind and pyang(the latter is used internally for model verification). Since one of the main functions of YDK is API generation I thought it&rsquo;d be interesting to know how it compares to Rob Shakir&rsquo;s <strong>pyangbind</strong> plugin. The following information is what I&rsquo;ve managed to find on the Internet and from the comment of Santiago Alvarez below:</p>
+
+<table>
+<thead>
+<tr>
+<th> Feature </th>
+<th> Pyangbind </th>
+<th> YDK </th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> PL support </td>
+<td> Python </td>
+<td> Python, C++ with Ruby and Go in the pipeline </td>
+</tr>
+<tr>
+<td> Serialization </td>
+<td> JSON, XML </td>
+<td> only XML <a href="https://github.com/CiscoDevNet/ydk-gen/blob/master/sdk/python/core/ydk/providers/codec_provider.py#L53">at this stage</a> with JSON coming up in a few weeks </td>
+</tr>
+<tr>
+<td> Southbound interfaces   </td>
+<td> N/A </td>
+<td> NETCONF, RESTCONF with ODL coming up in a few weeks </td>
+</tr>
+<tr>
+<td> Support </td>
+<td> Cisco&rsquo;s devnet team </td>
+<td> Rob Shakir </td>
+</tr>
+</tbody>
+</table>
+
+
+<p>So it looks like YDK is a very promising alternative to <strong>pyangbind</strong>, however I, personally, would still prefer to use <strong>pyangbind</strong> due to familiarity, simplicity and the fact that I don&rsquo;t need the above extra features offered by YDK right now. However, given that YDK has been able to achieve so much in just under one year of its existence, I don&rsquo;t discount the possibility that I may switch to YDK as it becomes more mature and feature-rich.</p>
+
+<h2>Python binding generation with YDK-GEN</h2>
+
+<p>One of the first things we need to do is install YDK-GEN, the tools responsible for API bindings generation, and it&rsquo;s core Python packages on the local machine. The following few commands are my version of the official <a href="https://github.com/CiscoDevNet/ydk-gen">installation procedure</a>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/CiscoDevNet/ydk-gen.git&quot;</span>&gt;https://github.com/CiscoDevNet/ydk-gen.git&lt;/a&gt; ~/ydk-gen
+</span><span class='line'>pip install -r ~/ydk-gen/requirements.txt
+</span><span class='line'><span class="nb">export </span><span class="nv">YDKGEN_HOME</span><span class="o">=</span>~/ydk-gen/
+</span><span class='line'>~/ydk-gen/generate.py <span class="p">&amp;</span>ndash<span class="p">;</span>python <span class="p">&amp;</span>ndash<span class="p">;</span>core
+</span><span class='line'>pip install ~/ydk-gen/gen-api/python/ydk/dist/ydk*.tar.gz
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>YDK-GEN generates Python bindings based on the so-called <strong>bundle profile</strong>. This is a simple JSON document which lists all YANG models to include in the output package. In our case we&rsquo;d need to include a <code>ned</code> model along with all its imports. The sample below shows only the model specification. Refer to my <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json">Github repo</a> for a complete bundle profile for Cisco IOS XE native YANG model.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="p">{</span><span class="err">&amp;ldquo;models&amp;rdquo;:{&amp;ldquo;git&amp;rdquo;:[{&amp;ldquo;url&amp;rdquo;:&amp;ldquo;&lt;a</span> <span class="err">href=</span><span class="nt">&quot;https://github.com/YangModels/yang.git&quot;</span><span class="err">&gt;https</span><span class="p">:</span><span class="err">//github.com/YangModels/yang.git&lt;/a&gt;&amp;rdquo;</span><span class="p">,</span>
+</span><span class='line'>  <span class="err">&amp;ldquo;commits&amp;rdquo;:[{&amp;ldquo;commitid&amp;rdquo;:&amp;ldquo;6f4a025431103f8cbbf3405ce01bdc61d0811b1d&amp;rdquo;,</span>
+</span><span class='line'>    <span class="err">&amp;ldquo;file&amp;rdquo;:[&amp;ldquo;vendor/cisco/xe/1641/ned.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-common.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-meta-extensions.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-cli-extensions.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;standard/ietf/RFC/ietf-inet-types.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;standard/ietf/RFC/ietf-yang-types.yang&amp;rdquo;]</span>
+</span><span class='line'>      <span class="p">}</span><span class="err">]}]}}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Assuming that the IOS XE bundle profile is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json">cisco-ios-xe_0_1_0.json</a>, we can use YDK to generate and install the Python binding package:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>~/ydk-gen/generate.py <span class="p">&amp;</span>ndash<span class="p">;</span>python <span class="p">&amp;</span>ndash<span class="p">;</span>bundle cisco-ios-xe_0_1_0.json -v
+</span><span class='line'>pip install ~/ydk-gen/gen-api/python/cisco_ios_xe-bundle/dist/ydk*.tar.gz
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Configuring BGP with YDK</h2>
+
+<p>Now we can start configuring BGP using our newly generated Python package. First, we need to create an instance of BGP configuration data:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ydk.models.cisco_ios_xe.ned</span> <span class="kn">import</span> <span class="n">Native</span>
+</span><span class='line'><span class="n">bgp</span> <span class="o">=</span> <span class="n">Native</span><span class="p">()</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">Bgp</span><span class="p">()</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The configuration will follow the pattern defined in the original model, which is why it&rsquo;s important to understand <a href="/blog/2017/02/15/restconf-yang/">the internal structure</a> of a YANG model. YANG leafs are represented as simple instance attributes. All YANG containers need to be explicitly instantiated, just like the <code>Native</code> and <code>Bgp</code> classes in the example above. Presence containers (<code>router</code> in the above example) will be instantiated at the same time as its parent container, inside the <code>__init__</code> function of the <code>Native</code> class. Don&rsquo;t worry if this doesn&rsquo;t make sense, use <strong>iPython</strong> or any IDE with autocompletion and after a few tries, you&rsquo;ll get the hang of it.</p>
+
+<p>Let&rsquo;s see how we can set the local BGP AS number and add a new BGP peer to the neighbor list.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="mi">100</span>
+</span><span class='line'><span class="n">new_neighbor</span> <span class="o">=</span> <span class="n">bgp</span><span class="o">.</span><span class="n">Neighbor</span><span class="p">()</span>
+</span><span class='line'><span class="n">new_neighbor</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">2.2</span><span class="o">.</span><span class="mf">2.2</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span><span class='line'><span class="n">new_neighbor</span><span class="o">.</span><span class="n">remote_as</span> <span class="o">=</span> <span class="mi">65100</span>
+</span><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">neighbor</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_neighbor</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>At this point of time all data is stored inside the instance of a <code>Bgp</code> class. In order to get an XML representation of it, we need to use YDK&rsquo;s XML provider and encoding service:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ydk.providers</span> <span class="kn">import</span> <span class="n">CodecServiceProvider</span>
+</span><span class='line'><span class="kn">from</span> <span class="nn">ydk.services</span> <span class="kn">import</span> <span class="n">CodecService</span>
+</span><span class='line'><span class="n">provider</span> <span class="o">=</span> <span class="n">CodecServiceProvider</span><span class="p">(</span><span class="nb">type</span><span class="o">=&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="n">xml</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">codec</span> <span class="o">=</span> <span class="n">CodecService</span><span class="p">()</span>
+</span><span class='line'><span class="n">xml_string</span> <span class="o">=</span> <span class="n">codec</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">provider</span><span class="p">,</span> <span class="n">bgp</span><span class="p">)</span>
+</span><span class='line'><span class="k">print</span> <span class="n">xml_string</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>All what we&rsquo;ve got left now is to send the data to ODL:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">requests</span>
+</span><span class='line'><span class="n">url</span> <span class="o">=</span> <span class="p">(</span><span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">&lt;</span><span class="n">a</span> <span class="n">href</span><span class="o">=</span><span class="s">&quot;http://localhost:8181/restconf&quot;</span><span class="o">&gt;</span><span class="n">http</span><span class="p">:</span><span class="o">//</span><span class="n">localhost</span><span class="p">:</span><span class="mi">8181</span><span class="o">/</span><span class="n">restconf</span><span class="o">&lt;/</span><span class="n">a</span><span class="o">&gt;&amp;</span><span class="n">rdquo</span><span class="p">;</span>
+</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">config</span><span class="o">/</span><span class="n">network</span><span class="o">-</span><span class="n">topology</span><span class="p">:</span><span class="n">network</span><span class="o">-</span><span class="n">topology</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
+</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">topology</span><span class="o">/</span><span class="n">topology</span><span class="o">-</span><span class="n">netconf</span><span class="o">/</span><span class="n">node</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
+</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">CSR1K</span><span class="o">/</span><span class="n">yang</span><span class="o">-</span><span class="n">ext</span><span class="p">:</span><span class="n">mount</span><span class="o">/</span><span class="n">ned</span><span class="p">:</span><span class="n">native</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
+</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">router</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">Content</span><span class="o">-</span><span class="n">Type</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">application</span><span class="o">/</span><span class="n">xml</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;}</span>
+</span><span class='line'><span class="n">result</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;),</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">xml_string</span><span class="p">)</span>
+</span><span class='line'><span class="k">print</span> <span class="n">result</span><span class="o">.</span><span class="n">status_code</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The controller should have returned the status code <code>204 No Content</code>, meaning that configuration has been changed successfully.</p>
+
+<h2>Verification</h2>
+
+<p>Back at the IOS XE CLI we can see the new BGP configuration that has been pushed down from the controller.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>TEST#sh run | i router
+</span><span class='line'>router bgp 100
+</span><span class='line'> bgp log-neighbor-changes
+</span><span class='line'> neighbor 2.2.2.2 remote-as 65100
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>More examples</h2>
+
+<p>You can find a shorter version of the above procedure in my <a href="https://github.com/networkop/yang/tree/master/odl-101">ODL 101 repo</a>.</p>
+]]></content>
+  </entry>
+  
+</feed>

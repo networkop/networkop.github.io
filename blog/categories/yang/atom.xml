@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Yang | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/yang/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-01-24T21:16:34+00:00</updated>
+  <updated>2017-04-03T20:55:29+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,1074 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices]]></title>
+    <link href="http://networkop.github.io/blog/2017/04/04/ansible-yang/"/>
+    <updated>2017-04-04T00:00:00+01:00</updated>
+    <id>http://networkop.github.io/blog/2017/04/04/ansible-yang</id>
+    <content type="html"><![CDATA[<p>In this post I will show how to use IETF, OpenConfig and vendor-specific YANG models in Ansible to configure BGP peering and verify state of physical interfaces between IOS-XE and JUNOS devices.</p>
+
+<!--more-->
+
+
+<p>The idea of using Ansible for <a href="http://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/">configuration changes</a> and <a href="https://github.com/networktocode/ntc-ansible">state verification</a> is not new. However the approach I&rsquo;m going to demonstrate in this post, using YANG and NETCONF, will have a few notable differences:</p>
+
+<ol>
+<li>I will not use any templates and absolutely no XML/JSON for device config generation</li>
+<li>All changes will be pushed through a single, vendor and model-independent Ansible module</li>
+<li>State verification will be done with no pattern-matching or screen-scraping</li>
+<li>All configuration and operational state will be based on a couple of YAML files</li>
+<li>To demonstrate the model-agnostic behaviour I will use a mixture of vendor&rsquo;s native, IETF and OpenConfig YANG models</li>
+</ol>
+
+
+<p>I hope this promise is exciting enough so without further ado, let&rsquo;s get cracking.</p>
+
+<h2>Environment setup</h2>
+
+<p>The test environment will consist of a single instance of CSR1000v running IOS-XE version 16.4.1 and a single instance of vMX running JUNOS version 17.1R1.8. The VMs containing the two devices are deployed within a single hypervisor and connected with one interface to the management network and back-to-back with the second  pair of interfaces for BGP peering.</p>
+
+<p><img class="center" src="/images/ansible-yang.png"></p>
+
+<p>Each device contains some basic initial configuration to allow it be reachable from the Ansible server.</p>
+
+<pre><code class="text IOS-XE initial configuration">interface GigabitEthernet1
+ip address 192.168.145.51 255.255.255.0
+!
+netconf-yang
+netconf-yang cisco-odm polling enable
+netconf-yang cisco-odm actions parse Interfaces
+</code></pre>
+
+<p>vMX configuration is quite similar. Static MAC address is <a href="http://noshut.ru/2015/09/how-to-run-juniper-vmx-in-unetlab/">required</a> in order for <code>ge</code> interfaces to work.</p>
+
+<pre><code class="text vMX initial configuration">set system login user admin class super password admin123
+set system services netconf
+set interface fxp0 unit 0 family inet address 192.168.145.53/24
+set interface ge-0/0/0 mac 00:0c:29:fc:1a:b7
+</code></pre>
+
+<h2>Ansible playbook configuration</h2>
+
+<p>My <a href="https://github.com/networkop/yang/tree/master/ansible-101">Ansible-101</a> repository contains two plays - one for configuration and one for state verification. The local inventory file contains details about the two devices along with the login credentials. All the work will be performed by a custom Ansible module stored in the <code>./library</code> directory. This module is a wrapper for a <code>ydk_yaml</code> module described in my <a href="/blog/2017/03/13/yaml-yang/">previous post</a>. I had to heavily modify the original <code>ydk_yaml</code> module to work around some Ansible limitations, like the lack of support for <strong>set</strong> data structures.<br/>
+This custom Ansible module also relies on a number of <a href="/blog/2017/02/22/odl-ydk/">YDK</a> Python bindings to be pre-installed. Refer to my <a href="https://github.com/networkop/yang/tree/master/yaml-101">YAML</a>, <a href="https://github.com/networkop/yang/tree/master/oper-101">Operational</a> and <a href="https://github.com/networkop/yang/tree/master/junos-101">JUNOS</a> repositories for the instructions on how to install those modules.<br/>
+The desired configuration and expected operational state are documented inside a couple of device-specific host variable files. For each device there is a configuration file <code>config.yaml</code>, describing the desired configuration state. For IOS-XE there is an additional file <code>verify.yaml</code>, describing the expected operational state using the IETF interface YANG model (I couldn&rsquo;t find how to get the IETF or OpenConfig state models to work on Juniper). <br/>
+All of these files follow the same structure:</p>
+
+<ul>
+<li>Root container can be either <code>config</code> or <code>verify</code> and defines how the enclosed data is supposed to be used</li>
+<li>First nested container has to match the top-most container of a YANG model. For example it could be <strong>bgp-state</strong> for <a href="https://github.com/YangModels/yang/blob/master/vendor/cisco/xe/1641/cisco-bgp-state.yang">cisco-bgp-state.yang</a> or <strong>openconfig-bgp</strong> for <a href="https://github.com/openconfig/public/blob/master/release/models/bgp/openconfig-bgp.yang">openconfig-bgp.yang</a> model</li>
+<li>The remaining nested data has to follow the structure of the original YANG model as described in my <a href="/blog/2017/03/13/yaml-yang/">previous post</a>.</li>
+</ul>
+
+
+<p>Here&rsquo;s how IOS-XE will be configured, using IETF interfaca YANG models (to unshut the interface) and Cisco&rsquo;s native YANG model for interface IP and BGP settings:</p>
+
+<h2><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">&lt;/h2&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;config</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">interfaces</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">GigabitEthernet3</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">enabled</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">true</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">native</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">gigabitethernet</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="nl">&amp;lsquo</span><span class="l-Scalar-Plain">;3&amp;rsquo;</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">description</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">P2P link</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">primary</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.12.1</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">mask</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">255.255.255.0</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">loopback</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">0</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">description</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">ROUTER ID</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">primary</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1.1.1.1</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">mask</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">255.255.255.255</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">router</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">bgp</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65111</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">bgp</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">router_id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1.1.1.1</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">neighbor</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.12.2</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">remote_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65222</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">redistribute</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">connected</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">empty</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">empty</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>For JUNOS configuration, instead of the default humongous native model, I&rsquo;ll use a set of much more light-weight OpenConfig YANG models to configure interfaces, BGP and redistribution policies:</p>
+
+<h2><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+<span class='line-number'>56</span>
+<span class='line-number'>57</span>
+<span class='line-number'>58</span>
+<span class='line-number'>59</span>
+<span class='line-number'>60</span>
+<span class='line-number'>61</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">&lt;/h2&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;config</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">openconfig-interfaces</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">ge-0/0/0</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">subinterfaces</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">subinterface</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">index</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">0</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">ipv4</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">addresses</span><span class="p-Indicator">:</span>
+</span><span class='line'>                  <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span>
+</span><span class='line'>                    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.12.2/24</span>
+</span><span class='line'>                      <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>                        <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.2.2</span>
+</span><span class='line'>                        <span class="l-Scalar-Plain">prefix_length</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">24</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">lo0</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">subinterfaces</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">subinterface</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">index</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">0</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">ipv4</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">addresses</span><span class="p-Indicator">:</span>
+</span><span class='line'>                  <span class="l-Scalar-Plain">address</span><span class="p-Indicator">:</span>
+</span><span class='line'>                    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">2.2.2.2/32</span>
+</span><span class='line'>                      <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>                        <span class="l-Scalar-Plain">ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">2.2.2.2</span>
+</span><span class='line'>                        <span class="l-Scalar-Plain">prefix_length</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">32</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">openconfig-policy</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">policy_definitions</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">policy_definition</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">CONNECTED-&gt;BGP</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">statements</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">statement</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Loopback0</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">conditions</span><span class="p-Indicator">:</span>
+</span><span class='line'>                  <span class="l-Scalar-Plain">match_interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>                    <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>                      <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">lo0</span>
+</span><span class='line'>                      <span class="l-Scalar-Plain">subinterface</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">0</span>
+</span><span class='line'>                <span class="l-Scalar-Plain">actions</span><span class="p-Indicator">:</span>
+</span><span class='line'>                  <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>                    <span class="l-Scalar-Plain">accept_route</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">empty</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">openconfig-bgp</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">global&lt;em&gt;</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">as&lt;/em&gt;</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65222</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">neighbors</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">neighbor</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">neighbor_address</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">12.12.12.1</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">peer_group</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">YANG</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">peer_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65111</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">peer_groups</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">peer_group</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">peer_group_name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">YANG</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">peer_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">65111</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">apply_policy</span><span class="p-Indicator">:</span>
+</span><span class='line'>            <span class="l-Scalar-Plain">config</span><span class="p-Indicator">:</span>
+</span><span class='line'>              <span class="l-Scalar-Plain">export_policy</span><span class="p-Indicator">:</span>
+</span><span class='line'>                <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">CONNECTED-&gt;BGP</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Configuration</h2>
+
+<p>Both devices now can be configured with just a single command:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook config.yaml
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Behind the scenes, Ansible calls my custom <code>ydk_module</code> and passes to it the full configuration state and device credentials. This module then constructs an empty YDK binding based on the name of a YANG model and <a href="/blog/2017/03/13/yaml-yang/">populates it recursively</a> with the data from the <code>config</code> container. Finally, it pushes the data to the device with the help of YDK NETCONF service provider.</p>
+
+<h2>Verification</h2>
+
+<p>There&rsquo;s one side to YANG which I have carefully avoided until now and it&rsquo;s operational state models. These YANG models are built similarly to configuration models, but with a different goal - to extract the running state from a device. The reason why I&rsquo;ve avoided them is that, unlike the configuration models, the current support for state models is limited and somewhat brittle.<br/>
+For example, JUNOS natively only supports state models as RPCs, where each RPC represents a certain <code>show</code> command which, I assume, when passed to the devices gets evaluated, its output parsed and result returned back to the client. With IOX-XE things are a little better with a few of the operational models available in the current 16.4 release. You can check out my <a href="https://github.com/networkop/yang/tree/master/oper-101">Github repo</a> for some examples of how to check the interface and BGP neighbor state between the two IOS-XE devices. However, most of the models are still missing (I&rsquo;m not counting the MIB-mapped YANG models) in the current release. The next few releases, though, are promised to come with an improved state model support, including some OpenConfig models, which is going to be super cool.<br/>
+So in this post, since I couldn&rsquo;t get JUNOS OpenConfig models report any state and my IOS-XE BGP state model wouldn&rsquo;t return any output unless the BGP peering was with another Cisco device or in the <strong>Idle</strong> state, I&rsquo;m going to have to resort to simply checking the state of physical interfaces. This is how a sample operational state file would look like (question marks are YAML&rsquo;s special notation for sets which is how I decided to encode Enum data type):</p>
+
+<h2><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">&lt;/h2&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;verify</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">interfaces-state</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">GigabitEthernet3</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">oper_status</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="p-Indicator">?</span> <span class="l-Scalar-Plain">up</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Loopback0</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">oper_status</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="p-Indicator">?</span> <span class="l-Scalar-Plain">up</span>
+</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">GigabitEthernet2</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">oper_status</span><span class="p-Indicator">:</span>
+</span><span class='line'>          <span class="p-Indicator">?</span> <span class="l-Scalar-Plain">down</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Once again, all expected state can be verified with a single command:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ansible-playbook verify.yaml
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>If the state defined in that YAML file matches the data returned by the IOS-XE device, the playbook completes successfully. You can check that it works by shutting down one of the <code>GigabitEthernet3</code> or <code>Loopback0</code> interfaces and observing how Ansible module returns an error.</p>
+
+<h2>Outro</h2>
+
+<p>Now that I&rsquo;ve come to the end of my YANG series of posts I feel like I need to provide some concise and critical summary of everything I&rsquo;ve been through. However, if there&rsquo;s one thing I&rsquo;ve learned in the last couple of months about YANG, it&rsquo;s that things are changing very rapidly. Both Cisco and Juniper are working hard introducing new models and improving support for the existing ones. So one thing to keep in mind, if you&rsquo;re reading this post a few months after it was published (April 2017), is that some or most of the above limitations may not exist and it&rsquo;s always worth checking what the latest software release has to offer.</p>
+
+<p>Finally, I wanted to say that I&rsquo;m a strong believer that YANG models are the way forward for network device configuration and state verification, despite the timid scepticism of the networking industry. I think that there are two things that may improve the industry&rsquo;s perception of YANG and help increase its adoption:</p>
+
+<ol>
+<li><p>Support from networking vendors - we&rsquo;ve already seen Cisco changing by introducing YANG support on IOS-XE instead of producing another dubious One-PK clone. So big thanks to them and I hope that other vendors will follow suit.</p></li>
+<li><p>Tools - this part, IMHO, is the most crucial. In order for people to start using YANG models we have to have the right tools that would be versatile enough to allow network engineers to be limited only by their imagination and at the same time be as robust as the CLI. So I wanted to give a big shout out to all the people contributing to open-source projects like <strong>pyang</strong>, <strong>YDK</strong> and many others that I have missed or don&rsquo;t know about. You&rsquo;re doing a great job guys, don&rsquo;s stop.</p></li>
+</ol>
+
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Configuring Cisco IOS XE With YANG-based YAML Files]]></title>
+    <link href="http://networkop.github.io/blog/2017/03/13/yaml-yang/"/>
+    <updated>2017-03-13T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2017/03/13/yaml-yang</id>
+    <content type="html"><![CDATA[<p>One thing that puts a lot of network engineers off NETCONF and YANG is the complexity of the device configuration process. Even the simplest change involves multiple tools and requires some knowledge of XML. In this post I will show how to use simple, human-readable YAML configuration files to instantiate YANG models and push them down to network devices using a single command.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>XML, just like many more structured data formats, was not designed to be human-friendly. That&rsquo;s why many network engineers lose interest in YANG as soon as the conversation gets to the XML part. JSON is a much more human-readable alternative, however very few devices support RESTCONF, and the ones that do may have <a href="https://github.com/CiscoDevNet/openconfig-getting-started/issues/4">buggy implementations</a>. At the same time, a lot of network engineers have happily embraced Ansible, which extensively uses YAML. That&rsquo;s why I&rsquo;ve decided to write a Python module that would program network devices using YANG and NETCONF according to configuration data described in a YAML format.</p>
+
+<p>In the <a href="blog/2017/02/22/odl-ydk/">previous post</a> I have introduced a new open-source tool called YDK, designed to create API bindings for YANG models and interact with network devices using NETCONF or RESTCONF protocols. I have also mentioned that I would still prefer to use <a href="https://github.com/robshakir/pyangbind">pyangbind</a> along with other open-source tools to achieve the same functionality. Now, two weeks later, I must admin I have been converted. Initially, I was planning to write a simple REST API client to interact with RESTCONF interface of IOS XE, create an API binding with <strong>pyangbind</strong>, use it to produce the JSON output, convert it to XML and send it to the device, similar to what I&rsquo;ve described in my <a href="/blog/2017/01/25/netconf-intro/">netconf</a> and <a href="blog/2017/02/15/restconf-yang/">restconf</a> posts. However, I&rsquo;ve realised that YDK can already do all what I need with just a few function calls. All what I&rsquo;ve got left to do is create a wrapper module to consume the YAML data and use it to automatically populate YDK bindings.</p>
+
+<p>This post will be mostly about the internal structure of this wrapper module I call <code>ydk_yaml.py</code>, which will serve as a base library for a YANG Ansible module, which I will describe in my next post. This post will be very programming-oriented, I&rsquo;ll start with a quick overview of some of the programming concepts being used by the module and then move on to the details of module implementation. Those who are not interested in technical details can jump straight to the <strong>examples</strong> sections at the end of this post for a quick demonstration of how it works.</p>
+
+<h2>Recursion</h2>
+
+<p>One of the main tasks of <code>ydk_yaml.py</code> module is to be able parse a YAML data structure. This data structure, when loaded into Python, is stored as a collection of Python objects like dictionaries, lists and primitive data types like strings, integers and booleans. One key property of YAML data structures is that they can be represented as trees and parsing trees is a very well-known programming problem.</p>
+
+<p>After having completed <a href="https://www.coursera.org/learn/programming-languages">this programming course</a> I fell in love with functional programming and recursions. Every problem I see, I try to solve with a recursive function. Recursions are very interesting in a way that they are very difficult to understand but relatively easy to write. Any recursive function will consist of a number of <code>if/then/else</code> conditional statements. The first one (or few) <code>if</code> statements are called the base of a recursion - this is where recursion stops and the value is returned to the outer function. The remaining few <code>if</code> statements will implement the recursion by calling the same function with a <strong>reduced input</strong>. You can find a much better explanation of recursive functions <a href="http://composingprograms.com/pages/17-recursive-functions.html">here</a>. For now, let&rsquo;s consider the problem of parsing the following tree-like data structure:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="p">{</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">parent</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{</span>
+</span><span class='line'>    <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">child_1</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{</span>
+</span><span class='line'>      <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">leaf_1</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">value_1</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span><span class='line'>    <span class="p">},</span>
+</span><span class='line'>    <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">child_1</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">value_2</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span><span class='line'>    <span class="p">}</span>
+</span><span class='line'><span class="p">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Recursive function to parse this data structure written in a pseudo-language will look something like this:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">def</span> <span class="nf">recursion</span><span class="p">(</span><span class="n">input_key</span><span class="p">,</span> <span class="n">input_value</span><span class="p">):</span>
+</span><span class='line'>  <span class="k">if</span> <span class="n">input_value</span> <span class="ow">is</span> <span class="n">String</span><span class="p">:</span>
+</span><span class='line'>    <span class="k">return</span> <span class="n">process</span><span class="p">(</span><span class="n">input_value</span><span class="p">)</span>
+</span><span class='line'>  <span class="k">elif</span> <span class="n">input_value</span> <span class="ow">is</span> <span class="n">Dictonary</span><span class="p">:</span>
+</span><span class='line'>    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">input_value</span><span class="o">.</span><span class="n">keys_and_values</span><span class="p">():</span>
+</span><span class='line'>      <span class="k">return</span> <span class="n">recursion</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The beauty of recursive functions is that they are capable parsing data structures of arbitrary complexity. That means if we had 1000 randomly nested child elements in the parent data structure, they all could have been parsed by the same 6-line function.</p>
+
+<h2>Introspection</h2>
+
+<p><a href="http://zetcode.com/lang/python/introspection/">Introspection</a> refers to the ability of Python to examine objects at runtime. It can be useful when dealing with object of arbitrary structure, e.g. a YAML document. Introspection is used whenever there is a need for a function to behave differently based on the runtime data. In the above pseudo-language example, the two conditional statements are the examples of introspection. Whenever we need to determine the type of an object in Python we can either use a built-in function <code>type(obj)</code> which returns the type of an object or <code>isinstance(obj, type)</code> which checks if the <strong>object</strong> is an <em>instance</em> or a <em>descendant</em> of a particular <strong>type</strong>. This is how we can re-write the above two conditional statements using real Python:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+</span><span class='line'>  <span class="k">print</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="nb">input</span> <span class="n">value</span> <span class="ow">is</span> <span class="n">a</span> <span class="n">string</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span><span class='line'><span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+</span><span class='line'>  <span class="k">print</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">intput</span> <span class="n">value</span> <span class="ow">is</span> <span class="n">a</span> <span class="n">dictionary</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Metaprogramming</h2>
+
+<p>Another programming concept used in my Python module is <a href="http://chase-seibert.github.io/blog/2013/04/12/getattr-setattr.html">metaprogramming</a>. Metaprogramming, in general, refers to an ability of programs to write themselves. This is what compilers normally do when they read the program written in a higher-level language and translate it to a lower-level language, like assembler. What I&rsquo;ve used in my module is the simplest version of metaprogramming - dynamic getting and setting of object attributes. For example, this is how we would configure BGP using YDK Python binding, as described in my <a href="blog/2017/02/22/odl-ydk/">previous post</a>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="mi">100</span>
+</span><span class='line'><span class="n">n</span> <span class="o">=</span> <span class="n">bgp</span><span class="o">.</span><span class="n">Neighbor</span><span class="p">()</span>
+</span><span class='line'><span class="n">n</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">2.2</span><span class="o">.</span><span class="mf">2.2</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span><span class='line'><span class="n">n</span><span class="o">.</span><span class="n">remote_as</span> <span class="o">=</span> <span class="mi">65100</span>
+</span><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">neighbor</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The same code could be re-written using the <code>getattr</code> and <code>setattr</code> method calls:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="nb">setattr</span><span class="p">(</span><span class="n">bgp</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="nb">id</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="mi">100</span><span class="p">)</span>
+</span><span class='line'><span class="n">n</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">bgp</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">Neighbor</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)()</span>
+</span><span class='line'><span class="nb">setattr</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="nb">id</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">2.2</span><span class="o">.</span><span class="mf">2.2</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span><span class='line'><span class="nb">setattr</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">remote_as</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="mi">65100</span><span class="p">)</span>
+</span><span class='line'><span class="nb">getattr</span><span class="p">(</span><span class="n">bgp</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">neighbor</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>This is also very useful when working with arbitrary data structures and objects. In my case the goal was to write a module that would be completely independent of the structure of a particular YANG model, which means that I can <strong>not know</strong> the structure of the Python binding generated by YDK. However, I can &ldquo;guess&rdquo; the name of the attributes if I assume that my YAML document is structured <strong>exactly</strong> like the YANG model. This simple assumption allows me to implement YAML mapping for <strong>all</strong> possible YANG models with just a single function.</p>
+
+<h2>YANG mapping to YAML</h2>
+
+<p>As I&rsquo;ve mentioned in my <a href="/blog/2017/01/25/netconf-intro/">previous post</a>, YANG is simply a way to define the structure of an XML document. At the same time, it is known that YANG-based XML can be mapped to JSON as described in <a href="https://tools.ietf.org/html/draft-ietf-netmod-yang-json-10">this RFC</a>. Since YAML is a superset of JSON, it&rsquo;s easy to come up with a similar XML-to-YAML mapping convention. The following table contains the mapping between some of the most common YAML and YANG data structures and types:</p>
+
+<table>
+<thead>
+<tr>
+<th> YANG data </th>
+<th> YAML representation</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> container </td>
+<td> dictionary </td>
+</tr>
+<tr>
+<td> container name </td>
+<td> dictionary key </td>
+</tr>
+<tr>
+<td> leaf name </td>
+<td> dictionary key </td>
+</tr>
+<tr>
+<td> leaf </td>
+<td> dictionary value </td>
+</tr>
+<tr>
+<td> list </td>
+<td> list </td>
+</tr>
+<tr>
+<td> string, bool, integer </td>
+<td> string, bool, integer </td>
+</tr>
+<tr>
+<td> empty </td>
+<td> null </td>
+</tr>
+</tbody>
+</table>
+
+
+<p>Using this table, it&rsquo;s easy to map the YANG data model to a YAML document. Let me demonstrate it on IOS XE&rsquo;s native OSPF data model. First, I&rsquo;ve generated a tree representation of an OSPF data model using <strong>pyang</strong>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang -f tree <span class="p">&amp;</span>ndash<span class="p">;</span>tree-path <span class="p">&amp;</span>ldquo<span class="p">;</span>/native/router/ospf<span class="p">&amp;</span>rdquo<span class="p">;</span> ~/ydk-gen/gen-api/.cache/models/cisco_ios_xe@0.1.0/ned.yang -o ospf.tree
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Next, I&rsquo;ve trimmed it down to only contain the options that I would like to set and created a YAML document based on the model&rsquo;s tree structure:</p>
+
+<p><img class="center" src="/images/yang-yaml.png"></p>
+
+<p>With the right knowledge of <a href="blog/2017/02/15/restconf-yang/">YANG model&rsquo;s structure</a>, it&rsquo;s fairly easy to generate similar YAML configuration files for other configuration objects, like <a href="https://github.com/networkop/yang/blob/master/yaml-101/interface.yaml">interface</a> and <a href="https://github.com/networkop/yang/blob/master/yaml-101/bgp.yaml">BGP</a>.</p>
+
+<h2>YANG instantiating function</h2>
+
+<p>At the heart of the <code>ydk_yaml</code> module is a single recursive function that traverses the input YAML data structure and uses it to instantiate the YDK-generated Python binding. Here is a simple, abridged version of the function that demonstrates the main logic.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">def</span> <span class="nf">instantiate</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">,</span> <span class="n">model_value</span><span class="p">):</span>
+</span><span class='line'>    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">model_value</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">,</span> <span class="nb">int</span><span class="p">]):</span>
+</span><span class='line'>        <span class="nb">setattr</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">,</span> <span class="n">model_value</span><span class="p">)</span>
+</span><span class='line'>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">model_value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+</span><span class='line'>        <span class="k">for</span> <span class="n">el</span> <span class="ow">in</span> <span class="n">model_value</span><span class="p">:</span>
+</span><span class='line'>            <span class="nb">getattr</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">)</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instantiate</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">,</span> <span class="n">el</span><span class="p">))</span>
+</span><span class='line'>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">model_value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+</span><span class='line'>        <span class="n">container_instance</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">)()</span>
+</span><span class='line'>        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">model_value</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+</span><span class='line'>            <span class="n">instantiate</span><span class="p">(</span><span class="n">container_instance</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+</span><span class='line'>        <span class="nb">setattr</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">,</span> <span class="n">container_instance</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Most of it should already make sense based on what I&rsquo;ve covered above. The first conditional statement is the base of the recursion and performs the action of setting the value of a YANG Leaf element. The second conditional statement takes care of a YANG List by traversing all its elements, instantiating them recursively, and appends the result to a YDK binding. The last <code>elif</code> statement creates a class instance for a YANG container, recursively populates its values and saves the final result inside a YDK binding.</p>
+
+<p>The full version of this function covers a few extra corner cases and can be found <a href="https://github.com/networkop/yang/blob/master/yaml-101/ydk_yaml.py">here</a>.</p>
+
+<h2>The YDK module wrapper</h2>
+
+<p>The final step is to write a wrapper class that would consume the YDK model binding along with the YAML data, and both instantiate and push the configuration down to the network device.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">YdkModel</span><span class="p">:</span><span class="o">&lt;/</span><span class="n">p</span><span class="o">&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="o">&lt;</span><span class="n">pre</span><span class="o">&gt;&lt;</span><span class="n">code</span><span class="o">&gt;</span><span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
+</span><span class='line'>    <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">model</span>
+</span><span class='line'>    <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span>
+</span><span class='line'>    <span class="kn">from</span> <span class="nn">ydk.models.cisco_ios_xe.ned</span> <span class="kn">import</span> <span class="n">Native</span>
+</span><span class='line'>    <span class="bp">self</span><span class="o">.</span><span class="n">binding</span> <span class="o">=</span> <span class="n">Native</span><span class="p">()</span>
+</span><span class='line'>    <span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
+</span><span class='line'>        <span class="n">instantiate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">binding</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+</span><span class='line'>
+</span><span class='line'><span class="k">def</span> <span class="nf">action</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">crud_action</span><span class="p">,</span> <span class="n">device</span><span class="p">):</span>
+</span><span class='line'>    <span class="kn">from</span> <span class="nn">ydk.services</span> <span class="kn">import</span> <span class="n">CRUDService</span>
+</span><span class='line'>    <span class="kn">from</span> <span class="nn">ydk.providers</span> <span class="kn">import</span> <span class="n">NetconfServiceProvider</span>
+</span><span class='line'>    <span class="n">provider</span> <span class="o">=</span> <span class="n">NetconfServiceProvider</span><span class="p">(</span><span class="n">address</span><span class="o">=</span><span class="n">device</span><span class="p">[</span><span class="s">&#39;hostname&#39;</span><span class="p">],</span>
+</span><span class='line'>                                      <span class="n">port</span><span class="o">=</span><span class="n">device</span><span class="p">[</span><span class="s">&#39;port&#39;</span><span class="p">],</span>
+</span><span class='line'>                                      <span class="n">username</span><span class="o">=</span><span class="n">device</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">],</span>
+</span><span class='line'>                                      <span class="n">password</span><span class="o">=</span><span class="n">device</span><span class="p">[</span><span class="s">&#39;password&#39;</span><span class="p">],</span>
+</span><span class='line'>                                      <span class="n">protocol</span><span class="o">=</span><span class="s">&#39;ssh&#39;</span><span class="p">)</span>
+</span><span class='line'>    <span class="n">crud</span> <span class="o">=</span> <span class="n">CRUDService</span><span class="p">()</span>
+</span><span class='line'>    <span class="n">crud_instance</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">crud</span><span class="p">,</span> <span class="n">crud_action</span><span class="p">)</span>
+</span><span class='line'>    <span class="n">crud_instance</span><span class="p">(</span><span class="n">provider</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">binding</span><span class="p">)</span>
+</span><span class='line'>    <span class="n">provider</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
+</span><span class='line'>    <span class="k">return</span>
+</span><span class='line'><span class="o">&lt;/</span><span class="n">code</span><span class="o">&gt;&lt;/</span><span class="n">pre</span><span class="o">&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="o">&lt;</span><span class="n">p</span><span class="o">&gt;</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The structure of this class is pretty simple. The constructor instantiates a YDK native data model and calls the recursive instantiation function to populate the binding. The <strong>action</strong> method implements standard CRUD actions using the YDK&rsquo;s NETCONF provider. The full version of this Python module can be found <a href="https://github.com/networkop/yang/blob/master/yaml-101/ydk_yaml.py">here</a>.</p>
+
+<h2>Configuration examples</h2>
+
+<p>In my <a href="https://github.com/networkop/yang/tree/master/yaml-101">Github repo</a>, I&rsquo;ve included a few examples of how to configure Interface, OSPF and BGP settings of IOS XE device. A helper Python script <code>1_send_yaml.py</code> accepts the YANG model name and the name of the YAML configuration file as the input. It then instantiates the <code>YdkModel</code> class and calls the <code>create</code> action to push the configuration to the device. Let&rsquo;s assume that we have the following YAML configuration data saved in a <code>bgp.yaml</code> file:</p>
+
+<h2><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">&lt;/h2&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="l-Scalar-Plain">&lt;p&gt;router</span><span class="p-Indicator">:</span>
+</span><span class='line'>  <span class="l-Scalar-Plain">bgp</span><span class="p-Indicator">:</span>
+</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">100</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">bgp</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">router_id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1.1.1.1</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">fast_external_fallover</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">null</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">update_delay</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">15</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">neighbor</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">2.2.2.2</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">remote_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">200</span>
+</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">3.3.3.3</span>
+</span><span class='line'>          <span class="l-Scalar-Plain">remote_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">300</span>
+</span><span class='line'>      <span class="l-Scalar-Plain">redistribute</span><span class="p-Indicator">:</span>
+</span><span class='line'>        <span class="l-Scalar-Plain">connected</span><span class="p-Indicator">:</span> <span class="p-Indicator">{}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>To push this BGP configuration to the device all what I need to do is run the following command:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./1_send_yaml.py bgp bgp.yaml
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The resulting configuration on IOS XE device would look like this:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>router bgp 100
+</span><span class='line'> bgp router-id 1.1.1.1
+</span><span class='line'> bgp log-neighbor-changes
+</span><span class='line'> bgp update-delay 15
+</span><span class='line'> redistribute connected
+</span><span class='line'> neighbor 2.2.2.2 remote-as 200
+</span><span class='line'> neighbor 3.3.3.3 remote-as 300
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>To see more example, follow <a href="https://github.com/networkop/yang/tree/master/yaml-101">this link</a> to my Github repo.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Introduction to YANG Programming and RESTCONF on Cisco IOS XE]]></title>
+    <link href="http://networkop.github.io/blog/2017/02/15/restconf-yang/"/>
+    <updated>2017-02-15T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2017/02/15/restconf-yang</id>
+    <content type="html"><![CDATA[<p>The sheer size of some of the YANG models can scare away even the bravest of network engineers. However, as it is with any programming language, the complexity is built out of a finite set of simple concepts. In this post we&rsquo;ll learn some of these concepts by building our own YANG model to program static IP routes on Cisco IOS XE.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>  In the <a href="/blog/2017/01/25/netconf-intro/">previous post</a> I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard <strong>IETF</strong> model. In this post I&rsquo;ll show how to use Cisco&rsquo;s <strong>native</strong> YANG model to modify static IP routes. To make things even more interesting I&rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.</p>
+
+<h2>RESTCONF primer</h2>
+
+<p><a href="https://www.rfc-editor.org/rfc/rfc8040.txt">RESTCONF</a> is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON. RESTCONF borrows the idea of Create-Read-Update-Delete operations on resources from <a href="/blog/2016/01/01/rest-for-neteng/">REST</a> and maps them to YANG models and datastores. There is a direct relationship between NETCONF operations and RESTCONF HTTP verbs:</p>
+
+<table>
+<thead>
+<tr>
+<th> HTTP VERB </th>
+<th> NETCONF OPERATION </th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td> POST      </td>
+<td> create            </td>
+</tr>
+<tr>
+<td> PUT       </td>
+<td> replace           </td>
+</tr>
+<tr>
+<td> PATCH     </td>
+<td> merge             </td>
+</tr>
+<tr>
+<td> DELETE    </td>
+<td> delete            </td>
+</tr>
+<tr>
+<td> GET       </td>
+<td> get/get-config    </td>
+</tr>
+</tbody>
+</table>
+
+
+<p>Both RESTfullness and the ability to encode data as JSON make RESTCONF a very attractive choice for application developers. In this post, for the sake of simplicity, we&rsquo;ll use Python CLI and <code>curl</code> to interact with RESTCONF API. In the upcoming posts I&rsquo;ll show how to implement the same functionality inside a simple Python library.</p>
+
+<h2>Environment setup</h2>
+
+<p>We&rsquo;ll pick up from where we left our environment in the <a href="/blog/2017/01/25/netconf-intro/">previous post</a> right after we&rsquo;ve configured a network interface. The following IOS CLI command enables RESTCONF&rsquo;s root URL at <code>http://192.168.145.51/restconf/api/</code></p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>CSR1k(config)#restconf
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>You can start exploring the structure of RESTCONF interface starting at the root URL by specifying resource names separated by &ldquo;/&rdquo;. For example, the following command will return all configuration from Cisco&rsquo;s native datastore.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>curl -v -k admin:admin &lt;a href=&quot;http://192.168.145.51/restconfi/api/config/native?deep&quot;&gt;http://192.168.145.51/restconfi/api/config/native?deep&lt;/a&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>In order to get JSON instead of the default XML output the client should specify JSON media type <code>application/vnd.yang.datastore+json</code> and pass it in the <code>Accept</code> header.</p>
+
+<h2>Writing a YANG model</h2>
+
+<p><a href="/blog/2017/01/25/netconf-intro/">Normally</a>, you would expect to download the YANG model from the device itself. However IOS XE&rsquo;s NETCONF and RESTCONF support is so new that not all of the models are available. Specifically, Cisco&rsquo;s native YANG model for static routing cannot be found in either <a href="https://github.com/YangModels">Yang Github Repo</a> or the device itself (via <code>get_schema</code> RPC), which makes it a very good candidate for this post.</p>
+
+<blockquote><p><strong>Update 13-02-2017</strong>: As it turned out, the model was right under my nose the whole time. It&rsquo;s called <code>ned</code> and encapsulates the whole of Cisco&rsquo;s native datastore. So think of everything that&rsquo;s to follow as a simple learning exercise, however the point I raise in the closing paragraph still stands.</p></blockquote>
+
+<p>The first thing we need to do is get an understanding of the structure and naming convention of the YANG model. The simplest way to do that would be to make a change on the CLI and observe the result via RESTCONF.</p>
+
+<h3>Retrieving running configuration data</h3>
+
+<p>Let&rsquo;s start by adding the following static route to the IOS XE device:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>ip route 2.2.2.2 255.255.255.255 GigabitEthernet2
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Now we can view the configured static route via RESTCONF:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="p">&amp;</span>ldquo<span class="p">;</span>Accept: application/vnd.yang.data+json<span class="p">&amp;</span>rdquo<span class="p">;</span> <span class="se">\</span>
+</span><span class='line'> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://192.168.145.51/restconf/api/config/native/ip/route?deep&quot;</span>&gt;http://192.168.145.51/restconf/api/config/native/ip/route?deep&lt;/a&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The returned output should look something like this:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="p">{</span> <span class="err">&amp;ldquo;ned:route&amp;rdquo;:</span> <span class="err">{</span>
+</span><span class='line'>    <span class="err">&amp;ldquo;ip-route-interface-forwarding-list&amp;rdquo;:</span> <span class="err">[</span>
+</span><span class='line'>      <span class="err">{</span> <span class="err">&amp;ldquo;prefix&amp;rdquo;:</span> <span class="err">&amp;ldquo;2.2.2.2&amp;rdquo;,</span>
+</span><span class='line'>        <span class="err">&amp;ldquo;mask&amp;rdquo;:</span> <span class="err">&amp;ldquo;255.255.255.255&amp;rdquo;,</span>
+</span><span class='line'>        <span class="err">&amp;ldquo;fwd-list&amp;rdquo;:</span> <span class="err">[</span> <span class="err">{</span> <span class="err">&amp;ldquo;fwd&amp;rdquo;:</span> <span class="err">&amp;ldquo;GigabitEthernet2&amp;rdquo;</span> <span class="p">}</span> <span class="err">]</span>
+</span><span class='line'>      <span class="err">}</span>
+</span><span class='line'>    <span class="err">]</span>
+</span><span class='line'>  <span class="err">}</span>
+</span><span class='line'><span class="err">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>This JSON object gives us a good understanding of how the YANG model should look like. The root element <code>route</code> contains a list of IP prefixes, called <code>ip-route-interface-forwarding-list</code>. Each element of this list contains values for IP network and mask as well as the list of next-hops called <code>fwd-list</code>. Let&rsquo;s see how we can map this to YANG model concepts.</p>
+
+<h3>Building a simple YANG model</h3>
+
+<p>YANG <a href="https://tools.ietf.org/html/rfc6020">RFC</a> defines a number of data structures to model an XML tree. Let&rsquo;s first concentrate on the three most fundamental data structures that constitute the biggest part of any YANG model:</p>
+
+<ul>
+<li><strong>Container</strong> is a node of a tree with a unique name which encloses a set of child elements. In JSON it is mapped to a name/object pair <code>'name': {...}</code></li>
+<li><strong>Leaf</strong> is a node which contains a value and does not contain any child elements. In JSON leaf is mapped to a single key/value pair <code>'name': 'value'</code></li>
+<li><strong>List</strong> can be thought of as a table that contains a set rows (list entries). Each list entry can contain Leafs, Containers and other elements and can be uniquely identified by at least one Leaf element called a <code>key</code>. In JSON lists are encoded as name/arrays pairs containing JSON objects <code>'name': [{...}, {...}]</code></li>
+</ul>
+
+
+<p>Now let&rsquo;s see how we can describe the received data in terms of the above data structures:</p>
+
+<ul>
+<li>The value of the topmost <code>route</code> element is a JSON object, therefore it can only be mapped to a YANG container.</li>
+<li>The value of <code>ip-route-interface-forwarding-list</code> is an array of JSON objects, therefore it must be a list.</li>
+<li>The only entry of this list contains <code>prefix</code> and <code>mask</code> key/value pairs. Since they don&rsquo;t contain any child elements and their values are strings they can only be mapped to YANG leafs.</li>
+<li>The third element, <code>fwd-list</code>, is another YANG list and so far contains a single next-hop value inside a YANG leaf called <code>fwd</code>.</li>
+<li>Finally, since <code>fwd</code> is the only leaf in the <code>fwd-list</code> list, it must be that lists' key. The <code>ip-route-interface-forwarding-list</code> list will have both <code>prefix</code> and <code>mask</code> as its key values since their combination represents a unique IP destination.</li>
+</ul>
+
+
+<p>With all that in mind, this is how a skeleton of our YANG model will look like:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">module</span> <span class="err">cisco-route-static</span> <span class="p">{</span>
+</span><span class='line'>  <span class="err">namespace</span> <span class="err">&amp;ldquo;&lt;a</span> <span class="err">href=</span><span class="nt">&quot;http://cisco.com/ns/yang/ned/ios&quot;</span><span class="err">&gt;http</span><span class="p">:</span><span class="err">//cisco.com/ns/yang/ned/ios&lt;/a&gt;&amp;rdquo;;</span>
+</span><span class='line'>  <span class="err">prefix</span> <span class="err">ned;</span>
+</span><span class='line'>  <span class="err">container</span> <span class="err">route</span> <span class="p">{</span>
+</span><span class='line'>    <span class="err">list</span> <span class="err">ip-route-interface-forwarding-list</span> <span class="err">{</span>
+</span><span class='line'>      <span class="err">key</span> <span class="err">&amp;ldquo;prefix</span> <span class="err">mask&amp;rdquo;;</span>
+</span><span class='line'>      <span class="err">leaf</span> <span class="err">prefix</span> <span class="err">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
+</span><span class='line'>      <span class="err">leaf</span> <span class="err">mask</span> <span class="p">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
+</span><span class='line'>      <span class="err">list</span> <span class="err">fwd-list</span> <span class="p">{</span>
+</span><span class='line'>        <span class="err">key</span> <span class="err">&amp;ldquo;fwd&amp;rdquo;;</span>
+</span><span class='line'>        <span class="err">leaf</span> <span class="err">fwd</span> <span class="err">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
+</span><span class='line'>      <span class="p">}</span>
+</span><span class='line'>    <span class="err">}</span>
+</span><span class='line'>  <span class="err">}</span>
+</span><span class='line'><span class="err">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>YANG&rsquo;s syntax is pretty light-weight and looks very similar to JSON. The topmost <code>module</code> defines the model&rsquo;s name and encloses all other elements. The first two statements are used to define XML namespace and prefix that I&rsquo;ve described in my <a href="/blog/2017/01/25/netconf-intro/">previous post</a>.</p>
+
+<h3>Refactoring a YANG model</h3>
+
+<p>At this stage the model can already be instantiated by <strong>pyang</strong> and <strong>pyangbind</strong>, however there&rsquo;s a couple of very important changes and additions that I wanted to make to demonstrate some of the other features of YANG.</p>
+
+<p>The first of them is common IETF data types. So far in our model we&rsquo;ve assumed that prefix and mask can take <strong>any</strong> value in string format. But what if we wanted to check that the values we use are, in fact, the correctly-formatted IPv4 addresses and netmasks before sending them to the device? That is where IETF common data types come to the rescue. All what we need to do is add an import statement to define which model to use and we can start referencing them in our type definitions:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">&amp;hellip;</span>
+</span><span class='line'><span class="err">import</span> <span class="err">ietf-yang-types</span> <span class="p">{</span> <span class="err">prefix</span> <span class="err">&amp;ldquo;yang&amp;rdquo;;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">import</span> <span class="err">ietf-inet-types</span> <span class="p">{</span> <span class="err">prefix</span> <span class="err">&amp;ldquo;inet&amp;rdquo;;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">&amp;hellip;</span>
+</span><span class='line'><span class="err">leaf</span> <span class="err">prefix</span> <span class="p">{</span> <span class="err">type</span> <span class="err">inet:ipv4-address;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">leaf</span> <span class="err">mask</span> <span class="p">{</span> <span class="err">type</span> <span class="err">yang:dotted-quad;</span> <span class="p">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>This solves the problem for the prefix part of a static route but how about its next-hop? Next-hops can be defined as either strings (representing an interface name) or IPv4 addresses. To make sure we can use either of these two types in the <code>fwd</code> leaf node we can define its type as a <code>union</code>. This built-in type is literally a union, a logical OR, of all its member elements. This is how we can change the <code>fwd</code> leaf definition:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">&amp;hellip;</span>
+</span><span class='line'><span class="err">typedef</span> <span class="err">ip-next-hop</span> <span class="p">{</span>
+</span><span class='line'>  <span class="err">type</span> <span class="err">union</span> <span class="err">{</span>
+</span><span class='line'>    <span class="err">type</span> <span class="err">inet:ipv4-address;</span>
+</span><span class='line'>    <span class="err">type</span> <span class="err">string;</span>
+</span><span class='line'>  <span class="p">}</span>
+</span><span class='line'><span class="err">}</span>
+</span><span class='line'><span class="err">&amp;hellip;</span>
+</span><span class='line'><span class="err">leaf</span> <span class="err">fwd</span> <span class="p">{</span> <span class="err">type</span> <span class="err">ip-next-hop;</span> <span class="p">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>So far we&rsquo;ve been concentrating on the simplest form of a static route, which doesn&rsquo;t include any of the optional arguments. Let&rsquo;s add the leaf nodes for name, AD, tag, track and permanent options of the static route:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">&amp;hellip;</span>
+</span><span class='line'><span class="err">leaf</span> <span class="err">metric</span> <span class="p">{</span> <span class="err">type</span> <span class="err">uint8;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">leaf</span> <span class="err">name</span> <span class="p">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">leaf</span> <span class="err">tag</span> <span class="p">{</span> <span class="err">type</span> <span class="err">uint8;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">leaf</span> <span class="err">track</span> <span class="p">{</span> <span class="err">type</span> <span class="err">uint8;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">leaf</span> <span class="err">permanent</span> <span class="p">{</span> <span class="err">type</span> <span class="err">empty;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">&amp;hellip;</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Since <strong>track</strong> and <strong>permanent</strong> options are mutually exclusive they should not appear in the configuration at the same time. To model that we can use the <code>choice</code> YANG statement. Let&rsquo;s remove the <strong>track</strong> and <strong>permanent</strong> leafs from the model and replace them with this:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">choice</span> <span class="err">track-or-perm</span> <span class="p">{</span>
+</span><span class='line'>  <span class="err">leaf</span> <span class="err">track</span> <span class="err">{</span> <span class="err">type</span> <span class="err">uint8;</span> <span class="p">}</span>
+</span><span class='line'>  <span class="err">leaf</span> <span class="err">permanent</span> <span class="p">{</span> <span class="err">type</span> <span class="err">empty;</span> <span class="p">}</span>
+</span><span class='line'><span class="err">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>And finally, we need to add an options for VRF. When VRF is defined the whole <code>ip-route-interface-forwarding-list</code> gets encapsulated inside a list called <code>vrf</code>. This list has just one more leaf element <code>name</code> which plays the role of this lists' key. In order to model this we can use another oft-used YANG concept called <code>grouping</code>. I like to think of it as a Python function, a reusable part of code that can be referenced multiple times by its name. Here are the final changes to our model to include the VRF support:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">grouping</span> <span class="err">ip-route-list</span> <span class="p">{</span>
+</span><span class='line'>  <span class="err">list</span> <span class="err">ip-route-interface-forwarding-list</span> <span class="err">{</span>
+</span><span class='line'>      <span class="err">&amp;hellip;</span>
+</span><span class='line'>  <span class="p">}</span>
+</span><span class='line'><span class="err">}</span>
+</span><span class='line'><span class="err">grouping</span> <span class="err">vrf-grouping</span> <span class="p">{</span>
+</span><span class='line'>  <span class="err">list</span> <span class="err">vrf</span> <span class="err">{</span>
+</span><span class='line'>    <span class="err">key</span> <span class="err">&amp;ldquo;name&amp;rdquo;;</span>
+</span><span class='line'>    <span class="err">leaf</span> <span class="err">name</span> <span class="err">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
+</span><span class='line'>    <span class="err">uses</span> <span class="err">ip-route-list;</span>
+</span><span class='line'>  <span class="err">}</span>
+</span><span class='line'><span class="err">}</span>
+</span><span class='line'><span class="err">container</span> <span class="err">route</span> <span class="p">{</span>
+</span><span class='line'>  <span class="err">uses</span> <span class="err">vrf-grouping;</span>
+</span><span class='line'>  <span class="err">uses</span> <span class="err">ip-route-list;</span>
+</span><span class='line'><span class="p">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Each element in a YANG model is optional by default, which means that the <code>route</code> container can include any number of VRF and non-VRF routes. The full YANG model can be found <a href="https://github.com/networkop/yang/blob/master/yang-101/cisco-route-static.yang">here</a>.</p>
+
+<h2>Modifying static route configuration</h2>
+
+<p>Now let me demonstrate how to use our newly built YANG model to change the next-hop of an existing static route. Using <a href="https://github.com/mbj4668/pyang">pyang</a> we need to generate a Python module based on the YANG model.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang <span class="p">&amp;</span>ndash<span class="p">;</span>plugindir <span class="nv">$PYBINDPLUGIN</span> -f pybind -o binding.py cisco-route-static.yang
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>From a Python shell, download the current static IP route configuration:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">requests</span>
+</span><span class='line'><span class="n">url</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">&lt;</span><span class="n">a</span> <span class="n">href</span><span class="o">=</span><span class="s">&quot;http://&quot;</span><span class="o">&gt;</span><span class="n">http</span><span class="p">:</span><span class="o">//&lt;/</span><span class="n">a</span><span class="o">&gt;</span><span class="p">{</span><span class="n">h</span><span class="p">}:{</span><span class="n">p</span><span class="p">}</span><span class="o">/</span><span class="n">restconf</span><span class="o">/</span><span class="n">api</span><span class="o">/</span><span class="n">config</span><span class="o">/</span><span class="n">native</span><span class="o">/</span><span class="n">ip</span><span class="o">/</span><span class="n">route</span><span class="err">?</span><span class="n">deep</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">h</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">192.168</span><span class="o">.</span><span class="mf">145.51</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="n">p</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mi">80</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">accept</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">application</span><span class="o">/</span><span class="n">vnd</span><span class="o">.</span><span class="n">yang</span><span class="o">.</span><span class="n">data</span><span class="o">+</span><span class="n">json</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;}</span>
+</span><span class='line'><span class="n">result</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;),</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">)</span>
+</span><span class='line'><span class="n">current_json</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">text</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Import the downloaded JSON into a YANG model instance:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">binding</span>
+</span><span class='line'><span class="kn">import</span> <span class="nn">pyangbind.lib.pybindJSON</span> <span class="kn">as</span> <span class="nn">pybindJSON</span>
+</span><span class='line'><span class="n">model</span> <span class="o">=</span> <span class="n">pybindJSON</span><span class="o">.</span><span class="n">loads_ietf</span><span class="p">(</span><span class="n">current_json</span><span class="p">,</span> <span class="n">binding</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="n">cisco_route_static</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Delete the old next-hop and replace it with <strong>12.12.12.2</strong>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">route</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">route</span><span class="o">.</span><span class="n">ip_route_interface_forwarding_list</span><span class="p">[</span><span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="mf">2.2</span><span class="o">.</span><span class="mf">2.2</span> <span class="mf">255.255</span><span class="o">.</span><span class="mf">255.255</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;]</span>
+</span><span class='line'><span class="n">route</span><span class="o">.</span><span class="n">fwd_list</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="n">GigabitEthernet2</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">route</span><span class="o">.</span><span class="n">fwd_list</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="mf">12.12</span><span class="o">.</span><span class="mf">12.2</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Save the updated model in a JSON file with the help of a <a href="https://github.com/networkop/yang/blob/master/yang-101/helpers.py">write_file</a> function:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">json_data</span> <span class="o">=</span> <span class="n">pybindJSON</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">ietf</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">write_file</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">new_conf</span><span class="o">.</span><span class="n">json</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="n">json_data</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Updating running configuration</h2>
+
+<p>If we tried sending the <code>new_conf.json</code> file now, the device would have responded with an error:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>missing element: prefix in /ios:native/ios:ip/ios:route/ios:ip-route-interface-forwarding-list
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>In our JSON file the order of elements inside a JSON object can be different from what was defined in the YANG model. This is expected since one of the fundamental principles of JSON is that an object is an <strong>unordered</strong> collection of name/value pairs. However it looks like behind the scenes IOS XE converts JSON to XML before processing and expects all elements to come in a strict, predefined order. Fortunately, this <a href="https://github.com/CiscoDevNet/openconfig-getting-started/issues/4">bug</a> is already known and we can hope that Cisco will implement the fix for IOS XE soon. In the meantime, we&rsquo;re gonna have to resort to sending XML.</p>
+
+<p>Following the procedure described in my <a href="/blog/2017/01/25/netconf-intro/">previous post</a>, we can use <strong>json2xml</strong> tool to convert our instance into an XML document. Here we hit another issue. Since <strong>json2xml</strong> was designed to produce a NETCONF-compliant XML, it wraps the payload inside a <strong>data</strong> or a <strong>config</strong> element. Thankfully, <strong>json2xml</strong> is a Python script and can be easily patched to produce a RESTCONF-compliant XML. The following is a diff between the original and the patched files</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>408c409&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;h2&gt;&amp;lt;     if args.target not in [&amp;ldquo;data&amp;rdquo;, &amp;ldquo;config&amp;rdquo;]:&lt;/h2&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;blockquote&gt;&lt;pre&gt;&lt;code&gt;if args.target not in [&quot;data&quot;, &quot;config&quot;, &quot;restconf&quot;]:
+</span><span class='line'>&lt;/code&gt;&lt;/pre&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;437c438,442&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;h2&gt;&amp;lt;     ET.ElementTree(root_el).write(outfile, encoding=&amp;ldquo;utf-8&amp;rdquo;, xml_declaration=True)&lt;/h2&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;pre&gt;&lt;code&gt;if args.target != &#39;restconf&#39;:
+</span><span class='line'>    ET.ElementTree(root_el).write(outfile, encoding=&quot;utf-8&quot;, xml_declaration=True)
+</span><span class='line'>else:
+</span><span class='line'>    ET.ElementTree(list(root_el)[0]).write(outfile, encoding=&quot;utf-8&quot;, xml_declaration=True)
+</span><span class='line'>&lt;/code&gt;&lt;/pre&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;
+</span></code></pre></td></tr></table></div></figure></p></blockquote>
+
+<p>Instead of patching the original file, I&rsquo;ve applied the above changes to a local copy of the file. Once patched, the following commands should produce the needed XML.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang -f jtox -o static-route.jtox cisco-route-static.yang
+</span><span class='line'>./json2xml -t restconf -o new_conf.xml static-route.jtox new_conf.json
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The final step would be to send the generated XML to the IOS XE device. Since we are replacing the old static IP route configuration we&rsquo;re gonna have to use HTTP PUT to overwrite the old data.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/vnd.yang.data+xml<span class="p">&amp;</span>rdquo<span class="p">;</span> <span class="se">\</span>
+</span><span class='line'> -X PUT &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://192.168.145.51/restconf/api/config/native/ip/route/&quot;</span>&gt;http://192.168.145.51/restconf/api/config/native/ip/route/&lt;/a&gt; -d @new_conf.xml
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Verification</h2>
+
+<p>Back at the IOS XE CLI we can see the new static IP route installed.
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>TEST#sh run | i ip route
+</span><span class='line'>ip route 2.2.2.2 255.255.255.255 12.12.12.2
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>More examples</h2>
+
+<p>As always there are more examples available in my <a href="https://github.com/networkop/yang/tree/master/yang-101">YANG 101 repo</a></p>
+
+<hr />
+
+<p>The exercise we&rsquo;ve done in this post, though useful from a learning perspective, can come in very handy when dealing with vendors who forget or simply don&rsquo;t want to share their YANG models with their customers (I know of at least one vendor that would only publish tree representations of their YANG models). In the upcoming posts I&rsquo;ll show how to create a simple Python library to program static routes via RESTCONF and finally how to build an Ansible module to do that.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Getting Started With NETCONF and YANG on Cisco IOS XE]]></title>
@@ -69,7 +1137,7 @@
 </ol>
 
 
-<p>Be sure to check of these and many other YANG models on the <a href="https://github.com/YangModels/yang">YangModels</a> Github repo.</p>
+<p>Be sure to check of these and many other YANG models on <a href="https://github.com/YangModels/yang">YangModels</a> Github repo.</p>
 
 <h2>Environment setup</h2>
 
