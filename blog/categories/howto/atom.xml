@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Howto | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/howto/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-04-03T20:55:29+01:00</updated>
+  <updated>2017-09-08T12:17:28+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,162 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Linux SSH Session Management for Network Engineers]]></title>
+    <link href="http://networkop.github.io/blog/2017/05/12/linux-ssh/"/>
+    <updated>2017-05-12T00:00:00+01:00</updated>
+    <id>http://networkop.github.io/blog/2017/05/12/linux-ssh</id>
+    <content type="html"><![CDATA[<p>A short post about how I do SSH session management for network devices in Linux</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>A few weeks ago I bought myself a new Dell XPS-13 and decided for the n-th time to go all-in Linux, that is to have Linux as the main and only laptop OS. Since most of my Linux experience is with Fedora-family distros, I quickly installed Fedora-25 and embarked on a long and painful journey of getting out of my Windows comfort zone and re-establishing it in Linux. One of the most important aspects for me, as a network engineer, is to have a streamlined process of accessing network devices. In Windows I was using MTPutty and it helped define my expectations of an ideal SSH session manager:</p>
+
+<ul>
+<li>I want a multi-tab terminal with the ability to switch between tabs quickly - default (GNOME) terminal does that out-of-the box with no extra modifications</li>
+<li>I want to login the device without having to enter a password - Not available by default but is possible with some dirty <code>expect</code> hacks.</li>
+<li>I want my SSH sessions to be organised in a hierarchical manner with groups representing various administrative domains - customer A, local VMs, lab.</li>
+</ul>
+
+
+<p>Although GNOME terminal looked like a very good option, it didn&rsquo;t meet all of my requirements. I briefly looked and PAC Manager and GNOME Connection Manager but quickly dismissed them due to their ugliness and clunkiness. Ideally I wanted to keep using GNOME terminal as the main terminal emulator, without having to configure and rely on other 3rd party apps. I also didn&rsquo;t want to wrap my SSH session in <code>expect</code> as I didn&rsquo;t want my password to be pasted in my screen every time I <em>cat</em> a file containing the trigger keyword <em>Password:</em>. I&rsquo;ve finally managed to make everything work inside the native GNOME terminal and this post is a documentation of my approach.</p>
+
+<h2>1. Install ssh-copy-net</h2>
+
+<p>I&rsquo;ve written a little <a href="https://github.com/networkop/ssh-copy-net">tool</a> that uses <a href="https://github.com/ktbyers/netmiko">Netmiko</a> to install (and remove) public SSH keys onto network devices. Assuming <code>python-pip</code> is already installed here&rsquo;s what&rsquo;s required to download and install <code>ssh-copy-net</code>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>pip install git+&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/ssh-copy-net.git&quot;</span>&gt;https://github.com/networkop/ssh-copy-net.git&lt;/a&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Its functionality mimics the one of <code>ssh-copy-id</code>, so the next step is always to upload the public key to the device:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ssh-copy-net 10.6.142.1 juniper
+</span><span class='line'>Username: admin
+</span><span class='line'>Password:
+</span><span class='line'>All Done!
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>2. Define SSH config for network devices</h2>
+
+<p>OpenSSH client <a href="https://linux.die.net/man/5/ssh_config">config file</a> provides a nice way of managing user&rsquo;s SSH sessions. Configuration file allows you to define per-host SSH settings including username, port forwarding options, key checking flags etc. In my case all what I had to do was define IP addresses of my network devices:</p>
+
+<pre><code class="bash /home/null/.ssh/config">Host srx
+  HostName 10.6.142.1
+
+Host arista
+  HostName 10.6.142.2
+</code></pre>
+
+<p>Now I am able to login the device by simply typing its name:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ssh arista
+</span><span class='line'>Last login: Sun May  <span class="m">7</span> 10:57:30 <span class="m">2017</span> from 10.1.2.3
+</span><span class='line'>arista-1&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>3. Define zsh aliases</h2>
+
+<p>The final step is session organisations. For that I&rsquo;ve decided to use zsh aliases and have device groups encoded in the alias name, separated by dashes. For example, if my SRX device was in the <strong>lab</strong> and Arista was in <strong>Site-51</strong> of <strong>Customer-A</strong> this is how I would write my aliases:</p>
+
+<pre><code class="bash /home/null/.zshrc">alias lab-srx='ssh srx'
+alias customer-a-site-51-arista='ssh arista'
+</code></pre>
+
+<h2>4. Multi-pane sessions with tmux</h2>
+
+<p>As a network engineer, I often find myself troubleshooting issues spanning multiple devices, which is why I need multiple tabs inside a single terminal window. Simply pressing Ctrl+T in GNOME terminal opens a new tab and I can switch between tabs using Alt+[1-9]. However what would be really nice is to have a couple of tabs opened side by side so that I can see the logs and compare output on a number of devices at the same time. This is where tmux comes in. It can do much more than this, but I simply use it to have multiple panes inside the same terminal tab:</p>
+
+<p><img class="center" src="/images/tmux.png"></p>
+
+<p>Here&rsquo;s an example of my tmux configuration file:</p>
+
+<pre><code class="bash /home/null/.tmux.conf"># Automatically set window title
+set-window-option -g automatic-rename on
+set-option -g set-titles on
+
+# Use Alt-arrow keys without prefix key to switch panes
+bind -n M-Left select-pane -L
+bind -n M-Right select-pane -R
+bind -n M-Up select-pane -U
+bind -n M-Down select-pane -D
+
+# Pane splitting keys
+bind-key v split-window -h
+bind-key s split-window -v
+
+# New key-binding to reset hung SSH sessions
+bind-key k respawn-pane -k
+
+# Easy fix for arrow keys inside ssh
+set -g default-terminal "xterm"
+
+# Enable mouse mode (tmux 2.1 and above)
+set -g mouse on
+
+# Reload tmux config
+bind r source-file ~/.tmux.conf
+
+# No delay for escape key press
+set -sg escape-time 0
+</code></pre>
+
+<h2>Demo</h2>
+
+<p>Now having all the above defined and with the help of zsh command autocompletion, I can login the device with just a few keypresses (shown in square brackets below):</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>lab  <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>lab-  <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'>lab-srx
+</span><span class='line'><span class="nv">$ </span>lab-  <span class="o">[</span>s<span class="o">][</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>lab-srx  <span class="o">[</span>ENTER<span class="o">]</span>
+</span><span class='line'><span class="p">&amp;</span>mdash<span class="p">;</span> JUNOS 12.3X48-D30.7 built 2016-04-28 22:37:34 UTC
+</span><span class='line'><span class="o">{</span>primary:node0<span class="o">}</span>
+</span><span class='line'>null@srx&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Press Ctrl+B v to split the terminal window vertically:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>customer <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>customer- <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'>customer-a-site-51-arista
+</span><span class='line'><span class="nv">$ </span>customer- <span class="o">[</span>a<span class="o">][</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>customer-a-arista <span class="o">[</span>ENTER<span class="o">]</span>
+</span><span class='line'>Last login: Thu May <span class="m">11</span> 15:28:03 <span class="m">2017</span> from 10.1.2.3
+</span><span class='line'>arista-1&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>An so on and so forth&hellip;</p>
+
+<p><img class="center" src="/images/tmux.gif"></p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Windows-Linux File Synchronisation]]></title>

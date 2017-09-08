@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Sdn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/sdn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-04-03T20:55:29+01:00</updated>
+  <updated>2017-09-08T12:17:28+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,132 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - Building a Containerized OpenStack Lab]]></title>
+    <link href="http://networkop.github.io/blog/2017/09/08/os-lab-docker/"/>
+    <updated>2017-09-08T00:00:00+01:00</updated>
+    <id>http://networkop.github.io/blog/2017/09/08/os-lab-docker</id>
+    <content type="html"><![CDATA[<p>I&rsquo;m returning to my OpenStack SDN series to explore some of the new platform features like service function chaining, network service orchestration, intent-based networking and dynamic WAN routing. To kick things off I&rsquo;m going to demonstrate my new fully-containerized OpenStack Lab that I&rsquo;ve built using an OpenStack project called Kolla.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>For quite a long time installation and deployment have been deemed as major barriers for OpenStack adoption. The classic &ldquo;install everything manually&rdquo; approach could only work in small production or lab environments and the ever increasing number of project under the <a href="https://governance.openstack.org/tc/reference/projects/">&ldquo;Big Tent&rdquo;</a> made service-by-service installation infeasible. This led to the rise of automated installers that over time evolved from a simple collection of scripts to container management systems.</p>
+
+<h2>Evolution of automated OpenStack installers</h2>
+
+<p>The first generation of automated installers were simple utilities that tied together a collection of Puppet/Chef/Ansible scripts. Some of these tools could do baremetal server provisioning through Cobbler or Ironic (Fuel, Compass) and some relied on server operating system to be pre-installed (Devstack, Packstack). In either case the packages were pulled from the Internet or local repository every time the installer ran.</p>
+
+<p>The biggest problem with the above approach is the time it takes to re-deploy, upgrade or scale the existing environment. Even for relatively small environments it could be hours before all packages are downloaded, installed and configured. One of the ways to tackle this is to pre-build an operating system with all the necessary packages and only use Puppet/Chef/Ansible to change configuration files and turn services on and off. Redhat&rsquo;s TripleO is one example of this approach. It uses a &ldquo;golden image&rdquo; with pre-installed OpenStack packages, which is dd-written bit-by-bit onto the baremetal server&rsquo;s disk. The undercloud then decides which services to turn on based on the overcloud server&rsquo;s role.</p>
+
+<p>Another big problem with most of the existing deployment methods was that, despite their microservices architecture, all OpenStack services were deployed as static packages on top of a shared operating system. This made the ongoing operations, troubleshooting and ugprades really difficult. The obvious thing to do would be to have all OpenStack services (e.g. Neutron, Keyston, Nova) deployed as containers and managed by a container management system. The first company to implement that, as far as I know, was Canonical. The deployment process is quite complicated, however the end result is a highly flexible OpenStack cloud deployed using LXC containers, managed and orchestrated by Juju controller.</p>
+
+<p>Today (September 2017) deploying OpenStack services as containers is becoming mainstream and in this post I&rsquo;ll show how to use Kolla to build container images and Kolla-Ansible to deploy them on a pair of &ldquo;baremetal&rdquo; VMs.</p>
+
+<h2>Lab overview</h2>
+
+<p>My lab consists of a single controller and a single compute VM. The goal was to make them as small as possible so they could run on a laptop with limited resources. Both VMs are connected to three VM bridged networks - provisioning, management and external VM access.</p>
+
+<p><img class="center" src="/images/kolla-lab.png"></p>
+
+<p>I&rsquo;ve written some bash and Ansible scripts to automate the deployment of VMs on top of any Fedora derivative (e.g. Centos7). These scripts should be run directly from the hypervisor:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/kolla-odl-bgpvpn.git&quot;</span>&gt;https://github.com/networkop/kolla-odl-bgpvpn.git&lt;/a&gt; <span class="p">&amp;</span>amp<span class="p">;&amp;</span>amp<span class="p">;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-bootstrap.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The first bash script downloads the VM OS (Centos7), creates two blank VMs and sets up a local Docker registry. The second script installs all the dependencies, including Docker and Ansible.</p>
+
+<h2>Building OpenStack docker containers with Kolla</h2>
+
+<p>The first step in Kolla deployment workflow is deciding where to get the Docker images. Kolla maintains a <a href="https://hub.docker.com/u/kolla/">Docker Hub registry</a> with container images built for every major OpenStack release. The easiest way to get them would be to pull the images from Docker hub either directly or via a <a href="https://docs.docker.com/registry/recipes/mirror/">pull-through caching registry</a>.</p>
+
+<p>In my case I needed to build the latest version of OpenStack packages, not just the latest major release. I also wanted to build a few additional, non-Openstack images (Opendaylight and Quagga). Because of that I had to build all Docker images locally and push them into a local docker registry. The procedure to build container images is very well documented in the official <a href="https://docs.openstack.org/kolla/latest/image-building.html">Kolla image building guide</a>. I&rsquo;ve modified it slightly to include the Quagga Dockerfile and automated it so that the whole process can be run with a single command:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./3-build.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>This step can take quite a long time (anything from 1 to 4 hours depending on the network and disk I/O speed), however, once it&rsquo;s been done these container images can be used to deploy as many OpenStack instances as necessary.</p>
+
+<h2>Deploying OpenStack with Kolla-Ansible</h2>
+
+<p>The next step in OpenStack deployment workflow is to deploy Docker images on target hosts. <a href="https://docs.openstack.org/kolla-ansible/latest/quickstart.html">Kolla-Ansible</a> is a highly customizable OpenStack deployment tool that is also extemely easy to use, at least for people familiar with Ansible. There are two main sources of information for Kolla-Ansible:</p>
+
+<ul>
+<li>Global configuration file (/etc/kolla/globals.yaml), which contains some of the most common customization options</li>
+<li>Ansible inventory file (/usr/share/kolla-ansible/ansible/inventory/*), which maps OpenStack packages to target deployment hosts</li>
+</ul>
+
+
+<p>To get started with Kolla-Ansible all what it takes is a few modifications to the global configuration file to make sure that network settings match the underlying OS interface configuration and an update to the inventory file to point it to the correct deployment hosts. In my case I&rsquo;m making additional changes to enable SFC, Skydive and Tacker and adding files for Quagga container, all of which can be done with the following command:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./4-deploy.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The best thing about this method of deployment is that it takes (in my case) under 5 minutes to get the full OpenStack cloud from scratch. That means if I break something or want to redeploy with some major changes (add/remove Opendaylight), all what I have to do is destroy the existing deployment (approx. 1 minute), modify global configuration file and re-deploy OpenStack. This makes Kolla-Ansible an ideal choice for my lab environment.</p>
+
+<h2>Overview of containerized Openstack</h2>
+
+<p>Once the deployment has been completed, we should be able to see a number of running Docker containers - one for each OpenStack process.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker ps
+</span><span class='line'>CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
+</span><span class='line'>0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               skydive_agent
+</span><span class='line'>63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               neutron_openvswitch_agent
+</span><span class='line'>f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_vswitchd
+</span><span class='line'>3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_db
+</span><span class='line'>9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_compute
+</span><span class='line'>8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_libvirt
+</span><span class='line'>220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_ssh
+</span><span class='line'>743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               cron
+</span><span class='line'>8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               kolla_toolbox
+</span><span class='line'>f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               fluentd
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>All the standard docker tools are available to interact with those containers. For example, this is how we can see what processes are running inside a container:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker <span class="nb">exec </span>nova_compute ps -www aux
+</span><span class='line'>USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span><span class='line'>nova         <span class="m">1</span>  0.0  0.0    <span class="m">188</span>     <span class="m">4</span> pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
+</span><span class='line'>nova         <span class="m">7</span>  0.7  1.3 <span class="m">2292560</span> <span class="m">134896</span> ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
+</span><span class='line'>root        <span class="m">86</span>  0.0  0.3 <span class="m">179816</span> <span class="m">32900</span> ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper <span class="p">&amp;</span>ndash<span class="p">;</span>config-file /etc/nova/nova.conf <span class="p">&amp;</span>ndash<span class="p">;</span>privsep_context vif_plug_ovs.privsep.vif_plug <span class="p">&amp;</span>ndash<span class="p">;</span>privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Some of you may have noticed that none of the containers expose any ports. So how do they communicate? The answer is very simple - all containers run in a <strong>host</strong> networking mode, effectively disabling any network isolation and giving all contaners access to TCP/IP stacks of their Docker hosts. This is a simple way to avoid having to deal with Docker networking complexities, while at the same time preserving the immutability and portability of Docker containers.</p>
+
+<p>All containers are configured to restart in case of a failure, however there&rsquo;s no <abbr title="Container Management System">CMS</abbr> to provide full lifecycle management and advanced scheduling. If upgrade of scale-in/out is needed, Kolla-Ansible will have to be re-run with updated configuration options. There is sibling project called <a href="https://github.com/openstack/kolla-kubernetes">Kolla-Kubernetes</a> (still under developement), that&rsquo;s designed to address some of the mentioned shortcomings.</p>
+
+<h2>Coming up</h2>
+
+<p>Now that the lab is up we can start exploring the new OpenStack SDN features. In the next post I&rsquo;ll have a close look at Neutron&rsquo;s <abbr title=" Service Function Chainng">SFC</abbr> feature, how to configure it and how it&rsquo;s been implemented in OVS forwarding pipeline.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Configuring Cisco IOS XE With YDK and OpenDaylight]]></title>
@@ -1490,135 +1616,6 @@ OpenFlow actions=pop_vlan,NORMAL
 
 
 <p>However the main issue still remains unresolved. Every North-South packet has to hop several times between the global and DVR/FIP/NAT namespaces. These kind of operations are very expensive in terms of consumed CPU and memory resources and can be very detrimental to network performance. Using namespaces may be the most straight-forward and non-disruptive way of implementing DVR, however it&rsquo;s definitely not the most optimal. Ideally we&rsquo;d like to see both L2 and L3 pipelines implemented in OpenvSwitch tables. This way all packets can benefit from OVS <a href="https://networkheresy.com/2014/11/13/accelerating-open-vswitch-to-ludicrous-speed/">fast-path flow caching</a>. But fear not, the solution to this already exists in a shape of <a href="https://www.openstack.org/summit/vancouver-2015/summit-videos/presentation/ovn-native-virtual-networking-for-open-vswitch">Open Virtual Network</a>. OVN is a project spawned from the OVS and aims to <a href="https://blog.russellbryant.net/2016/09/29/ovs-2-6-and-the-first-release-of-ovn/">address</a> a number of shortcomings existing in current implementations of virtual networks.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 2)]]></title>
-    <link href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/"/>
-    <updated>2016-09-09T00:00:00+01:00</updated>
-    <id>http://networkop.github.io/blog/2016/09/09/os-lab-p2</id>
-    <content type="html"><![CDATA[<p>In this post we&rsquo;ll use Chef, unnumbered BGP and Cumulus VX to build a massively scalable &ldquo;Lapukhov&rdquo; Leaf-Spine data centre.</p>
-
-<!--more-->
-
-
-<hr />
-
-<p>In the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">last post</a> we&rsquo;ve seen how to use Chef to automate the build of a 3-node OpenStack cloud. The only thing remaining is to build an underlay network supporting communication between the nodes, which is what we&rsquo;re going to do next. The build process will, again, be relatively simple and will include only a few manual steps, but before we get there let me go over some of the decisions and assumptions I&rsquo;ve made in my network design.</p>
-
-<h2>High-level design</h2>
-
-<p>The need to provide more bandwidth for East-West traffic has made the Clos Leaf-Spine architecture a de facto standard in any data centre network design. The use of virtual overlay networks has obviated the requirement to have a strict VLAN and IP numbering schemes in the underlay. The only requirement for the compute nodes now is to have any-to-any layer 3 connectivity. This is how the underlay network design has converged to a Layer 3 Leaf-Spine architecture.<br/>
-The choice of a routing protocol is not so straight-forward. My fellow countryman Petr Lapukhov and co-authors of <a href="https://tools.ietf.org/html/draft-ietf-rtgwg-bgp-routi3ng-large-dc-11">RFC draft</a> claim that having a single routing protocol in your WAN and DC reduces complexity and makes interoperability and operations a lot easier. This draft presents some of the design principles that can be used to build a L3 data centre with BGP as the only routing protocol. In our lab we&rsquo;re going to implement a single &ldquo;cluster&rdquo; of the multi-tier topology proposed in that RFC.</p>
-
-<p><img class="center" src="/images/os-lab-chef-full.png"></p>
-
-<p>In order to help us build this in an automated and scalable way, we&rsquo;re going to use a relatively new feature called <strong>unnumbered BGP</strong>.</p>
-
-<h2>Unnumbered BGP as a replacement for IGP</h2>
-
-<p>As we all know, one of the main advantages of interior gateway protocols is the automatic discovery of adjacent routers which is accomplished with the help of link-local multicasts. On the other hand, BGP traditionally required you to explicitly define neighbor&rsquo;s IP address in order to establish a peering relationship with it. This is where IPv6 comes to the rescue. With the help of neighbor discovery protocol and router advertisement messages, it becomes possible to accurately determine the address of the peer BGP router on an intra-fabric link. The only question is how we would exchange IPv4 information over and IPv6-only BGP network.<br/>
-<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the advertised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
-
-<h2>Configuration example on Cumulus VX</h2>
-
-<p>In order to implement BGP unnumbered on Cumulus Linux all you need to is:</p>
-
-<ol>
-<li>Enable IPv6 router advertisements on all transit links</li>
-<li>Enable BGP on the same interfaces</li>
-</ol>
-
-
-<p>Example Quagga configuration snippet will look like this:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface swp1
-</span><span class='line'>  ipv6 nd ra-interval 5
-</span><span class='line'>  no ipv6 nd suppress-ra&lt;/p&gt;
-</span><span class='line'>
-</span><span class='line'>&lt;p&gt;rouer bgp &lt;ASN&gt;
-</span><span class='line'>  neighbor swp1 interface
-</span><span class='line'>  neighbor swp1 external
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>As you can see, Cumulus simplifies it even more by allowing you to only specify the BGP peering type (external/internal) and learning the value of peer BGP AS dynamically from a neighbor.</p>
-
-<h2>Design assumptions and caveats</h2>
-
-<p>With all the above in mind, this is the list of decisions I&rsquo;ve made while building the fabric configuration:</p>
-
-<ul>
-<li>All switches inside the fabric will be running BGP peerings using <strong>IPv6 link-local</strong> addresses</li>
-<li><strong>eBGP</strong> will be used throughout to simplify configuration automation (all peers will be external)</li>
-<li>Each Leaf/Spine switch will have a <strong>unique IPv4 loopback</strong> address assigned for management purposes (ICMP, SSH)</li>
-<li>On each Leaf switch <strong>all directly connected IPv4</strong> prefixes will get redistributed into BGP</li>
-<li>BGP multipath rule will be &ldquo;relaxed&rdquo; to allow for different AS-PATHs. This is not used in our current topology but is required in an HA Leaf switch design (same IPv4 prefix will be advertised from two Leaf switches with different ASN)</li>
-<li>Loop prevention on Leaf switches will also be &ldquo;relaxed&rdquo;. This, again, is not used in our single &ldquo;cluster&rdquo; topology, however it will allow same Leaf ASNs to be reused in a different cluster.</li>
-</ul>
-
-
-<h2>Implementation steps</h2>
-
-<p>Picking up where we left off after the OpenStack node provisioning described in the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">previous post</a></p>
-
-<ol>
-<li><p>Get the latest <a href="https://github.com/networkop/chef-unl-os">OpenStack lab cookbooks</a></p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
-</span><span class='line'> <span class="nb">cd </span>chef-unl-os
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p><a href="https://cumulusnetworks.com/cumulus-vx/">Download</a> and import Cumulus VX image similar to how it&rsquo;s described <a href="http://www.unetlab.com/2015/06/adding-cisco-asav-images/">here</a>.</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> /opt/unetlab/addons/qemu/cumulus-vx/hda.qcow2
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Build the topology inside UNL. Make sure that Node IDs inside UNL match the ones in <strong>chef-unl-os/environment/lab.rb</strong> file and that interfaces are connected as shown in the diagram below</p>
-
-<p> <img class="center" src="/images/os-lab-unl.png"></p></li>
-<li><p>Re-run UNL self-provisioning cookbook to create a <a href="https://github.com/networkop/chef-unl-os/blob/master/cookbooks/pxe/templates/ztp.erb">zero touch provisioning</a> file and update DHCP server configuration with static entries for the switches.</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> chef-client -z -E lab -o pxe
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> Cumulus <a href="https://docs.cumulusnetworks.com/display/DOCS/Zero+Touch+Provisioning+-+ZTP">ZTP</a> allows you to run a predefined script on the first boot of the operating system. In our case we inject a UNL VM&rsquo;s public key and enable passwordless <strong>sudo</strong> for cumulus user.</p></li>
-<li><p>Kickoff Chef provisioning to bootstrap and configure the DC fabric.</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> chef-client -z -E lab fabric.rb
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> This command instructs Chef provisioning to connect to each switch, download and install the Chef client and run a simple recipe to create quagga configuration file from a template.</p></li>
-</ol>
-
-
-<p>At the end of step 5 we should have a fully functional BGP-only fabric and all 3 compute nodes should be able to reach each other in at most 4 hops.</p>
-
-<p><code>bash [root@controller-1 ~]# traceroute 10.0.0.4
-traceroute to 10.0.0.4 (10.0.0.4), 30 hops max, 60 byte packets
- 1  10.0.0.1 (10.0.0.1)  0.609 ms  0.589 ms  0.836 ms
- 2  10.255.255.7 (10.255.255.7)  0.875 ms  2.957 ms  3.083 ms
- 3  10.255.255.6 (10.255.255.6)  3.473 ms  5.486 ms  3.147 ms
- 4  10.0.0.4 (10.0.0.4)  4.231 ms  4.159 ms  4.115 ms
-</code></p>
 ]]></content>
   </entry>
   

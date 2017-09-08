@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-04-03T20:55:29+01:00</updated>
+  <updated>2017-09-08T12:17:28+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,336 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - Building a Containerized OpenStack Lab]]></title>
+    <link href="http://networkop.github.io/blog/2017/09/08/os-lab-docker/"/>
+    <updated>2017-09-08T00:00:00+01:00</updated>
+    <id>http://networkop.github.io/blog/2017/09/08/os-lab-docker</id>
+    <content type="html"><![CDATA[<p>I&rsquo;m returning to my OpenStack SDN series to explore some of the new platform features like service function chaining, network service orchestration, intent-based networking and dynamic WAN routing. To kick things off I&rsquo;m going to demonstrate my new fully-containerized OpenStack Lab that I&rsquo;ve built using an OpenStack project called Kolla.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>For quite a long time installation and deployment have been deemed as major barriers for OpenStack adoption. The classic &ldquo;install everything manually&rdquo; approach could only work in small production or lab environments and the ever increasing number of project under the <a href="https://governance.openstack.org/tc/reference/projects/">&ldquo;Big Tent&rdquo;</a> made service-by-service installation infeasible. This led to the rise of automated installers that over time evolved from a simple collection of scripts to container management systems.</p>
+
+<h2>Evolution of automated OpenStack installers</h2>
+
+<p>The first generation of automated installers were simple utilities that tied together a collection of Puppet/Chef/Ansible scripts. Some of these tools could do baremetal server provisioning through Cobbler or Ironic (Fuel, Compass) and some relied on server operating system to be pre-installed (Devstack, Packstack). In either case the packages were pulled from the Internet or local repository every time the installer ran.</p>
+
+<p>The biggest problem with the above approach is the time it takes to re-deploy, upgrade or scale the existing environment. Even for relatively small environments it could be hours before all packages are downloaded, installed and configured. One of the ways to tackle this is to pre-build an operating system with all the necessary packages and only use Puppet/Chef/Ansible to change configuration files and turn services on and off. Redhat&rsquo;s TripleO is one example of this approach. It uses a &ldquo;golden image&rdquo; with pre-installed OpenStack packages, which is dd-written bit-by-bit onto the baremetal server&rsquo;s disk. The undercloud then decides which services to turn on based on the overcloud server&rsquo;s role.</p>
+
+<p>Another big problem with most of the existing deployment methods was that, despite their microservices architecture, all OpenStack services were deployed as static packages on top of a shared operating system. This made the ongoing operations, troubleshooting and ugprades really difficult. The obvious thing to do would be to have all OpenStack services (e.g. Neutron, Keyston, Nova) deployed as containers and managed by a container management system. The first company to implement that, as far as I know, was Canonical. The deployment process is quite complicated, however the end result is a highly flexible OpenStack cloud deployed using LXC containers, managed and orchestrated by Juju controller.</p>
+
+<p>Today (September 2017) deploying OpenStack services as containers is becoming mainstream and in this post I&rsquo;ll show how to use Kolla to build container images and Kolla-Ansible to deploy them on a pair of &ldquo;baremetal&rdquo; VMs.</p>
+
+<h2>Lab overview</h2>
+
+<p>My lab consists of a single controller and a single compute VM. The goal was to make them as small as possible so they could run on a laptop with limited resources. Both VMs are connected to three VM bridged networks - provisioning, management and external VM access.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/kolla-lab.png"></p>
+
+<p>I&rsquo;ve written some bash and Ansible scripts to automate the deployment of VMs on top of any Fedora derivative (e.g. Centos7). These scripts should be run directly from the hypervisor:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/kolla-odl-bgpvpn.git <span class="o">&amp;&amp;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-bootstrap.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The first bash script downloads the VM OS (Centos7), creates two blank VMs and sets up a local Docker registry. The second script installs all the dependencies, including Docker and Ansible.</p>
+
+<h2>Building OpenStack docker containers with Kolla</h2>
+
+<p>The first step in Kolla deployment workflow is deciding where to get the Docker images. Kolla maintains a <a href="https://hub.docker.com/u/kolla/">Docker Hub registry</a> with container images built for every major OpenStack release. The easiest way to get them would be to pull the images from Docker hub either directly or via a <a href="https://docs.docker.com/registry/recipes/mirror/">pull-through caching registry</a>.</p>
+
+<p>In my case I needed to build the latest version of OpenStack packages, not just the latest major release. I also wanted to build a few additional, non-Openstack images (Opendaylight and Quagga). Because of that I had to build all Docker images locally and push them into a local docker registry. The procedure to build container images is very well documented in the official <a href="https://docs.openstack.org/kolla/latest/image-building.html">Kolla image building guide</a>. I&rsquo;ve modified it slightly to include the Quagga Dockerfile and automated it so that the whole process can be run with a single command:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./3-build.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This step can take quite a long time (anything from 1 to 4 hours depending on the network and disk I/O speed), however, once it&rsquo;s been done these container images can be used to deploy as many OpenStack instances as necessary.</p>
+
+<h2>Deploying OpenStack with Kolla-Ansible</h2>
+
+<p>The next step in OpenStack deployment workflow is to deploy Docker images on target hosts. <a href="https://docs.openstack.org/kolla-ansible/latest/quickstart.html">Kolla-Ansible</a> is a highly customizable OpenStack deployment tool that is also extemely easy to use, at least for people familiar with Ansible. There are two main sources of information for Kolla-Ansible:</p>
+
+<ul>
+<li>Global configuration file (/etc/kolla/globals.yaml), which contains some of the most common customization options</li>
+<li>Ansible inventory file (/usr/share/kolla-ansible/ansible/inventory/*), which maps OpenStack packages to target deployment hosts</li>
+</ul>
+
+
+<p>To get started with Kolla-Ansible all what it takes is a few modifications to the global configuration file to make sure that network settings match the underlying OS interface configuration and an update to the inventory file to point it to the correct deployment hosts. In my case I&rsquo;m making additional changes to enable SFC, Skydive and Tacker and adding files for Quagga container, all of which can be done with the following command:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./4-deploy.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The best thing about this method of deployment is that it takes (in my case) under 5 minutes to get the full OpenStack cloud from scratch. That means if I break something or want to redeploy with some major changes (add/remove Opendaylight), all what I have to do is destroy the existing deployment (approx. 1 minute), modify global configuration file and re-deploy OpenStack. This makes Kolla-Ansible an ideal choice for my lab environment.</p>
+
+<h2>Overview of containerized Openstack</h2>
+
+<p>Once the deployment has been completed, we should be able to see a number of running Docker containers - one for each OpenStack process.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker ps
+</span><span class='line'>CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
+</span><span class='line'>0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               skydive_agent
+</span><span class='line'>63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               neutron_openvswitch_agent
+</span><span class='line'>f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_vswitchd
+</span><span class='line'>3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_db
+</span><span class='line'>9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_compute
+</span><span class='line'>8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_libvirt
+</span><span class='line'>220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_ssh
+</span><span class='line'>743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               cron
+</span><span class='line'>8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               kolla_toolbox
+</span><span class='line'>f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     <span class="s2">&quot;kolla_start&quot;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               fluentd
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>All the standard docker tools are available to interact with those containers. For example, this is how we can see what processes are running inside a container:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker <span class="nb">exec </span>nova_compute ps -www aux
+</span><span class='line'>USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span><span class='line'>nova         <span class="m">1</span>  0.0  0.0    <span class="m">188</span>     <span class="m">4</span> pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
+</span><span class='line'>nova         <span class="m">7</span>  0.7  1.3 <span class="m">2292560</span> <span class="m">134896</span> ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
+</span><span class='line'>root        <span class="m">86</span>  0.0  0.3 <span class="m">179816</span> <span class="m">32900</span> ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper --config-file /etc/nova/nova.conf --privsep_context vif_plug_ovs.privsep.vif_plug --privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Some of you may have noticed that none of the containers expose any ports. So how do they communicate? The answer is very simple - all containers run in a <strong>host</strong> networking mode, effectively disabling any network isolation and giving all contaners access to TCP/IP stacks of their Docker hosts. This is a simple way to avoid having to deal with Docker networking complexities, while at the same time preserving the immutability and portability of Docker containers.</p>
+
+<p>All containers are configured to restart in case of a failure, however there&rsquo;s no <abbr title="Container Management System">CMS</abbr> to provide full lifecycle management and advanced scheduling. If upgrade of scale-in/out is needed, Kolla-Ansible will have to be re-run with updated configuration options. There is sibling project called <a href="https://github.com/openstack/kolla-kubernetes">Kolla-Kubernetes</a> (still under developement), that&rsquo;s designed to address some of the mentioned shortcomings.</p>
+
+<h2>Coming up</h2>
+
+<p>Now that the lab is up we can start exploring the new OpenStack SDN features. In the next post I&rsquo;ll have a close look at Neutron&rsquo;s <abbr title=" Service Function Chainng">SFC</abbr> feature, how to configure it and how it&rsquo;s been implemented in OVS forwarding pipeline.</p>
+]]></content>
+  </entry>
+  
+  <entry>
+    <title type="html"><![CDATA[Linux SSH Session Management for Network Engineers]]></title>
+    <link href="http://networkop.github.io/blog/2017/05/12/linux-ssh/"/>
+    <updated>2017-05-12T00:00:00+01:00</updated>
+    <id>http://networkop.github.io/blog/2017/05/12/linux-ssh</id>
+    <content type="html"><![CDATA[<p>A short post about how I do SSH session management for network devices in Linux</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>A few weeks ago I bought myself a new Dell XPS-13 and decided for the n-th time to go all-in Linux, that is to have Linux as the main and only laptop OS. Since most of my Linux experience is with Fedora-family distros, I quickly installed Fedora-25 and embarked on a long and painful journey of getting out of my Windows comfort zone and re-establishing it in Linux. One of the most important aspects for me, as a network engineer, is to have a streamlined process of accessing network devices. In Windows I was using MTPutty and it helped define my expectations of an ideal SSH session manager:</p>
+
+<ul>
+<li>I want a multi-tab terminal with the ability to switch between tabs quickly - default (GNOME) terminal does that out-of-the box with no extra modifications</li>
+<li>I want to login the device without having to enter a password - Not available by default but is possible with some dirty <code>expect</code> hacks.</li>
+<li>I want my SSH sessions to be organised in a hierarchical manner with groups representing various administrative domains - customer A, local VMs, lab.</li>
+</ul>
+
+
+<p>Although GNOME terminal looked like a very good option, it didn&rsquo;t meet all of my requirements. I briefly looked and PAC Manager and GNOME Connection Manager but quickly dismissed them due to their ugliness and clunkiness. Ideally I wanted to keep using GNOME terminal as the main terminal emulator, without having to configure and rely on other 3rd party apps. I also didn&rsquo;t want to wrap my SSH session in <code>expect</code> as I didn&rsquo;t want my password to be pasted in my screen every time I <em>cat</em> a file containing the trigger keyword <em>Password:</em>. I&rsquo;ve finally managed to make everything work inside the native GNOME terminal and this post is a documentation of my approach.</p>
+
+<h2>1. Install ssh-copy-net</h2>
+
+<p>I&rsquo;ve written a little <a href="https://github.com/networkop/ssh-copy-net">tool</a> that uses <a href="https://github.com/ktbyers/netmiko">Netmiko</a> to install (and remove) public SSH keys onto network devices. Assuming <code>python-pip</code> is already installed here&rsquo;s what&rsquo;s required to download and install <code>ssh-copy-net</code>:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>pip install git+https://github.com/networkop/ssh-copy-net.git
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Its functionality mimics the one of <code>ssh-copy-id</code>, so the next step is always to upload the public key to the device:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ssh-copy-net 10.6.142.1 juniper
+</span><span class='line'>Username: admin
+</span><span class='line'>Password:
+</span><span class='line'>All Done!
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>2. Define SSH config for network devices</h2>
+
+<p>OpenSSH client <a href="https://linux.die.net/man/5/ssh_config">config file</a> provides a nice way of managing user&rsquo;s SSH sessions. Configuration file allows you to define per-host SSH settings including username, port forwarding options, key checking flags etc. In my case all what I had to do was define IP addresses of my network devices:</p>
+
+<figure class='code'><figcaption><span>/home/null/.ssh/config</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>Host srx
+</span><span class='line'>  HostName 10.6.142.1
+</span><span class='line'>
+</span><span class='line'>Host arista
+</span><span class='line'>  HostName 10.6.142.2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Now I am able to login the device by simply typing its name:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ssh arista
+</span><span class='line'>Last login: Sun May  <span class="m">7</span> 10:57:30 <span class="m">2017</span> from 10.1.2.3
+</span><span class='line'>arista-1&gt;
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>3. Define zsh aliases</h2>
+
+<p>The final step is session organisations. For that I&rsquo;ve decided to use zsh aliases and have device groups encoded in the alias name, separated by dashes. For example, if my SRX device was in the <strong>lab</strong> and Arista was in <strong>Site-51</strong> of <strong>Customer-A</strong> this is how I would write my aliases:</p>
+
+<figure class='code'><figcaption><span>/home/null/.zshrc</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">alias </span>lab-srx<span class="o">=</span><span class="s1">&#39;ssh srx&#39;</span>
+</span><span class='line'><span class="nb">alias </span>customer-a-site-51-arista<span class="o">=</span><span class="s1">&#39;ssh arista&#39;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>4. Multi-pane sessions with tmux</h2>
+
+<p>As a network engineer, I often find myself troubleshooting issues spanning multiple devices, which is why I need multiple tabs inside a single terminal window. Simply pressing Ctrl+T in GNOME terminal opens a new tab and I can switch between tabs using Alt+[1-9]. However what would be really nice is to have a couple of tabs opened side by side so that I can see the logs and compare output on a number of devices at the same time. This is where tmux comes in. It can do much more than this, but I simply use it to have multiple panes inside the same terminal tab:</p>
+
+<p><img class="center" src="http://networkop.github.io/images/tmux.png"></p>
+
+<p>Here&rsquo;s an example of my tmux configuration file:</p>
+
+<figure class='code'><figcaption><span>/home/null/.tmux.conf</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="c"># Automatically set window title</span>
+</span><span class='line'><span class="nb">set</span>-window-option -g automatic-rename on
+</span><span class='line'><span class="nb">set</span>-option -g <span class="nb">set</span>-titles on
+</span><span class='line'>
+</span><span class='line'><span class="c"># Use Alt-arrow keys without prefix key to switch panes</span>
+</span><span class='line'><span class="nb">bind</span> -n M-Left <span class="k">select</span>-pane -L
+</span><span class='line'><span class="nb">bind</span> -n M-Right <span class="k">select</span>-pane -R
+</span><span class='line'><span class="nb">bind</span> -n M-Up <span class="k">select</span>-pane -U
+</span><span class='line'><span class="nb">bind</span> -n M-Down <span class="k">select</span>-pane -D
+</span><span class='line'>
+</span><span class='line'><span class="c"># Pane splitting keys</span>
+</span><span class='line'><span class="nb">bind</span>-key v split-window -h
+</span><span class='line'><span class="nb">bind</span>-key s split-window -v
+</span><span class='line'>
+</span><span class='line'><span class="c"># New key-binding to reset hung SSH sessions</span>
+</span><span class='line'><span class="nb">bind</span>-key k respawn-pane -k
+</span><span class='line'>
+</span><span class='line'><span class="c"># Easy fix for arrow keys inside ssh</span>
+</span><span class='line'><span class="nb">set</span> -g default-terminal <span class="s2">&quot;xterm&quot;</span>
+</span><span class='line'>
+</span><span class='line'><span class="c"># Enable mouse mode (tmux 2.1 and above)</span>
+</span><span class='line'><span class="nb">set</span> -g mouse on
+</span><span class='line'>
+</span><span class='line'><span class="c"># Reload tmux config</span>
+</span><span class='line'><span class="nb">bind </span>r <span class="nb">source</span>-file ~/.tmux.conf
+</span><span class='line'>
+</span><span class='line'><span class="c"># No delay for escape key press</span>
+</span><span class='line'><span class="nb">set</span> -sg escape-time 0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Demo</h2>
+
+<p>Now having all the above defined and with the help of zsh command autocompletion, I can login the device with just a few keypresses (shown in square brackets below):</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>lab  <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>lab-  <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'>lab-srx
+</span><span class='line'><span class="nv">$ </span>lab-  <span class="o">[</span>s<span class="o">][</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>lab-srx  <span class="o">[</span>ENTER<span class="o">]</span>
+</span><span class='line'>--- JUNOS 12.3X48-D30.7 built 2016-04-28 22:37:34 UTC
+</span><span class='line'><span class="o">{</span>primary:node0<span class="o">}</span>
+</span><span class='line'>null@srx&gt;
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Press Ctrl+B v to split the terminal window vertically:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>customer <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>customer- <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'>customer-a-site-51-arista
+</span><span class='line'><span class="nv">$ </span>customer- <span class="o">[</span>a<span class="o">][</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>customer-a-arista <span class="o">[</span>ENTER<span class="o">]</span>
+</span><span class='line'>Last login: Thu May <span class="m">11</span> 15:28:03 <span class="m">2017</span> from 10.1.2.3
+</span><span class='line'>arista-1&gt;
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>An so on and so forth&hellip;</p>
+
+<p><img class="center" src="http://networkop.github.io/images/tmux.gif"></p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices]]></title>
@@ -5749,217 +6079,6 @@ As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all
 <h2>Source code</h2>
 
 <p>All code from this and previous posts is available on <a href="https://github.com/networkop/network-ci/tree/master/acme-large">Github</a></p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Network-CI Part 2 - Small Network Demo]]></title>
-    <link href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/"/>
-    <updated>2016-03-03T00:00:00+00:00</updated>
-    <id>http://networkop.github.io/blog/2016/03/03/network-ci-demo-small</id>
-    <content type="html"><![CDATA[<p>In this post I&rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network topology.</p>
-
-<!--more-->
-
-
-<h2>Demo network overview</h2>
-
-<p>The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.</p>
-
-<p><img class="center" src="http://networkop.github.io/images/ci-acme-small.jpg" title="Small demo topology" ></p>
-
-<p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small">repository</a> and reset it to work with your own Github account using <code>git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br/>
-Local development environment contains the following files describing the modelled topology:</p>
-
-<ol>
-<li>Configuration files for each node under the <code>./config</code> directory</li>
-<li>Network topology in <code>./network/topology.py</code> modelled as a list of pairs of interconnected devices</li>
-<li>UNetLab configuration file containing the IP address and username/passwords to access the server</li>
-<li>Traffic flow test definitions under <code>./network/test</code> directory</li>
-</ol>
-
-
-<h2>Test definitions</h2>
-
-<p>Traffic flow test file contains an ordered set of test scenarios that will be performed automatically. The following is an example that illustrates main capabilities of our test tools:</p>
-
-<figure class='code'><figcaption><span>./network/tests/traffic_flows.txt</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>## Normal operations
-</span><span class='line'>1 Failed None
-</span><span class='line'>  From R1 to R3 via R2 or R4, R3
-</span><span class='line'>  From R2 to R3 via R3
-</span><span class='line'>  From R2 to R4 via R1 or R3
-</span><span class='line'>
-</span><span class='line'># Failed link between R1 and R2
-</span><span class='line'>2 Failed R1 Gig1/1, R2 Gig0/0
-</span><span class='line'>  From R1 to R2 via not R2, R3
-</span><span class='line'>  From R2 to R4 via not R1, R4
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Each scenario starts with a <strong>failure definition</strong>. It could be either <em>None</em>, which represents normal network conditions, or it could contain a list of interfaces that need to be failed. Following the failure definition are the actual tests. On each line we define source, destination and the path we expect the traffic to take. Path definition (everything following the &lsquo;via&rsquo; keyword) contains an ordered set of nodes and can use simple boolean operators like <strong>or</strong> or <strong>not</strong>.</p>
-
-<p>Ping flow definition file is a lot shorter and simply contains a list of source/destination pairs to run a ping test between. All ping tests will execute concurrently and issue only 2 pings, therefore we&rsquo;ll only be able to detect connectivity loss if it lasts for more than 4 seconds.</p>
-
-<h2>Jenkins setup</h2>
-
-<p>In the previous post we&rsquo;ve automatically built a VM with Jenkins and UNetLab pre-installed. Before we can start using Jenkins we need to install a Github plugin, which can be done very easily from Jenkins GUI. Power up your <strong>vm-network-ci</strong> and open Jenkins home page at <code>http://VM_IP:8080</code>. From there navigate to <strong>Manage Jenkins -> Manage Plugins -> Available</strong>, search for and install the <strong>GitHub plugin</strong>.</p>
-
-<h2>A quick Jenkins intro</h2>
-
-<p>Inside Jenkins, <strong>a job</strong> represents a set of tasks that need to be automated for a particular project. Each job first waits for a trigger, which can be either a manual or an automatic event. When triggered, it connects to Github repository, downloads all the code to a local machine and executes a set of build steps defined in this job. A very simple workflow would looks like this:</p>
-
-<ol>
-<li>Developer commits and pushes a change to a Github repository</li>
-<li>Github notifies Jenkins server by sending an HTTP POST request</li>
-<li>Jenkins identifies the job that needs to be run and clones Github repo into a local directory</li>
-<li>It then goes through and executes a set of build steps defined for this job</li>
-<li>At the end you can optionally configure Jenkins to update the status of the build as described <a href="http://stackoverflow.com/questions/14274293/show-current-state-of-jenkins-build-on-github-repo">here</a></li>
-</ol>
-
-
-<h2>Using Jenkins for network testing</h2>
-
-<ol>
-<li>From Jenkins home page click on <strong>create new jobs</strong> and create a <em>Freestyle project</em> called <strong>acme-small</strong>.</li>
-<li>Select the <strong>Github project</strong> option and enter a url of your Github repository (in my case its <a href="https://github.com/networkop/network-ci">https://github.com/networkop/network-ci</a>).</li>
-<li>Under <strong>Source Code Management</strong> select <em>Git</em> and enter the same repository URL.</li>
-<li>Under <strong>Additional Behaviours</strong> add a <em>Polling ignores commits in certain paths</em>. <br/>
-Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to make sure that this job is only triggered if commit affected a particular directory.</li>
-<li>Under <strong>Included Regions</strong> add <code>acme-small/.*</code> to only trigger builds for changes made to <strong>acme-small</strong> directory.</li>
-<li>Optionally you can specify the build triggers to either build periodically or wait for changes to be pushed to Github.</li>
-<li><p>Under <strong>Build</strong> add a new build step with the following shell commands:</p>
-
-<pre><code class="`bash"> export UNL_IP="unl_ip_address"
- export PYTHONUNBUFFERED=1
- cd acme-small
- chmod +x 0_built_topo.py
- chmod +x 2_test.py
- chmod +x 3_destroy_topo.py
- ./0_built_topo.py
- ./2_test.py
- ./3_destroy_topo.py
-</code></pre>
-
-<p>The first two env variables setup the UNL&rsquo;s IP address of and disable IO buffering so that we can see the output produced by our scripts in real time. The remaining steps simply execute the build, test and destroy scripts in order.</p></li>
-<li><p>Save the job and click on the <strong>Build Now</strong> to trigger the build manually.</p></li>
-<li>In the <strong>Build History</strong> pane click on the latest build number (should be #1) and go to <em>Console Output</em>.</li>
-<li>Observe how Jenkins builds, tests and destroys our demo topology</li>
-</ol>
-
-
-<h2>Network upgrade workflow</h2>
-
-<p>Now imagine that a new requirements has come in to make sure that traffic from R1 to R3&rsquo;s Gig0/1 does not traverse R4 and goes via R2 instead, only falling back to R4 when R1-R2 link is down. In the following video I&rsquo;ll show how to use network-ci tools locally to implement and test this traffic engineering requirement.</p>
-
-<div class="embed-video-container"><iframe src="//www.youtube.com/embed/GLOG9KZzP90" allowfullscreen></iframe></div>
-
-
-<h2>Coming up</h2>
-
-<p>In the next post I&rsquo;ll show how to apply the same workflow to automate the build, test and ugprade of a large 14-node topology.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins]]></title>
-    <link href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/"/>
-    <updated>2016-02-25T00:00:00+00:00</updated>
-    <id>http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup</id>
-    <content type="html"><![CDATA[<p>Traditionally, the first post in the series describes how to setup a development environment. This time I&rsquo;ll do it DevOps-style. I&rsquo;ll show how to use Packer to automatically create and configure a VM with UNetLab and Jenkins pre-installed.</p>
-
-<!--more-->
-
-
-<p><img class="center" src="http://networkop.github.io/images/packer-unl-jenkins.png" title="Packer-UNL-Jenkins" ></p>
-
-<h2>Packer intro</h2>
-
-<p><a href="https://www.packer.io/">Packer</a> is a tool that can automatically create virtual machines for different hypervisors and cloud platforms. The goal is to produce identically configured VMs for either VirtualBox, VMWare, Amazon or Google clouds based on a single template file. If you&rsquo;re familiar with <a href="https://www.vagrantup.com/docs/">Vagrant</a>, then you can also use Packer to create custom Vagrant boxes. In our case, however, we&rsquo;re only concerned about VMWare since it&rsquo;s the only <a href="https://en.wikipedia.org/wiki/Hypervisor">type-2 hypervisor</a> that supports nested hardware virtualisation (e.g. Intel VT-x), a feature required by UNetLab to run some of the emulated images.</p>
-
-<p>Packer builds VMs using a special template file. At the very least, this file describes how to:</p>
-
-<ul>
-<li><p>Build a VM</p></li>
-<li><p>Provision and configure apps on a VM</p></li>
-</ul>
-
-
-<p>These two actions correspond to the <code>builders</code> and <code>provisioners</code> sections of the template file.</p>
-
-<p>The <code>builders</code> section contains a set of instructions for a particular hypervisor or platform on how to build a VM. For example, it might contain the amount of  RAM, CPU and disk sizes, number and type of interfaces, OS boot instructions and so on.</p>
-
-<p>The <code>provisioners</code> section contains a set of instructions to configure a VM. This section may be as simple as a list of shell scripts or may include a reference to Ansible playbook which will be executed after the VM is built.</p>
-
-<p>You can find my Packer templates along with Ubuntu preseed and provisioner scripts in my <a href="https://github.com/networkop/packer-unl-jenkins">Gihub repository</a>. For those looking for deeper insights about how to build a packer template I can recommend an official Packer <a href="https://www.packer.io/intro/index.html">introduction docs</a>.</p>
-
-<h2>Building a VM with Packer</h2>
-
-<p>As I&rsquo;ve mentioned previously, I&rsquo;m using Windows as my primary development environment and VMWare Workstation as my hypervisor. Before you begin you also need to have <a href="https://www.packer.io/intro/getting-started/setup.html">Packer</a> and <a href="https://git-scm.com/download/win">git</a> installed.</p>
-
-<figure class='code'><figcaption><span>1. Clone git repository</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='winbatch'><span class='line'>git clone https:<span class="n">//github.com/networkop/packer-unl-jenkins</span>
-</span><span class='line'><span class="k">cd</span> packer-unl-jenkins
-</span></code></pre></td></tr></table></div></figure>
-
-
-
-
-<figure class='code'><figcaption><span>2. Start the build</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='winbatch'><span class='line'>packer build vmware.json
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>With a bit of luck, approximately 30 minutes later you should have a fully configured VM inside your VMWare Workstation waiting to be powered on. These are some of the features of this new VM:</p>
-
-<ul>
-<li>4 GB of RAM, 20GB of disk space, 2 dual-core vCPUs</li>
-<li>1 Host-only and 1 NAT ethernet interfaces both using DHCP</li>
-<li>Jenkins and UNetLab installed</li>
-<li>Git and Python PIP packages installed</li>
-<li>Username/password are <code>unl/admin</code></li>
-</ul>
-
-
-<p>Once powered on, you should be able to navigate to UNetLab&rsquo;s home page at <code>http://vm_ip:80</code> and Jenkins' home page and <code>http://vm_ip:8080</code>, where <code>vm_ip</code> is the IP of your new VM.</p>
-
-<h2>IOU images</h2>
-
-<p>Unfortunately IOU images are not publicly available so you&rsquo;re gonna have to find them yourself, which shouldn&rsquo;t be too hard. You&rsquo;ll also need to generate a license file for these images which, again, I&rsquo;m not going to discuss in this blog, but I can guarantee that you won&rsquo;t have to look farther than the 1st page of Google search to find all your answers. These are the remaining steps that you need to do:</p>
-
-<ol>
-<li>Obtain L2 and L3 IOU images</li>
-<li>Generate a license file</li>
-<li>Follow <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">these instructions</a> to install those images on the UNetLab server</li>
-</ol>
-
-
-<h2>non-DevOps way</h2>
-
-<p>In case you&rsquo;re struggling with Packer here are the list of steps to setup a similar VM manually:</p>
-
-<ol>
-<li><a href="http://www.ubuntu.com/download/server">Download</a> your favourite Ubuntu Server image. Recommended release at the time of writing is 14.04.4.</li>
-<li>Create a VM with at least 4GB of RAM, VT-x support and boot it off the Ubuntu ISO image.</li>
-<li>Following instructions <a href="http://www.unetlab.com/2015/08/installing-unetlab-on-a-physical-server/">install Ubuntu and UNetLab</a>.</li>
-<li>Install Jenkins as described on <a href="https://wiki.jenkins-ci.org/display/JENKINS/Installing+Jenkins+on+Ubuntu">their wiki website</a></li>
-<li>Install additional packages like git and pip. Refer to my Packer <a href="https://github.com/networkop/packer-unl-jenkins/blob/master/scripts/packages.sh">packages script</a> for commands.</li>
-</ol>
-
-
-<h2>Coming up</h2>
-
-<p>In the next post I&rsquo;ll show how to setup Jenkins to do automatic network testing and verification.</p>
 ]]></content>
   </entry>
   
