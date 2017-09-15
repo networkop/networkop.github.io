@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Openstack | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/openstack/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-08T12:17:28+01:00</updated>
+  <updated>2017-09-15T14:25:41+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,246 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - Skydiving Into Service Function Chaining]]></title>
+    <link href="http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/"/>
+    <updated>2017-09-15T00:00:00+01:00</updated>
+    <id>http://networkop.github.io/blog/2017/09/15/os-sfc-skydive</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to configure Neutron&rsquo;s service function chaining,
+troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeline.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p><abbr title="Service Function Chaining">SFC</abbr> is another SDN feature that for a long time only used to be available in proprietary SDN solutions and that has recently become available in vanilla OpenStack. It serves as another proof that proprietary SDN solutions are losing the competitive edge, especially for Telco SDN/NFV use cases. Hopefully, by the end of this series of posts I&rsquo;ll manage do demonstrate how to build a complete open-source solution that has feature parity (in terms of major networking features) with all the major proprietary data centre SDN platforms. But for now, let&rsquo;s just focus on SFC.</p>
+
+<h2>SFC High-level overview</h2>
+
+<p>In most general terms, SFC refers to packet forwarding technique that uses more than just destination IP address to decide how to forward packets. In more specific terms, SFC refers to &ldquo;steering&rdquo; of traffic through a specific set of endpoints (a.k.a Service Functions), overriding the default destination-based forwarding. For those coming from a traditional networking background, think of SFC as a set of policy-based routing instances orchestrated from a central element (SDN controller). Typical use cases for SFC would be things like firewalling, IDS/IPS, proxying, NAT'ing, monitoring.</p>
+
+<p>SFC is usually modelled as a directed (acyclic) graph, where the first and the last elements are the source and destination respectively and each vertex inside the graph represents a SF to be chained. IETF RFC7665 defines the reference architecture for SFC implementations and establishes some of the basic terminology. A simplified SFC architecture consists of the following main components:</p>
+
+<ul>
+<li>Classifier - a network element that matches and redirects traffic flows to a chain</li>
+<li>Service Function - an element responsible for packet processing</li>
+<li>Service Function Forwarder - a network element that forwards traffic to and from a directly connected SF</li>
+</ul>
+
+
+<p><img class="center" src="/images/sfc-overview.png"></p>
+
+<p>One important property of a SF is elasticity. More instances of the same type can be added to a pool of SF and SFF will load-balance the traffic between them. This is the reason why, as we&rsquo;ll see in the next section, SFF treats connections to a SF as a group of ports rather than just a single port.</p>
+
+<h2>Configuring Neutron SFC</h2>
+
+<p> We&rsquo;ll pick up where we left off in the <a href="/blog/2017/09/08/os-lab-docker/">previous post</a>. All Neutron and ML2 configuration files have already been updated thanks to the <code>enable_sfc="yes"</code> setting in the global Kolla-Ansible configuration file. If not, you can change it in <code>/etc/kolla/globals.yaml</code> and re-run kolla-ansible deployment script.</p>
+
+<p> First, let&rsquo;s generate OpenStack credentials using a post-deployment script. We later can use a default bootstrap script to downloads the cirros image and set up some basic networking and security rules.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>kolla-ansible post-deploy
+</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'>/usr/share/kolla-ansible/init-runonce
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The goal for this post is to create a simple uni-directional SFC to steer the ICMP requests from VM1 to its default gateway through another VM that will be playing the role of a firewall.</p>
+
+<p><img class="center" src="/images/sfc-example.png"></p>
+
+<p>The network was already created by the bootstrap script so all what we have to do is create a test VM. I&rsquo;m creating a port in a separate step simply so that I can refer to it by name instead of UUID.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P0
+</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>port P0 VM1
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>I&rsquo;ll go over all the necessary steps to setup SFC, but will only provide a brief explanation. Refer to the official OpenStack <a href="https://docs.openstack.org/newton/networking-guide/config-sfc.html">Networking Guide</a> for a complete SFC configuration guide.</p>
+
+<p>First, let&rsquo;s create a FW VM with two ports - P1 and P2.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P1
+</span><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P2
+</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>port P1 <span class="p">&amp;</span>ndash<span class="p">;</span>port P2 FW
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Next, we need create an ingress/egress port pair and assign it to a port pair group.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port pair create <span class="p">&amp;</span>ndash<span class="p">;</span>ingress P1 <span class="p">&amp;</span>ndash<span class="p">;</span>egress P2 PPAIR
+</span><span class='line'>openstack sfc port pair group create <span class="p">&amp;</span>ndash<span class="p">;</span>port-pair PPAIR PPGROUP
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Finally, we can create a flow classifier for ICMP traffic coming from VM1&rsquo;s port P0 and tie it together with a previously created port pair group.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc flow classifier create <span class="p">&amp;</span>ndash<span class="p">;</span>protocol icmp <span class="p">&amp;</span>ndash<span class="p">;</span>logical-source-port P0 FLOW-ICMP
+</span><span class='line'>openstack sfc port chain create <span class="p">&amp;</span>ndash<span class="p">;</span>port-pair-group PPGROUP <span class="p">&amp;</span>ndash<span class="p">;</span>flow-classifier FLOW-ICMP PCHAIN
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>That&rsquo;s all the configuration needed to setup SFC. However if you login VM1&rsquo;s console and try pinging default gateway, it will fail. Next, I&rsquo;m going to give a quick demo of how to use a real-time network analyzer tool called Skydive to troubleshoot this issue.</p>
+
+<h2>Using Skydive to troubleshoot SFC</h2>
+
+<p><a href="https://skydive-project.github.io/skydive/">Skydive</a> is a new open-source distributed network probing and traffic analyzing tool. It consists of a set of agents running on compute nodes, collecting topology and flow information and forwarding it to a central element for analysis.</p>
+
+<p>The idea of using Skydive to analyze and track SFC is not new. In fact, for anyone interested in this topic I highly recommend the <a href="http://blog.cafarelli.fr/2017/02/tracking-service-function-chaining-with-skydive/">following blogpost</a>. In my case I&rsquo;ll show how to use Skydive from a more practical perspective - troubleshooting multiple SFC issues.</p>
+
+<p>Skydive CLI client is available inside the <code>skydive_analyzer</code> container. We need to start an interactive bash session inside this container and set some environment variables:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>docker <span class="nb">exec</span> -it skydive_analyzer bash
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_ANALYZERS</span><span class="o">=</span>192.168.133.100:8085
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_USERNAME</span><span class="o">=</span>admin
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_PASSWORD</span><span class="o">=</span>admin
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The first thing we can do to troubleshoot is see if ICMP traffic is entering the <code>ingress</code> port of the FW VM. Based on the output of <code>openstack port list</code> command I know that P1 has got an IP of <code>10.0.0.8</code>. Let&rsquo;s if we can identify a tap port corresponding to P1:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>IPs<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>NetworkID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>8eabb451-b026-417c-b54b-8e79ee6e71c3<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>NetworkName<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>demo-net<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>PortID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>e6334df9-a5c4-4e86-a5f3-671760c2bbbe<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>TenantID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>bd5829e0cb5b40b68ab4f8e7dc68b14d<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The output above proves that skydive agent has successfully read the configuration of the port and we can start a capture on that object to see any packets arriving on P1.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>If you <code>watch</code> the last command for several seconds you should see that the number in brackets is increasing. That means that packets are hitting the ingress port of the FW VM. Now let&rsquo;s repeat the same test on <code>egress</code> port P2.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The output above tells us that there are no packets coming out of the FW VM. This is expected since we haven&rsquo;t done any changes to the blank cirros image to make it forward the packets between the two interfaces. If we examine the IP configuration of the FW VM, we would see that it doesn&rsquo;t have an IP address configured on the second interface. We would also need to create a source-based routing policy to force all traffic from VM1 (<code>10.0.0.6</code>) to egress via interface <code>eth2</code> and make sure IP forwarding is turned on. The following commands would need to be executed on FW VM:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo cirros-dhcpc up eth1
+</span><span class='line'>sudo ip rule add from 10.0.0.6 table default
+</span><span class='line'>sudo ip route add default via 10.0.0.1 dev eth1 table default
+</span><span class='line'>sudo sysctl -w net.ipv4.ip_forward<span class="o">=</span>1
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Having done that, we should see some packets coming out of <code>egress</code> port P2.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>However form the VM1&rsquo;s perspective the ping is still failing. Next step would be to see if the packets are hitting the integration bridge that port P2 is attached to:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>No packets means they are getting dropped somewhere between the P2 and the integration bridge. This can only be done by security groups. In fact, source MAC/IP anti-spoofing is enabled by default which would only allow packets matching the source MAC/IP addresses assigned to P2 and would drop any packets coming from VM1&rsquo;s IP address. The easiest fix would be to disable security groups for P2 completely:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port <span class="nb">set</span> <span class="p">&amp;</span>ndash<span class="p">;</span>no-security-group <span class="p">&amp;</span>ndash<span class="p">;</span>disable-port-security P2
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>After this step the counters should start incrementing and the ping from VM1 to its default gateway is resumed.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  79
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>SFC implementation in OVS forwarding pipeline</h2>
+
+<p>There are several ways to implement SFC, each unique to its own domain. In service provider WAN it can be accomplished by Segment Routing, in DC underlay it can be done with PBR policies. When it comes to OVS there are two major implementations. One approach, implemented in Opendaylight, uses Network Service Header (NSH) as a shim between VXLAN-GPE and the encapsulated packet. The benefit of this approach is that each SF, as well as the sender, can read and write NSH&rsquo;s metadata, making the service function path more transparent. Another approach, currently implemented in ML2&rsquo;s OVS-agent, is based on MPLS header. The only element being affected in this case is the integration bridge. Refer to my <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">older post</a> about vanilla OpenStack networking for a refresher of the vanilla OVS-agent architecture.</p>
+
+<p>Normally, I would start by collecting all port and flow details from the integration bridge with the following commands:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl dump-ports-desc br-int  <span class="p">|</span> grep addr
+</span><span class='line'>ovs-ofctl dump-flows br-int <span class="p">|</span> cut -d <span class="p">&amp;</span>lsquo<span class="p">;</span>,<span class="p">&amp;</span>rsquo<span class="p">;</span> -f3-
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>However, for the sake of brevity, I will omit the actual outputs and only show graphical representation of forwarding tables and packet flows. The tables below have two columns - first showing what is being matched and second showing the resulting action. Let&rsquo;s start with the OpenFlow rules in an integration bridge before SFC is configured:</p>
+
+<p><img class="center" src="/images/sfc-before-tables.png"></p>
+
+<p>As we can see, the table structure is quite simple, since integration bridge mostly relies on data-plane MAC learning. A couple of MAC and ARP anti-spoofing tables will check the validity of a packet and send it to table 60 where <code>NORMAL</code> action will trigger the &ldquo;flood-and-learn&rdquo; behaviour. Therefore, an ICMP packet coming from VM1 will take the following path:</p>
+
+<p><img class="center" src="/images/sfc-before-packet.png"></p>
+
+<p>After we&rsquo;ve configured SFC, the forwarding pipeline is changed and now looks like this:</p>
+
+<p><img class="center" src="/images/sfc-after-tables.png"></p>
+
+<p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. This is where SF scale-out that I mentioned earlier is implemented. In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5.</p>
+
+<p>Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the next SF in the chain. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to all SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
+
+<p><img class="center" src="/images/sfc-after-packet.png"></p>
+
+<p>After being processed by a SF, the packet leaves the <code>egress</code> port and re-enters the integration bridge. This time table 0 knows that the packet has already been processed by a SF and, since the anti-spoofing rules have been disabled, simply floods the packet out of all ports in the same VLAN. The packet gets flooded to the tunnel bridge where it gets replicated and delivered to the <code>qrouter</code> sitting on the controller node as per the <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">default behaviour</a>.</p>
+
+<h2>Coming Up</h2>
+
+<p>SFC is one of the major features in Telco SDN and, like many things, it&rsquo;s not meant to be configured manually. In fact, Telco SDN have their own framework for management and orchestration of VNFs (a.k.a. VMs) and VNF forwarding graphs (a.k.a. SFCs) called ETSI MANO. As it is expected from a Telco standard, it abounds with acronyms and confuses the hell out of anyone who&rsquo;s name is not on the list of authors or contributors. That&rsquo;s why in the next post I will try to provide a brief overview of what Telco SDN is and use Tacker, a software implementation of NFVO and VNFM, to automatically build a firewall VNF and provision a SFC, similar to what has been done in this post manually.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack SDN - Building a Containerized OpenStack Lab]]></title>
@@ -1262,135 +1502,6 @@ OpenFlow actions=pop_vlan,NORMAL
 
 
 <p>However the main issue still remains unresolved. Every North-South packet has to hop several times between the global and DVR/FIP/NAT namespaces. These kind of operations are very expensive in terms of consumed CPU and memory resources and can be very detrimental to network performance. Using namespaces may be the most straight-forward and non-disruptive way of implementing DVR, however it&rsquo;s definitely not the most optimal. Ideally we&rsquo;d like to see both L2 and L3 pipelines implemented in OpenvSwitch tables. This way all packets can benefit from OVS <a href="https://networkheresy.com/2014/11/13/accelerating-open-vswitch-to-ludicrous-speed/">fast-path flow caching</a>. But fear not, the solution to this already exists in a shape of <a href="https://www.openstack.org/summit/vancouver-2015/summit-videos/presentation/ovn-native-virtual-networking-for-open-vswitch">Open Virtual Network</a>. OVN is a project spawned from the OVS and aims to <a href="https://blog.russellbryant.net/2016/09/29/ovs-2-6-and-the-first-release-of-ovn/">address</a> a number of shortcomings existing in current implementations of virtual networks.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Automating the Build of OpenStack Lab (Part 2)]]></title>
-    <link href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/"/>
-    <updated>2016-09-09T00:00:00+01:00</updated>
-    <id>http://networkop.github.io/blog/2016/09/09/os-lab-p2</id>
-    <content type="html"><![CDATA[<p>In this post we&rsquo;ll use Chef, unnumbered BGP and Cumulus VX to build a massively scalable &ldquo;Lapukhov&rdquo; Leaf-Spine data centre.</p>
-
-<!--more-->
-
-
-<hr />
-
-<p>In the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">last post</a> we&rsquo;ve seen how to use Chef to automate the build of a 3-node OpenStack cloud. The only thing remaining is to build an underlay network supporting communication between the nodes, which is what we&rsquo;re going to do next. The build process will, again, be relatively simple and will include only a few manual steps, but before we get there let me go over some of the decisions and assumptions I&rsquo;ve made in my network design.</p>
-
-<h2>High-level design</h2>
-
-<p>The need to provide more bandwidth for East-West traffic has made the Clos Leaf-Spine architecture a de facto standard in any data centre network design. The use of virtual overlay networks has obviated the requirement to have a strict VLAN and IP numbering schemes in the underlay. The only requirement for the compute nodes now is to have any-to-any layer 3 connectivity. This is how the underlay network design has converged to a Layer 3 Leaf-Spine architecture.<br/>
-The choice of a routing protocol is not so straight-forward. My fellow countryman Petr Lapukhov and co-authors of <a href="https://tools.ietf.org/html/draft-ietf-rtgwg-bgp-routi3ng-large-dc-11">RFC draft</a> claim that having a single routing protocol in your WAN and DC reduces complexity and makes interoperability and operations a lot easier. This draft presents some of the design principles that can be used to build a L3 data centre with BGP as the only routing protocol. In our lab we&rsquo;re going to implement a single &ldquo;cluster&rdquo; of the multi-tier topology proposed in that RFC.</p>
-
-<p><img class="center" src="/images/os-lab-chef-full.png"></p>
-
-<p>In order to help us build this in an automated and scalable way, we&rsquo;re going to use a relatively new feature called <strong>unnumbered BGP</strong>.</p>
-
-<h2>Unnumbered BGP as a replacement for IGP</h2>
-
-<p>As we all know, one of the main advantages of interior gateway protocols is the automatic discovery of adjacent routers which is accomplished with the help of link-local multicasts. On the other hand, BGP traditionally required you to explicitly define neighbor&rsquo;s IP address in order to establish a peering relationship with it. This is where IPv6 comes to the rescue. With the help of neighbor discovery protocol and router advertisement messages, it becomes possible to accurately determine the address of the peer BGP router on an intra-fabric link. The only question is how we would exchange IPv4 information over and IPv6-only BGP network.<br/>
-<a href="https://tools.ietf.org/html/rfc5549">RFC 5549</a>, described an &ldquo;extended nexthop encoding capability&rdquo; which allows BGP to exchange routing updates with nexthops that don&rsquo;t belong to the address family of the advertised prefix. In plain English it means that BGP is now capable of advertising an IPV4 prefix with an IPv6 nexthop. This makes it possible to configure all transit links inside the Clos fabric with IPv6 link-local addresses and still maintain reachability between the edge IPv4 host networks. Since nexthop IPs will get updated at every hop, there is no need for an underlying IGP to distribute them between all BGP routers. What we see is, effectively, BGP <strong>absorbing</strong> the functions of an IGP protocol inside the data centre.</p>
-
-<h2>Configuration example on Cumulus VX</h2>
-
-<p>In order to implement BGP unnumbered on Cumulus Linux all you need to is:</p>
-
-<ol>
-<li>Enable IPv6 router advertisements on all transit links</li>
-<li>Enable BGP on the same interfaces</li>
-</ol>
-
-
-<p>Example Quagga configuration snippet will look like this:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface swp1
-</span><span class='line'>  ipv6 nd ra-interval 5
-</span><span class='line'>  no ipv6 nd suppress-ra&lt;/p&gt;
-</span><span class='line'>
-</span><span class='line'>&lt;p&gt;rouer bgp &lt;ASN&gt;
-</span><span class='line'>  neighbor swp1 interface
-</span><span class='line'>  neighbor swp1 external
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>As you can see, Cumulus simplifies it even more by allowing you to only specify the BGP peering type (external/internal) and learning the value of peer BGP AS dynamically from a neighbor.</p>
-
-<h2>Design assumptions and caveats</h2>
-
-<p>With all the above in mind, this is the list of decisions I&rsquo;ve made while building the fabric configuration:</p>
-
-<ul>
-<li>All switches inside the fabric will be running BGP peerings using <strong>IPv6 link-local</strong> addresses</li>
-<li><strong>eBGP</strong> will be used throughout to simplify configuration automation (all peers will be external)</li>
-<li>Each Leaf/Spine switch will have a <strong>unique IPv4 loopback</strong> address assigned for management purposes (ICMP, SSH)</li>
-<li>On each Leaf switch <strong>all directly connected IPv4</strong> prefixes will get redistributed into BGP</li>
-<li>BGP multipath rule will be &ldquo;relaxed&rdquo; to allow for different AS-PATHs. This is not used in our current topology but is required in an HA Leaf switch design (same IPv4 prefix will be advertised from two Leaf switches with different ASN)</li>
-<li>Loop prevention on Leaf switches will also be &ldquo;relaxed&rdquo;. This, again, is not used in our single &ldquo;cluster&rdquo; topology, however it will allow same Leaf ASNs to be reused in a different cluster.</li>
-</ul>
-
-
-<h2>Implementation steps</h2>
-
-<p>Picking up where we left off after the OpenStack node provisioning described in the <a href="http://networkop.github.io/blog/2016/08/26/os-lab-p1/">previous post</a></p>
-
-<ol>
-<li><p>Get the latest <a href="https://github.com/networkop/chef-unl-os">OpenStack lab cookbooks</a></p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
-</span><span class='line'> <span class="nb">cd </span>chef-unl-os
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p><a href="https://cumulusnetworks.com/cumulus-vx/">Download</a> and import Cumulus VX image similar to how it&rsquo;s described <a href="http://www.unetlab.com/2015/06/adding-cisco-asav-images/">here</a>.</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> /opt/unetlab/addons/qemu/cumulus-vx/hda.qcow2
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Build the topology inside UNL. Make sure that Node IDs inside UNL match the ones in <strong>chef-unl-os/environment/lab.rb</strong> file and that interfaces are connected as shown in the diagram below</p>
-
-<p> <img class="center" src="/images/os-lab-unl.png"></p></li>
-<li><p>Re-run UNL self-provisioning cookbook to create a <a href="https://github.com/networkop/chef-unl-os/blob/master/cookbooks/pxe/templates/ztp.erb">zero touch provisioning</a> file and update DHCP server configuration with static entries for the switches.</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> chef-client -z -E lab -o pxe
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> Cumulus <a href="https://docs.cumulusnetworks.com/display/DOCS/Zero+Touch+Provisioning+-+ZTP">ZTP</a> allows you to run a predefined script on the first boot of the operating system. In our case we inject a UNL VM&rsquo;s public key and enable passwordless <strong>sudo</strong> for cumulus user.</p></li>
-<li><p>Kickoff Chef provisioning to bootstrap and configure the DC fabric.</p>
-
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> chef-client -z -E lab fabric.rb
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> This command instructs Chef provisioning to connect to each switch, download and install the Chef client and run a simple recipe to create quagga configuration file from a template.</p></li>
-</ol>
-
-
-<p>At the end of step 5 we should have a fully functional BGP-only fabric and all 3 compute nodes should be able to reach each other in at most 4 hops.</p>
-
-<p><code>bash [root@controller-1 ~]# traceroute 10.0.0.4
-traceroute to 10.0.0.4 (10.0.0.4), 30 hops max, 60 byte packets
- 1  10.0.0.1 (10.0.0.1)  0.609 ms  0.589 ms  0.836 ms
- 2  10.255.255.7 (10.255.255.7)  0.875 ms  2.957 ms  3.083 ms
- 3  10.255.255.6 (10.255.255.6)  3.473 ms  5.486 ms  3.147 ms
- 4  10.0.0.4 (10.0.0.4)  4.231 ms  4.159 ms  4.115 ms
-</code></p>
 ]]></content>
   </entry>
   

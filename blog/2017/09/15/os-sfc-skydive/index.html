@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Openstack SDN - Skydiving Into Service Function Chaining - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="Configuring, Troubleshooting and Exploring Neutron's SFC">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/">
+  <meta property="og:title" content="Openstack SDN - Skydiving Into Service Function Chaining - Network-oriented programming">
+  <meta property="og:description" content="Configuring, Troubleshooting and Exploring Neutron's SFC">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/automation/index.html">Network Automation</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/sdn/index.html">SDN</a>
+                </li>
+                <li>
+                    <a href="/blog/archives">Archives</a>
+                </li>
+				<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-09-15T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">15/09/2017</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Openstack SDN - Skydiving Into Service Function Chaining
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll show how to configure Neutron&rsquo;s service function chaining,
+troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeline.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p><abbr title="Service Function Chaining">SFC</abbr> is another SDN feature that for a long time only used to be available in proprietary SDN solutions and that has recently become available in vanilla OpenStack. It serves as another proof that proprietary SDN solutions are losing the competitive edge, especially for Telco SDN/NFV use cases. Hopefully, by the end of this series of posts I&rsquo;ll manage do demonstrate how to build a complete open-source solution that has feature parity (in terms of major networking features) with all the major proprietary data centre SDN platforms. But for now, let&rsquo;s just focus on SFC.</p>
+
+<h2>SFC High-level overview</h2>
+
+<p>In most general terms, SFC refers to packet forwarding technique that uses more than just destination IP address to decide how to forward packets. In more specific terms, SFC refers to &ldquo;steering&rdquo; of traffic through a specific set of endpoints (a.k.a Service Functions), overriding the default destination-based forwarding. For those coming from a traditional networking background, think of SFC as a set of policy-based routing instances orchestrated from a central element (SDN controller). Typical use cases for SFC would be things like firewalling, IDS/IPS, proxying, NAT'ing, monitoring.</p>
+
+<p>SFC is usually modelled as a directed (acyclic) graph, where the first and the last elements are the source and destination respectively and each vertex inside the graph represents a SF to be chained. IETF RFC7665 defines the reference architecture for SFC implementations and establishes some of the basic terminology. A simplified SFC architecture consists of the following main components:</p>
+
+<ul>
+<li>Classifier - a network element that matches and redirects traffic flows to a chain</li>
+<li>Service Function - an element responsible for packet processing</li>
+<li>Service Function Forwarder - a network element that forwards traffic to and from a directly connected SF</li>
+</ul>
+
+
+<p><img class="center" src="/images/sfc-overview.png"></p>
+
+<p>One important property of a SF is elasticity. More instances of the same type can be added to a pool of SF and SFF will load-balance the traffic between them. This is the reason why, as we&rsquo;ll see in the next section, SFF treats connections to a SF as a group of ports rather than just a single port.</p>
+
+<h2>Configuring Neutron SFC</h2>
+
+<p> We&rsquo;ll pick up where we left off in the <a href="/blog/2017/09/08/os-lab-docker/">previous post</a>. All Neutron and ML2 configuration files have already been updated thanks to the <code>enable_sfc="yes"</code> setting in the global Kolla-Ansible configuration file. If not, you can change it in <code>/etc/kolla/globals.yaml</code> and re-run kolla-ansible deployment script.</p>
+
+<p> First, let&rsquo;s generate OpenStack credentials using a post-deployment script. We later can use a default bootstrap script to downloads the cirros image and set up some basic networking and security rules.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>kolla-ansible post-deploy
+</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'>/usr/share/kolla-ansible/init-runonce
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The goal for this post is to create a simple uni-directional SFC to steer the ICMP requests from VM1 to its default gateway through another VM that will be playing the role of a firewall.</p>
+
+<p><img class="center" src="/images/sfc-example.png"></p>
+
+<p>The network was already created by the bootstrap script so all what we have to do is create a test VM. I&rsquo;m creating a port in a separate step simply so that I can refer to it by name instead of UUID.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create --network demo-net P0
+</span><span class='line'>openstack server create --image cirros --flavor m1.tiny --port P0 VM1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>I&rsquo;ll go over all the necessary steps to setup SFC, but will only provide a brief explanation. Refer to the official OpenStack <a href="https://docs.openstack.org/newton/networking-guide/config-sfc.html">Networking Guide</a> for a complete SFC configuration guide.</p>
+
+<p>First, let&rsquo;s create a FW VM with two ports - P1 and P2.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create --network demo-net P1
+</span><span class='line'>openstack port create --network demo-net P2
+</span><span class='line'>openstack server create --image cirros --flavor m1.tiny --port P1 --port P2 FW
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Next, we need create an ingress/egress port pair and assign it to a port pair group.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port pair create --ingress P1 --egress P2 PPAIR
+</span><span class='line'>openstack sfc port pair group create --port-pair PPAIR PPGROUP
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Finally, we can create a flow classifier for ICMP traffic coming from VM1&rsquo;s port P0 and tie it together with a previously created port pair group.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc flow classifier create --protocol icmp --logical-source-port P0 FLOW-ICMP
+</span><span class='line'>openstack sfc port chain create --port-pair-group PPGROUP --flow-classifier FLOW-ICMP PCHAIN
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>That&rsquo;s all the configuration needed to setup SFC. However if you login VM1&rsquo;s console and try pinging default gateway, it will fail. Next, I&rsquo;m going to give a quick demo of how to use a real-time network analyzer tool called Skydive to troubleshoot this issue.</p>
+
+<h2>Using Skydive to troubleshoot SFC</h2>
+
+<p><a href="https://skydive-project.github.io/skydive/">Skydive</a> is a new open-source distributed network probing and traffic analyzing tool. It consists of a set of agents running on compute nodes, collecting topology and flow information and forwarding it to a central element for analysis.</p>
+
+<p>The idea of using Skydive to analyze and track SFC is not new. In fact, for anyone interested in this topic I highly recommend the <a href="http://blog.cafarelli.fr/2017/02/tracking-service-function-chaining-with-skydive/">following blogpost</a>. In my case I&rsquo;ll show how to use Skydive from a more practical perspective - troubleshooting multiple SFC issues.</p>
+
+<p>Skydive CLI client is available inside the <code>skydive_analyzer</code> container. We need to start an interactive bash session inside this container and set some environment variables:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>docker <span class="nb">exec</span> -it skydive_analyzer bash
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_ANALYZERS</span><span class="o">=</span>192.168.133.100:8085
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_USERNAME</span><span class="o">=</span>admin
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_PASSWORD</span><span class="o">=</span>admin
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The first thing we can do to troubleshoot is see if ICMP traffic is entering the <code>ingress</code> port of the FW VM. Based on the output of <code>openstack port list</code> command I know that P1 has got an IP of <code>10.0.0.8</code>. Let&rsquo;s if we can identify a tap port corresponding to P1:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;).Values(&#39;Neutron&#39;)&quot;</span>
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>  <span class="s2">&quot;IPs&quot;</span>: <span class="s2">&quot;10.0.0.8&quot;</span>,
+</span><span class='line'>  <span class="s2">&quot;NetworkID&quot;</span>: <span class="s2">&quot;8eabb451-b026-417c-b54b-8e79ee6e71c3&quot;</span>,
+</span><span class='line'>  <span class="s2">&quot;NetworkName&quot;</span>: <span class="s2">&quot;demo-net&quot;</span>,
+</span><span class='line'>  <span class="s2">&quot;PortID&quot;</span>: <span class="s2">&quot;e6334df9-a5c4-4e86-a5f3-671760c2bbbe&quot;</span>,
+</span><span class='line'>  <span class="s2">&quot;TenantID&quot;</span>: <span class="s2">&quot;bd5829e0cb5b40b68ab4f8e7dc68b14d&quot;</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The output above proves that skydive agent has successfully read the configuration of the port and we can start a capture on that object to see any packets arriving on P1.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;)&quot;</span>
+</span><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&quot;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>If you <code>watch</code> the last command for several seconds you should see that the number in brackets is increasing. That means that packets are hitting the ingress port of the FW VM. Now let&rsquo;s repeat the same test on <code>egress</code> port P2.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;)&quot;</span>
+</span><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows()&quot;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The output above tells us that there are no packets coming out of the FW VM. This is expected since we haven&rsquo;t done any changes to the blank cirros image to make it forward the packets between the two interfaces. If we examine the IP configuration of the FW VM, we would see that it doesn&rsquo;t have an IP address configured on the second interface. We would also need to create a source-based routing policy to force all traffic from VM1 (<code>10.0.0.6</code>) to egress via interface <code>eth2</code> and make sure IP forwarding is turned on. The following commands would need to be executed on FW VM:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo cirros-dhcpc up eth1
+</span><span class='line'>sudo ip rule add from 10.0.0.6 table default
+</span><span class='line'>sudo ip route add default via 10.0.0.1 dev eth1 table default
+</span><span class='line'>sudo sysctl -w net.ipv4.ip_forward<span class="o">=</span>1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Having done that, we should see some packets coming out of <code>egress</code> port P2.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&quot;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>However form the VM1&rsquo;s perspective the ping is still failing. Next step would be to see if the packets are hitting the integration bridge that port P2 is attached to:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;)&quot;</span>
+</span><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;).Flows()&quot;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>No packets means they are getting dropped somewhere between the P2 and the integration bridge. This can only be done by security groups. In fact, source MAC/IP anti-spoofing is enabled by default which would only allow packets matching the source MAC/IP addresses assigned to P2 and would drop any packets coming from VM1&rsquo;s IP address. The easiest fix would be to disable security groups for P2 completely:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port <span class="nb">set</span> --no-security-group --disable-port-security P2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>After this step the counters should start incrementing and the ping from VM1 to its default gateway is resumed.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&quot;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  79
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>SFC implementation in OVS forwarding pipeline</h2>
+
+<p>There are several ways to implement SFC, each unique to its own domain. In service provider WAN it can be accomplished by Segment Routing, in DC underlay it can be done with PBR policies. When it comes to OVS there are two major implementations. One approach, implemented in Opendaylight, uses Network Service Header (NSH) as a shim between VXLAN-GPE and the encapsulated packet. The benefit of this approach is that each SF, as well as the sender, can read and write NSH&rsquo;s metadata, making the service function path more transparent. Another approach, currently implemented in ML2&rsquo;s OVS-agent, is based on MPLS header. The only element being affected in this case is the integration bridge. Refer to my <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">older post</a> about vanilla OpenStack networking for a refresher of the vanilla OVS-agent architecture.</p>
+
+<p>Normally, I would start by collecting all port and flow details from the integration bridge with the following commands:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl dump-ports-desc br-int  <span class="p">|</span> grep addr
+</span><span class='line'>ovs-ofctl dump-flows br-int <span class="p">|</span> cut -d <span class="s1">&#39;,&#39;</span> -f3-
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>However, for the sake of brevity, I will omit the actual outputs and only show graphical representation of forwarding tables and packet flows. The tables below have two columns - first showing what is being matched and second showing the resulting action. Let&rsquo;s start with the OpenFlow rules in an integration bridge before SFC is configured:</p>
+
+<p><img class="center" src="/images/sfc-before-tables.png"></p>
+
+<p>As we can see, the table structure is quite simple, since integration bridge mostly relies on data-plane MAC learning. A couple of MAC and ARP anti-spoofing tables will check the validity of a packet and send it to table 60 where <code>NORMAL</code> action will trigger the &ldquo;flood-and-learn&rdquo; behaviour. Therefore, an ICMP packet coming from VM1 will take the following path:</p>
+
+<p><img class="center" src="/images/sfc-before-packet.png"></p>
+
+<p>After we&rsquo;ve configured SFC, the forwarding pipeline is changed and now looks like this:</p>
+
+<p><img class="center" src="/images/sfc-after-tables.png"></p>
+
+<p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. This is where SF scale-out that I mentioned earlier is implemented. In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5.</p>
+
+<p>Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the next SF in the chain. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to all SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
+
+<p><img class="center" src="/images/sfc-after-packet.png"></p>
+
+<p>After being processed by a SF, the packet leaves the <code>egress</code> port and re-enters the integration bridge. This time table 0 knows that the packet has already been processed by a SF and, since the anti-spoofing rules have been disabled, simply floods the packet out of all ports in the same VLAN. The packet gets flooded to the tunnel bridge where it gets replicated and delivered to the <code>qrouter</code> sitting on the controller node as per the <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">default behaviour</a>.</p>
+
+<h2>Coming Up</h2>
+
+<p>SFC is one of the major features in Telco SDN and, like many things, it&rsquo;s not meant to be configured manually. In fact, Telco SDN have their own framework for management and orchestration of VNFs (a.k.a. VMs) and VNF forwarding graphs (a.k.a. SFCs) called ETSI MANO. As it is expected from a Telco standard, it abounds with acronyms and confuses the hell out of anyone who&rsquo;s name is not on the list of authors or contributors. That&rsquo;s why in the next post I will try to provide a brief overview of what Telco SDN is and use Tacker, a software implementation of NFVO and VNFM, to automatically build a firewall VNF and provision a SFC, similar to what has been done in this post manually.</p>
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-09-15T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">15/09/2017</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/" data-via="" data-counturl="http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+	
+	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/" data-counter="right"></script>
+	
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2017/09/08/os-lab-docker/" title="Previous Post: Openstack SDN - Building a Containerized OpenStack Lab">&laquo; Openstack SDN - Building a Containerized OpenStack Lab</a></li>
+            
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item active" href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
+    
+    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
+    
+    <a class="list-group-item " href="/blog/2017/05/12/linux-ssh/">Linux SSH Session Management for Network Engineers</a>
+    
+    <a class="list-group-item " href="/blog/2017/04/04/ansible-yang/">Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices</a>
+    
+    <a class="list-group-item " href="/blog/2017/03/13/yaml-yang/">Configuring Cisco IOS XE With YANG-based YAML Files</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/automation/index.html">
+        <span class="badge">18</span>
+        automation
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/openstack/index.html">
+        <span class="badge">13</span>
+        openstack
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/sdn/index.html">
+        <span class="badge">12</span>
+        sdn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/network/index.html">
+        <span class="badge">11</span>
+        network
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">6</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">6</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/yang/index.html">
+        <span class="badge">4</span>
+        yang
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/devops/index.html">
+        <span class="badge">4</span>
+        devops
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/rest/index.html">
+        <span class="badge">4</span>
+        rest
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/cisco/index.html">
+        <span class="badge">4</span>
+        cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/restconf/index.html">
+        <span class="badge">2</span>
+        restconf
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ovn/index.html">
+        <span class="badge">2</span>
+        ovn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/howto/index.html">
+        <span class="badge">2</span>
+        howto
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">2</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">2</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">2</span>
+        routing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/odl/index.html">
+        <span class="badge">1</span>
+        odl
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/netconf/index.html">
+        <span class="badge">1</span>
+        netconf
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
+        <span class="badge">1</span>
+        pycharm
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/git/index.html">
+        <span class="badge">1</span>
+        git
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
+        <span class="badge">1</span>
+        syncthing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2017 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/';
+        var disqus_url = 'http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>

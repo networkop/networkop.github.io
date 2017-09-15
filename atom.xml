@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-08T12:17:28+01:00</updated>
+  <updated>2017-09-15T14:25:41+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,261 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - Skydiving Into Service Function Chaining]]></title>
+    <link href="http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/"/>
+    <updated>2017-09-15T00:00:00+01:00</updated>
+    <id>http://networkop.github.io/blog/2017/09/15/os-sfc-skydive</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to configure Neutron&rsquo;s service function chaining,
+troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeline.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p><abbr title="Service Function Chaining">SFC</abbr> is another SDN feature that for a long time only used to be available in proprietary SDN solutions and that has recently become available in vanilla OpenStack. It serves as another proof that proprietary SDN solutions are losing the competitive edge, especially for Telco SDN/NFV use cases. Hopefully, by the end of this series of posts I&rsquo;ll manage do demonstrate how to build a complete open-source solution that has feature parity (in terms of major networking features) with all the major proprietary data centre SDN platforms. But for now, let&rsquo;s just focus on SFC.</p>
+
+<h2>SFC High-level overview</h2>
+
+<p>In most general terms, SFC refers to packet forwarding technique that uses more than just destination IP address to decide how to forward packets. In more specific terms, SFC refers to &ldquo;steering&rdquo; of traffic through a specific set of endpoints (a.k.a Service Functions), overriding the default destination-based forwarding. For those coming from a traditional networking background, think of SFC as a set of policy-based routing instances orchestrated from a central element (SDN controller). Typical use cases for SFC would be things like firewalling, IDS/IPS, proxying, NAT'ing, monitoring.</p>
+
+<p>SFC is usually modelled as a directed (acyclic) graph, where the first and the last elements are the source and destination respectively and each vertex inside the graph represents a SF to be chained. IETF RFC7665 defines the reference architecture for SFC implementations and establishes some of the basic terminology. A simplified SFC architecture consists of the following main components:</p>
+
+<ul>
+<li>Classifier - a network element that matches and redirects traffic flows to a chain</li>
+<li>Service Function - an element responsible for packet processing</li>
+<li>Service Function Forwarder - a network element that forwards traffic to and from a directly connected SF</li>
+</ul>
+
+
+<p><img class="center" src="http://networkop.github.io/images/sfc-overview.png"></p>
+
+<p>One important property of a SF is elasticity. More instances of the same type can be added to a pool of SF and SFF will load-balance the traffic between them. This is the reason why, as we&rsquo;ll see in the next section, SFF treats connections to a SF as a group of ports rather than just a single port.</p>
+
+<h2>Configuring Neutron SFC</h2>
+
+<p> We&rsquo;ll pick up where we left off in the <a href="http://networkop.github.io/blog/2017/09/08/os-lab-docker/">previous post</a>. All Neutron and ML2 configuration files have already been updated thanks to the <code>enable_sfc="yes"</code> setting in the global Kolla-Ansible configuration file. If not, you can change it in <code>/etc/kolla/globals.yaml</code> and re-run kolla-ansible deployment script.</p>
+
+<p> First, let&rsquo;s generate OpenStack credentials using a post-deployment script. We later can use a default bootstrap script to downloads the cirros image and set up some basic networking and security rules.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>kolla-ansible post-deploy
+</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'>/usr/share/kolla-ansible/init-runonce
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The goal for this post is to create a simple uni-directional SFC to steer the ICMP requests from VM1 to its default gateway through another VM that will be playing the role of a firewall.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/sfc-example.png"></p>
+
+<p>The network was already created by the bootstrap script so all what we have to do is create a test VM. I&rsquo;m creating a port in a separate step simply so that I can refer to it by name instead of UUID.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create --network demo-net P0
+</span><span class='line'>openstack server create --image cirros --flavor m1.tiny --port P0 VM1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>I&rsquo;ll go over all the necessary steps to setup SFC, but will only provide a brief explanation. Refer to the official OpenStack <a href="https://docs.openstack.org/newton/networking-guide/config-sfc.html">Networking Guide</a> for a complete SFC configuration guide.</p>
+
+<p>First, let&rsquo;s create a FW VM with two ports - P1 and P2.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create --network demo-net P1
+</span><span class='line'>openstack port create --network demo-net P2
+</span><span class='line'>openstack server create --image cirros --flavor m1.tiny --port P1 --port P2 FW
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Next, we need create an ingress/egress port pair and assign it to a port pair group.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port pair create --ingress P1 --egress P2 PPAIR
+</span><span class='line'>openstack sfc port pair group create --port-pair PPAIR PPGROUP
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Finally, we can create a flow classifier for ICMP traffic coming from VM1&rsquo;s port P0 and tie it together with a previously created port pair group.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc flow classifier create --protocol icmp --logical-source-port P0 FLOW-ICMP
+</span><span class='line'>openstack sfc port chain create --port-pair-group PPGROUP --flow-classifier FLOW-ICMP PCHAIN
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>That&rsquo;s all the configuration needed to setup SFC. However if you login VM1&rsquo;s console and try pinging default gateway, it will fail. Next, I&rsquo;m going to give a quick demo of how to use a real-time network analyzer tool called Skydive to troubleshoot this issue.</p>
+
+<h2>Using Skydive to troubleshoot SFC</h2>
+
+<p><a href="https://skydive-project.github.io/skydive/">Skydive</a> is a new open-source distributed network probing and traffic analyzing tool. It consists of a set of agents running on compute nodes, collecting topology and flow information and forwarding it to a central element for analysis.</p>
+
+<p>The idea of using Skydive to analyze and track SFC is not new. In fact, for anyone interested in this topic I highly recommend the <a href="http://blog.cafarelli.fr/2017/02/tracking-service-function-chaining-with-skydive/">following blogpost</a>. In my case I&rsquo;ll show how to use Skydive from a more practical perspective - troubleshooting multiple SFC issues.</p>
+
+<p>Skydive CLI client is available inside the <code>skydive_analyzer</code> container. We need to start an interactive bash session inside this container and set some environment variables:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>docker <span class="nb">exec</span> -it skydive_analyzer bash
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_ANALYZERS</span><span class="o">=</span>192.168.133.100:8085
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_USERNAME</span><span class="o">=</span>admin
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_PASSWORD</span><span class="o">=</span>admin
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The first thing we can do to troubleshoot is see if ICMP traffic is entering the <code>ingress</code> port of the FW VM. Based on the output of <code>openstack port list</code> command I know that P1 has got an IP of <code>10.0.0.8</code>. Let&rsquo;s if we can identify a tap port corresponding to P1:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;).Values(&#39;Neutron&#39;)&quot;</span>
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>  <span class="s2">&quot;IPs&quot;</span>: <span class="s2">&quot;10.0.0.8&quot;</span>,
+</span><span class='line'>  <span class="s2">&quot;NetworkID&quot;</span>: <span class="s2">&quot;8eabb451-b026-417c-b54b-8e79ee6e71c3&quot;</span>,
+</span><span class='line'>  <span class="s2">&quot;NetworkName&quot;</span>: <span class="s2">&quot;demo-net&quot;</span>,
+</span><span class='line'>  <span class="s2">&quot;PortID&quot;</span>: <span class="s2">&quot;e6334df9-a5c4-4e86-a5f3-671760c2bbbe&quot;</span>,
+</span><span class='line'>  <span class="s2">&quot;TenantID&quot;</span>: <span class="s2">&quot;bd5829e0cb5b40b68ab4f8e7dc68b14d&quot;</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The output above proves that skydive agent has successfully read the configuration of the port and we can start a capture on that object to see any packets arriving on P1.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;)&quot;</span>
+</span><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&quot;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>If you <code>watch</code> the last command for several seconds you should see that the number in brackets is increasing. That means that packets are hitting the ingress port of the FW VM. Now let&rsquo;s repeat the same test on <code>egress</code> port P2.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;)&quot;</span>
+</span><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows()&quot;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The output above tells us that there are no packets coming out of the FW VM. This is expected since we haven&rsquo;t done any changes to the blank cirros image to make it forward the packets between the two interfaces. If we examine the IP configuration of the FW VM, we would see that it doesn&rsquo;t have an IP address configured on the second interface. We would also need to create a source-based routing policy to force all traffic from VM1 (<code>10.0.0.6</code>) to egress via interface <code>eth2</code> and make sure IP forwarding is turned on. The following commands would need to be executed on FW VM:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo cirros-dhcpc up eth1
+</span><span class='line'>sudo ip rule add from 10.0.0.6 table default
+</span><span class='line'>sudo ip route add default via 10.0.0.1 dev eth1 table default
+</span><span class='line'>sudo sysctl -w net.ipv4.ip_forward<span class="o">=</span>1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Having done that, we should see some packets coming out of <code>egress</code> port P2.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&quot;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>However form the VM1&rsquo;s perspective the ping is still failing. Next step would be to see if the packets are hitting the integration bridge that port P2 is attached to:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;)&quot;</span>
+</span><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;).Flows()&quot;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>No packets means they are getting dropped somewhere between the P2 and the integration bridge. This can only be done by security groups. In fact, source MAC/IP anti-spoofing is enabled by default which would only allow packets matching the source MAC/IP addresses assigned to P2 and would drop any packets coming from VM1&rsquo;s IP address. The easiest fix would be to disable security groups for P2 completely:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port <span class="nb">set</span> --no-security-group --disable-port-security P2
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>After this step the counters should start incrementing and the ping from VM1 to its default gateway is resumed.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query --gremlin <span class="s2">&quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&quot;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  79
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>SFC implementation in OVS forwarding pipeline</h2>
+
+<p>There are several ways to implement SFC, each unique to its own domain. In service provider WAN it can be accomplished by Segment Routing, in DC underlay it can be done with PBR policies. When it comes to OVS there are two major implementations. One approach, implemented in Opendaylight, uses Network Service Header (NSH) as a shim between VXLAN-GPE and the encapsulated packet. The benefit of this approach is that each SF, as well as the sender, can read and write NSH&rsquo;s metadata, making the service function path more transparent. Another approach, currently implemented in ML2&rsquo;s OVS-agent, is based on MPLS header. The only element being affected in this case is the integration bridge. Refer to my <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">older post</a> about vanilla OpenStack networking for a refresher of the vanilla OVS-agent architecture.</p>
+
+<p>Normally, I would start by collecting all port and flow details from the integration bridge with the following commands:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl dump-ports-desc br-int  <span class="p">|</span> grep addr
+</span><span class='line'>ovs-ofctl dump-flows br-int <span class="p">|</span> cut -d <span class="s1">&#39;,&#39;</span> -f3-
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>However, for the sake of brevity, I will omit the actual outputs and only show graphical representation of forwarding tables and packet flows. The tables below have two columns - first showing what is being matched and second showing the resulting action. Let&rsquo;s start with the OpenFlow rules in an integration bridge before SFC is configured:</p>
+
+<p><img class="center" src="http://networkop.github.io/images/sfc-before-tables.png"></p>
+
+<p>As we can see, the table structure is quite simple, since integration bridge mostly relies on data-plane MAC learning. A couple of MAC and ARP anti-spoofing tables will check the validity of a packet and send it to table 60 where <code>NORMAL</code> action will trigger the &ldquo;flood-and-learn&rdquo; behaviour. Therefore, an ICMP packet coming from VM1 will take the following path:</p>
+
+<p><img class="center" src="http://networkop.github.io/images/sfc-before-packet.png"></p>
+
+<p>After we&rsquo;ve configured SFC, the forwarding pipeline is changed and now looks like this:</p>
+
+<p><img class="center" src="http://networkop.github.io/images/sfc-after-tables.png"></p>
+
+<p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. This is where SF scale-out that I mentioned earlier is implemented. In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5.</p>
+
+<p>Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the next SF in the chain. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to all SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/sfc-after-packet.png"></p>
+
+<p>After being processed by a SF, the packet leaves the <code>egress</code> port and re-enters the integration bridge. This time table 0 knows that the packet has already been processed by a SF and, since the anti-spoofing rules have been disabled, simply floods the packet out of all ports in the same VLAN. The packet gets flooded to the tunnel bridge where it gets replicated and delivered to the <code>qrouter</code> sitting on the controller node as per the <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">default behaviour</a>.</p>
+
+<h2>Coming Up</h2>
+
+<p>SFC is one of the major features in Telco SDN and, like many things, it&rsquo;s not meant to be configured manually. In fact, Telco SDN have their own framework for management and orchestration of VNFs (a.k.a. VMs) and VNF forwarding graphs (a.k.a. SFCs) called ETSI MANO. As it is expected from a Telco standard, it abounds with acronyms and confuses the hell out of anyone who&rsquo;s name is not on the list of authors or contributors. That&rsquo;s why in the next post I will try to provide a brief overview of what Telco SDN is and use Tacker, a software implementation of NFVO and VNFM, to automatically build a firewall VNF and provision a SFC, similar to what has been done in this post manually.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack SDN - Building a Containerized OpenStack Lab]]></title>
@@ -5977,108 +6232,6 @@ As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all
 <h2>What to expect next</h2>
 
 <p>Unlike my other post series, I don&rsquo;t have a clear goal at this stage so I guess I&rsquo;ll continue playing around with different underlays for multi-node Openstack and then move on to various SDN solutions available like OpenDayLight and OpenContrail. Unless I lose interest half way through, which happened in the past. But until that happens, stay tuned for more.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC]]></title>
-    <link href="http://networkop.github.io/blog/2016/03/23/network-ci-demo-large/"/>
-    <updated>2016-03-23T00:00:00+00:00</updated>
-    <id>http://networkop.github.io/blog/2016/03/23/network-ci-demo-large</id>
-    <content type="html"><![CDATA[<p>The final post in a series demonstrates how to use the <strong>network-ci</strong> tools to safely replace a core routing protocol inside a small Active/Standby Data Centre.</p>
-
-<!--more-->
-
-
-<h2>Current network overview</h2>
-
-<p>Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</p>
-
-<p><img class="center" src="http://networkop.github.io/images/network-ci-dc-before.png" title="Current network topology" ></p>
-
-<h2>Target network overview</h2>
-
-<p>The task is to replace OSPF with BGP as the core routing protocol inside the Data Centre. There are many advantages to using BGP inside a DC, in our case they are:</p>
-
-<ul>
-<li>Enhanced traffic routing and filtering policies</li>
-<li>Reduced number of redistribution points</li>
-<li>Because Ivan Pepelnjak <a href="http://blog.ipspace.net/2016/02/using-bgp-in-data-center-fabrics.html">said so</a></li>
-</ul>
-
-
-<p>We&rsquo;re not going getting rid of OSPF completely, but rather reduce its function to a simple distribution of <em>internal</em> DC prefixes. BGP will be running on top of OSPF and distribute all the DC and WAN <em>summary</em> prefixes.</p>
-
-<p><img class="center" src="http://networkop.github.io/images/network-ci-dc-after.png" title="Target network topology" ></p>
-
-<h2>Physical topology overview</h2>
-
-<p>Now let&rsquo;s take a closer look at the network that we&rsquo;re going to emulate. All green devices on the left-hand side constitute the <strong>Active</strong> Data Centre, that is where all the traffic will flow under normal conditions. All green devices have red <strong>Standby</strong> counterparts. These devices will pick up the function of traffic forwarding in case their green peer becomes unavailable.</p>
-
-<p><img class="center" src="http://networkop.github.io/images/network-ci-dc-full.png" title="Full demo topology" ></p>
-
-<p>When simulating a real-life network it&rsquo;s often impossible to fit an exact replica inside a network emulator. That&rsquo;s why using <strong>mock</strong> devices is a crucial part in every simulation. The function of a mock is to approximate a set of network devices. There&rsquo;s a number of mock devices on our diagram colour-coded in purple. These devices simulate the remaining parts of the network. For example, <strong>Cloud</strong> devices may represent <abbr title=" Top-Of-the-Rack">TOR</abbr> switches, while <strong>MPLS/DMVPN</strong> devices represent remote WAN sites. Normally these devices will have some made-up configuration that best reflects real life, but not necessarily a copy-paste from an existing network device.</p>
-
-<p>It&rsquo;s also important to pick the right amount of mock devices to strike the balance between accuracy and complexity. For example, for WAN sites it may suffice to create one site per unique combination of WAN links to make sure WAN failover works as expected.</p>
-
-<h2>Traffic flow definition</h2>
-
-<p>Let&rsquo;s define how we would expect the traffic to flow through our network. Let&rsquo;s assume that we should always try to use MPLS links when possible and only use DMVPN when both MPLS links are down. This translates to the following order of WAN links' precedence:</p>
-
-<ol>
-<li>Primary MPLS link</li>
-<li>Standby MPLS link</li>
-<li>Primary DMVPN link</li>
-<li>Standby DMVPN link</li>
-</ol>
-
-
-<p>Based on that we can create the following traffic flows definition for network working under normal conditions.</p>
-
-<figure class='code'><figcaption><span>/network/tests/traffic_flows.txt</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>1 Failed None
-</span><span class='line'>  From FW to MPLS-DMVPN via Primary-WAN, Primary-MPLS
-</span><span class='line'>  From FW to DMVPN-ONLY via Primary-CORE-SW, Primary-DMVPN
-</span><span class='line'>  From FW to MPLS-ONLY via Primary-WAN, Primary-MPLS
-</span><span class='line'>  From Cloud-1 to FW Loopback0 via Primary-CORE-SW
-</span><span class='line'>  From Cloud-2 to MPLS-DMVPN via Primary-WAN, Primary-MPLS
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>We expect all traffic to flow through active devices even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS link and a complete outage of the primary core switch.</p>
-
-<h2>Workflow example</h2>
-
-<p>This is how you would approach a project like this.</p>
-
-<ol>
-<li>Get a copy of network-ci <a href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/">VM</a></li>
-<li>Get a local copy of network-ci <a href="https://github.com/networkop/network-ci/tree/master/acme-large">tools</a></li>
-<li>Copy configuration from real-life devices into the <a href="https://github.com/networkop/network-ci/tree/master/acme-large/config">config directory</a></li>
-<li>Add configuration files for mock devices to the same directory</li>
-<li>Review the <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/topology.py">topology definition file</a> to make sure it reflects our physical diagram</li>
-<li>Review the UNL <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/unetlab.yml">configuration file</a> to make sure it points to the correct IP address assigned to your network-ci VM</li>
-<li>Kick-off topology build inside UNL by running <code>./0_built_topo.py</code> script</li>
-<li>Verify that traffic flows as expected with <code>2_test.py</code> script</li>
-<li>Start the real-time monitoring with <code>1_monitor.py</code> script</li>
-<li>Implement required changes on individual devices (all required changes can be found in <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/ospf-bgp.txt">ospf-bgp.txt</a> file)</li>
-<li>Make sure that the network still behaves as before by running <code>2_test.py</code> script</li>
-<li>Destroy the topology in UNL by running <code>3_destroy_topo.py</code></li>
-</ol>
-
-
-<h2>Continuous Integration</h2>
-
-<p>In the <a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/">previous post</a> I&rsquo;ve showed how to use Jenkins to setup the CI environment for a small demo network. The same method can be applied to setup the job for our small Data Centre. It is simply a matter of changing the directory name from <strong>acme-small</strong> to <strong>acme-large</strong> in the first build step.</p>
-
-<h2>Source code</h2>
-
-<p>All code from this and previous posts is available on <a href="https://github.com/networkop/network-ci/tree/master/acme-large">Github</a></p>
 ]]></content>
   </entry>
   
