@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Bgp | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/bgp/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-15T14:25:41+01:00</updated>
+  <updated>2017-09-19T16:17:42+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -73,119 +73,79 @@ sed -ri 's/(.*ethernet.*) = 1/\1 = 8/' qfx_re.php
 
 <p>Once you&rsquo;ve done all the above changes, you should have a working vQFX 10k node available in UNL GUI. For the purpose of demonstration of EVPN features I&rsquo;ve created the following topology:</p>
 
-<p><img class="center" src="/images/qfx-unl.png"></p>
+<p>{% img center /images/qfx-unl.png %}</p>
 
 <h2>EVPN L2 and L3 services</h2>
 
 <p>EVPN standards define multiple routes types to distribute NLRI information across the network. The two most &ldquo;significant&rdquo; route types are 2 and 5. Type-2 NLRI was designed to carry the MAC (and optionally IP) address to VTEP IP binding information which is used to populate the dynamic MAC address table. This function, that was previously accomplished by a central SDN controller, is now performed in a scalable, standard-based, controller-independent fashion. <a href="http://www.juniper.net/documentation/en_US/junos16.1/topics/concept/evpn-route-type5-understanding.html">Type-5 NLRI</a> contains IP Prefix to VTEP IP mapping and is similar to the function of traditional L3 VPNs. In order to explore the capabilities of EVPN implementation on vQFX I&rsquo;ve created and artificial scenario with 3 virtual switches, 3 VLANs and 4 hosts.</p>
 
-<p><img class="center" src="/images/qfx-lab.png"></p>
+<p>{% img center /images/qfx-lab.png %}</p>
 
 <p>VLAN10 (green) is present on all 3 switches, VLAN20 (purple) is only configured on switches 1 and 2 and VLAN88 (red) only exists on SW3. I&rsquo;ve provided configuration snippets below for reference purposes only and only for SW1. Remaining switches are configured similarly.</p>
 
 <h3>Configuring Basic IP and BGP setup</h3>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>interfaces xe-0/0/0 unit <span class="m">0</span> family inet address 12.12.12.1/24
-</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/2 unit <span class="m">0</span> family inet address 13.13.13.1/24
-</span><span class='line'><span class="nb">set </span>interfaces lo0 unit <span class="m">0</span> family inet address 99.99.99.1/32
-</span><span class='line'><span class="nb">set </span>routing-options static route 99.99.99.2/32 next-hop 12.12.12.2
-</span><span class='line'><span class="nb">set </span>routing-options static route 99.99.99.3/32 next-hop 13.13.13.3&lt;/p&gt;
-</span><span class='line'>
-</span><span class='line'>&lt;p&gt;set routing-options router-id 99.99.99.1
-</span><span class='line'><span class="nb">set </span>routing-options autonomous-system 555&lt;/p&gt;
-</span><span class='line'>
-</span><span class='line'>&lt;p&gt;set routing-options autonomous-system 555
-</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN <span class="nb">type </span>internal
-</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN <span class="nb">local</span>-address 99.99.99.1
-</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN family evpn signaling
-</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN neighbor 99.99.99.2
-</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN neighbor 99.99.99.3
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+set interfaces xe-0/0/0 unit 0 family inet address 12.12.12.1/24
+set interfaces xe-0/0/2 unit 0 family inet address 13.13.13.1/24
+set interfaces lo0 unit 0 family inet address 99.99.99.1/32
+set routing-options static route 99.99.99.2/32 next-hop 12.12.12.2
+set routing-options static route 99.99.99.3/32 next-hop 13.13.13.3</p>
+
+<p>set routing-options router-id 99.99.99.1
+set routing-options autonomous-system 555</p>
+
+<p>set routing-options autonomous-system 555
+set protocols bgp group EVPN type internal
+set protocols bgp group EVPN local-address 99.99.99.1
+set protocols bgp group EVPN family evpn signaling
+set protocols bgp group EVPN neighbor 99.99.99.2
+set protocols bgp group EVPN neighbor 99.99.99.3
+{% endcodeblock %}</p>
 
 <h3>Configuring End-host connectivity and IRB</h3>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>vlans BD5010 vlan-id 10
-</span><span class='line'><span class="nb">set </span>vlans BD5010 l3-interface irb.10
-</span><span class='line'><span class="nb">set </span>vlans BD5020 vlan-id 20
-</span><span class='line'><span class="nb">set </span>vlans BD5020 l3-interface irb.20
-</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/1 unit <span class="m">0</span> family ethernet-switching vlan members 10
-</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/3 unit <span class="m">0</span> family ethernet-switching vlan members 20
-</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">10</span> family inet address 10.0.0.254/24
-</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">20</span> family inet address 20.0.0.254/24
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+set vlans BD5010 vlan-id 10
+set vlans BD5010 l3-interface irb.10
+set vlans BD5020 vlan-id 20
+set vlans BD5020 l3-interface irb.20
+set interfaces xe-0/0/1 unit 0 family ethernet-switching vlan members 10
+set interfaces xe-0/0/3 unit 0 family ethernet-switching vlan members 20
+set interfaces irb unit 10 family inet address 10.0.0.254/24
+set interfaces irb unit 20 family inet address 20.0.0.254/24
+{% endcodeblock %}</p>
 
 <h3>Configuring L2 EVPN services</h3>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>protocols evpn encapsulation vxlan
-</span><span class='line'><span class="nb">set </span>protocols evpn extended-vni-list all
-</span><span class='line'><span class="nb">set </span>protocols evpn multicast-mode ingress-replication&lt;/p&gt;
-</span><span class='line'>
-</span><span class='line'>&lt;p&gt;set switch-options vtep-source-interface lo0.0
-</span><span class='line'><span class="nb">set </span>switch-options route-distinguisher 555:0
-</span><span class='line'><span class="nb">set </span>switch-options vrf-target target:555:123&lt;/p&gt;
-</span><span class='line'>
-</span><span class='line'>&lt;p&gt;set vlans BD5010 vxlan vni 5010
-</span><span class='line'><span class="nb">set </span>vlans BD5010 vxlan ingress-node-replication
-</span><span class='line'><span class="nb">set </span>vlans BD5020 vxlan vni 5020
-</span><span class='line'><span class="nb">set </span>vlans BD5020 vxlan ingress-node-replication
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+set protocols evpn encapsulation vxlan
+set protocols evpn extended-vni-list all
+set protocols evpn multicast-mode ingress-replication</p>
+
+<p>set switch-options vtep-source-interface lo0.0
+set switch-options route-distinguisher 555:0
+set switch-options vrf-target target:555:123</p>
+
+<p>set vlans BD5010 vxlan vni 5010
+set vlans BD5010 vxlan ingress-node-replication
+set vlans BD5020 vxlan vni 5020
+set vlans BD5020 vxlan ingress-node-replication
+{% endcodeblock %}</p>
 
 <h3>Configuring L3 EVPN service</h3>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF instance-type vrf
-</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface irb.10
-</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface irb.20
-</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface lo0.10
-</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF route-distinguisher 555:1
-</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF vrf-target target:123:5055
-</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes advertise direct-nexthop
-</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes encapsulation vxlan
-</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes vni 5555
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+set routing-instances EVPN-VRF instance-type vrf
+set routing-instances EVPN-VRF interface irb.10
+set routing-instances EVPN-VRF interface irb.20
+set routing-instances EVPN-VRF interface lo0.10
+set routing-instances EVPN-VRF route-distinguisher 555:1
+set routing-instances EVPN-VRF vrf-target target:123:5055
+set routing-instances EVPN-VRF protocols evpn ip-prefix-routes advertise direct-nexthop
+set routing-instances EVPN-VRF protocols evpn ip-prefix-routes encapsulation vxlan
+set routing-instances EVPN-VRF protocols evpn ip-prefix-routes vni 5555
+{% endcodeblock %}</p>
 
 <h2>Traffic flow overview</h2>
 
@@ -267,7 +227,8 @@ look for specific host routes representing neighbor&rsquo;s loopbacks and will t
 <!--more-->
 
 
-<p><div class="highlight"><pre><code class="language-text" data-lang="text">!
+<p>{% highlight text %}
+!
 router bgp 100
  neighbor 1.1.1.1 remote-as 100
  neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER-1
@@ -283,7 +244,8 @@ route-map RM-BGP-FALLOVER-1 permit 10
 !
 route-map RM-BGP-FALLOVER-2 permit 10
  match ip address prefix-list PL-ROUTER-2
-!</code></pre></div></p>
+!
+{% endhighlight %}</p>
 
 <p>It&rsquo;s obvious that this configuration is not very scalable as it requires a separate route-map and a separate prefix-list for each of the iBGP neighbors which,
 on a device like a route-reflector, can easily turn into dozens of lines of code.</p>
@@ -299,7 +261,8 @@ bits in the prefix effectively making it match ALL prefixes, while the second pa
 only host-specific routes.<br/>
 With that in mind, it is possible to re-write the former
 config in a much more concise format so that all iBGP neighbors would use a single route-map with a single prefix-list.
- <div class="highlight"><pre><code class="language-text" data-lang="text">!
+ {% highlight text %}
+!
 router bgp 100
  neighbor 1.1.1.1 remote-as 100
  neighbor 1.1.1.1 fall-over route-map RM-BGP-FALLOVER
@@ -310,7 +273,8 @@ ip prefix-list PL-ALL-LOOPBACKS seq 5 permit 0.0.0.0/0 ge 32
 !
 route-map RM-BGP-FALLOVER permit 10
  match ip address prefix-list PL-ALL-LOOPBACKS
-!</code></pre></div></p>
+!
+{% endhighlight %}</p>
 
 <p>What happens now is that Cisco router, when bringing up the neighbor, scans it&rsquo;s own routing table looking for a /32 host-route that matches the ip address of that neighbor and
 attaches a listener to this route. If the neighbor goes down, the IGP will detect it a lot sooner than BGP and will withdraw that host-route; our router&rsquo;s bgp process will get notified

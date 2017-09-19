@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Network | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/network/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-15T14:25:41+01:00</updated>
+  <updated>2017-09-19T16:17:42+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -40,21 +40,18 @@
 
 <p>I&rsquo;ve written a little <a href="https://github.com/networkop/ssh-copy-net">tool</a> that uses <a href="https://github.com/ktbyers/netmiko">Netmiko</a> to install (and remove) public SSH keys onto network devices. Assuming <code>python-pip</code> is already installed here&rsquo;s what&rsquo;s required to download and install <code>ssh-copy-net</code>:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>pip install git+&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/ssh-copy-net.git&quot;</span>&gt;https://github.com/networkop/ssh-copy-net.git&lt;/a&gt;
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+$ pip install git+<a href="https://github.com/networkop/ssh-copy-net.git">https://github.com/networkop/ssh-copy-net.git</a>
+{% endcodeblock %}</p>
 
 <p>Its functionality mimics the one of <code>ssh-copy-id</code>, so the next step is always to upload the public key to the device:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ssh-copy-net 10.6.142.1 juniper
-</span><span class='line'>Username: admin
-</span><span class='line'>Password:
-</span><span class='line'>All Done!
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+$ ssh-copy-net 10.6.142.1 juniper
+Username: admin
+Password:
+All Done!
+{% endcodeblock %}</p>
 
 <h2>2. Define SSH config for network devices</h2>
 
@@ -69,13 +66,11 @@ Host arista
 
 <p>Now I am able to login the device by simply typing its name:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ssh arista
-</span><span class='line'>Last login: Sun May  <span class="m">7</span> 10:57:30 <span class="m">2017</span> from 10.1.2.3
-</span><span class='line'>arista-1&gt;
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+$ ssh arista
+Last login: Sun May  7 10:57:30 2017 from 10.1.2.3
+arista-1>
+{% endcodeblock %}</p>
 
 <h2>3. Define zsh aliases</h2>
 
@@ -89,7 +84,7 @@ alias customer-a-site-51-arista='ssh arista'
 
 <p>As a network engineer, I often find myself troubleshooting issues spanning multiple devices, which is why I need multiple tabs inside a single terminal window. Simply pressing Ctrl+T in GNOME terminal opens a new tab and I can switch between tabs using Alt+[1-9]. However what would be really nice is to have a couple of tabs opened side by side so that I can see the logs and compare output on a number of devices at the same time. This is where tmux comes in. It can do much more than this, but I simply use it to have multiple panes inside the same terminal tab:</p>
 
-<p><img class="center" src="/images/tmux.png"></p>
+<p>{% img center /images/tmux.png %}</p>
 
 <p>Here&rsquo;s an example of my tmux configuration file:</p>
 
@@ -127,45 +122,32 @@ set -sg escape-time 0
 
 <p>Now having all the above defined and with the help of zsh command autocompletion, I can login the device with just a few keypresses (shown in square brackets below):</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>lab  <span class="o">[</span>TAB<span class="o">]</span>
-</span><span class='line'><span class="nv">$ </span>lab-  <span class="o">[</span>TAB<span class="o">]</span>
-</span><span class='line'>lab-srx
-</span><span class='line'><span class="nv">$ </span>lab-  <span class="o">[</span>s<span class="o">][</span>TAB<span class="o">]</span>
-</span><span class='line'><span class="nv">$ </span>lab-srx  <span class="o">[</span>ENTER<span class="o">]</span>
-</span><span class='line'><span class="p">&amp;</span>mdash<span class="p">;</span> JUNOS 12.3X48-D30.7 built 2016-04-28 22:37:34 UTC
-</span><span class='line'><span class="o">{</span>primary:node0<span class="o">}</span>
-</span><span class='line'>null@srx&gt;
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+$ lab  [TAB]
+$ lab-  [TAB]
+lab-srx
+$ lab-  [s][TAB]
+$ lab-srx  [ENTER]
+&mdash; JUNOS 12.3X48-D30.7 built 2016-04-28 22:37:34 UTC
+{primary:node0}
+null@srx>
+{% endcodeblock %}</p>
 
 <p>Press Ctrl+B v to split the terminal window vertically:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>customer <span class="o">[</span>TAB<span class="o">]</span>
-</span><span class='line'><span class="nv">$ </span>customer- <span class="o">[</span>TAB<span class="o">]</span>
-</span><span class='line'>customer-a-site-51-arista
-</span><span class='line'><span class="nv">$ </span>customer- <span class="o">[</span>a<span class="o">][</span>TAB<span class="o">]</span>
-</span><span class='line'><span class="nv">$ </span>customer-a-arista <span class="o">[</span>ENTER<span class="o">]</span>
-</span><span class='line'>Last login: Thu May <span class="m">11</span> 15:28:03 <span class="m">2017</span> from 10.1.2.3
-</span><span class='line'>arista-1&gt;
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+$ customer [TAB]
+$ customer- [TAB]
+customer-a-site-51-arista
+$ customer- [a][TAB]
+$ customer-a-arista [ENTER]
+Last login: Thu May 11 15:28:03 2017 from 10.1.2.3
+arista-1>
+{% endcodeblock %}</p>
 
 <p>An so on and so forth&hellip;</p>
 
-<p><img class="center" src="/images/tmux.gif"></p>
+<p>{% img center /images/tmux.gif %}</p>
 ]]></content>
   </entry>
   
@@ -183,7 +165,7 @@ set -sg escape-time 0
 
 <p>Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</p>
 
-<p><img class="center" src="/images/network-ci-dc-before.png" title="Current network topology" ></p>
+<p>{% img center  /images/network-ci-dc-before.png Current network topology %}</p>
 
 <h2>Target network overview</h2>
 
@@ -198,13 +180,13 @@ set -sg escape-time 0
 
 <p>We&rsquo;re not going getting rid of OSPF completely, but rather reduce its function to a simple distribution of <em>internal</em> DC prefixes. BGP will be running on top of OSPF and distribute all the DC and WAN <em>summary</em> prefixes.</p>
 
-<p><img class="center" src="/images/network-ci-dc-after.png" title="Target network topology" ></p>
+<p>{% img center  /images/network-ci-dc-after.png Target network topology %}</p>
 
 <h2>Physical topology overview</h2>
 
 <p>Now let&rsquo;s take a closer look at the network that we&rsquo;re going to emulate. All green devices on the left-hand side constitute the <strong>Active</strong> Data Centre, that is where all the traffic will flow under normal conditions. All green devices have red <strong>Standby</strong> counterparts. These devices will pick up the function of traffic forwarding in case their green peer becomes unavailable.</p>
 
-<p><img class="center" src="/images/network-ci-dc-full.png" title="Full demo topology" ></p>
+<p>{% img center  /images/network-ci-dc-full.png Full demo topology %}</p>
 
 <p>When simulating a real-life network it&rsquo;s often impossible to fit an exact replica inside a network emulator. That&rsquo;s why using <strong>mock</strong> devices is a crucial part in every simulation. The function of a mock is to approximate a set of network devices. There&rsquo;s a number of mock devices on our diagram colour-coded in purple. These devices simulate the remaining parts of the network. For example, <strong>Cloud</strong> devices may represent <abbr title=" Top-Of-the-Rack">TOR</abbr> switches, while <strong>MPLS/DMVPN</strong> devices represent remote WAN sites. Normally these devices will have some made-up configuration that best reflects real life, but not necessarily a copy-paste from an existing network device.</p>
 
@@ -278,7 +260,7 @@ set -sg escape-time 0
 
 <p>The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.</p>
 
-<p><img class="center" src="/images/ci-acme-small.jpg" title="Small demo topology" ></p>
+<p>{% img center  /images/ci-acme-small.jpg Small demo topology %}</p>
 
 <p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small">repository</a> and reset it to work with your own Github account using <code>git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br/>
 Local development environment contains the following files describing the modelled topology:</p>
@@ -362,7 +344,7 @@ Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to 
 
 <p>Now imagine that a new requirements has come in to make sure that traffic from R1 to R3&rsquo;s Gig0/1 does not traverse R4 and goes via R2 instead, only falling back to R4 when R1-R2 link is down. In the following video I&rsquo;ll show how to use network-ci tools locally to implement and test this traffic engineering requirement.</p>
 
-<p><div class="embed-video-container"><iframe src="//www.youtube.com/embed/GLOG9KZzP90" allowfullscreen></iframe></div></p>
+<p>{% youtube GLOG9KZzP90 %}</p>
 
 <h2>Coming up</h2>
 
@@ -380,7 +362,7 @@ Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to 
 <!--more-->
 
 
-<p><img class="center" src="/images/packer-unl-jenkins.png" title="Packer-UNL-Jenkins" ></p>
+<p>{% img center /images/packer-unl-jenkins.png Packer-UNL-Jenkins %}</p>
 
 <h2>Packer intro</h2>
 
@@ -496,7 +478,7 @@ I have already explored the idea of automated network testing in my previous blo
 
 <p>All these steps can be done automatically without making a single click in a GUI or entering a single command in a CLI. This is a sneak peak of what to expect later in the series:</p>
 
-<p><div class="embed-video-container"><iframe src="//www.youtube.com/embed/jiZs0969RWI" allowfullscreen></iframe></div></p>
+<p>{% youtube jiZs0969RWI %}</p>
 
 <p>Please don&rsquo;t judge me too harshly, this is my first experience with screencasts.</p>
 

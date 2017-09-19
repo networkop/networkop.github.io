@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Openstack | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/openstack/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-15T14:25:41+01:00</updated>
+  <updated>2017-09-19T16:17:42+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -41,9 +41,31 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 </ul>
 
 
-<p><img class="center" src="/images/sfc-overview.png"></p>
+<p>{% img center /images/sfc-overview.png %}</p>
 
 <p>One important property of a SF is elasticity. More instances of the same type can be added to a pool of SF and SFF will load-balance the traffic between them. This is the reason why, as we&rsquo;ll see in the next section, SFF treats connections to a SF as a group of ports rather than just a single port.</p>
+
+<h2>Insertion modes and implementation models</h2>
+
+<p>In legacy, pre-SDN environments SFs had no idea if they were a part of a service chain and network devices (routers and switches) had to &ldquo;insert&rdquo; the interesting traffic into the service function using one of the following two modes:</p>
+
+<ul>
+<li><p><strong>L2 mode</strong> is when SF is physically inserted between the source and destination inside a single broadcast domain, so traffic flows through a SF without any intervention from a switch. Example of this mode could be a firewall in transparent mode, physically connected between a switch and a default gateway router. All packets entering a SF have their original source and destination MAC addresses, which requires SF to be in promiscuous mode.</p></li>
+<li><p><strong>L3 mode</strong> is when a router overrides its default destination-based forwarding and redirects the interesting traffic to a SF. In legacy networks this could have been achieved with PBR or WCCP. In this case SF needs to be L2-attached to a router and all redirected packets have their destination MAC updated to that of a SF&rsquo;s ingress interface.</p></li>
+</ul>
+
+
+<p>Modern SDN networks make it really easy to modify forwarding behaviour of network elements, both physical and virtual. There is no need for policy-based routing or bump-in-the-wire designs anymore. When flow needs to be redirected to a SF on a virtual switch, all what&rsquo;s required is a matching OpenFlow entry with a high enough priority. However redirecting traffic to a SF is just one part of the problem. Another part is how to make SFs smarter, to provide greater visibility of end-to-end service function path.</p>
+
+<p>So far SFs have only been able to extract metadata from the packet itself. This limited the flexibility of SF logic and became computationally expensive in case many SFs need to access some L7 header information. Ideal way would be to have an additional header which can be used to read and write arbitrary information and pass it along the service function chain. RFC7665 defines requirements for &ldquo;SFC Encapsulation&rdquo; header which can be used to uniquely identify an instance of a chain as well as share metadata between all its elements. Neutron API refers to SFC encapsulation as <em>correlation</em> since its primary function is to identify a particular service function path. There are two implementations of SFC encapsulation in use today:</p>
+
+<ul>
+<li><strong>MPLS</strong> - used by current OVS agent driver (as of Pike). This method does not provide any means to share metadata and serves only for SFP identification. It is intended as an interim solution until NSH becomes available upstream in OVS.</li>
+<li><strong>NSH</strong> - complete implementation of SFC encapsulation defined in RFC7665. This method is currently implemented in Opendaylight where NSH is used as a shim between VXLAN-GPE and the encapsulated packet</li>
+</ul>
+
+
+<p>It should be noted that the new approach with SFC encapsulation still allows for legacy, non-SFC-aware SFs to be chained. In this case SFC encapsulation is stripped off the packet by an &ldquo;SFC proxy&rdquo; before the packet is sent to the ingress port of a service function. All logical elements forming an SFC forwarding pipeline, including SFC proxy, Classifier and Forwarder, are implemented inside the same OVS bridges (br-int and br-tun) used by vanilla OVS-agent driver.</p>
 
 <h2>Configuring Neutron SFC</h2>
 
@@ -51,53 +73,53 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p> First, let&rsquo;s generate OpenStack credentials using a post-deployment script. We later can use a default bootstrap script to downloads the cirros image and set up some basic networking and security rules.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>kolla-ansible post-deploy
-</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
-</span><span class='line'>/usr/share/kolla-ansible/init-runonce
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+kolla-ansible post-deploy
+source /etc/kolla/admin-openrc.sh
+/usr/share/kolla-ansible/init-runonce
+{% endcodeblock %}</p>
 
 <p>The goal for this post is to create a simple uni-directional SFC to steer the ICMP requests from VM1 to its default gateway through another VM that will be playing the role of a firewall.</p>
 
-<p><img class="center" src="/images/sfc-example.png"></p>
+<p>{% img center /images/sfc-example.png %}</p>
 
 <p>The network was already created by the bootstrap script so all what we have to do is create a test VM. I&rsquo;m creating a port in a separate step simply so that I can refer to it by name instead of UUID.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P0
-</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>port P0 VM1
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+openstack port create &ndash;network demo-net P0
+openstack server create &ndash;image cirros &ndash;flavor m1.tiny &ndash;port P0 VM1
+{% endcodeblock %}</p>
 
 <p>I&rsquo;ll go over all the necessary steps to setup SFC, but will only provide a brief explanation. Refer to the official OpenStack <a href="https://docs.openstack.org/newton/networking-guide/config-sfc.html">Networking Guide</a> for a complete SFC configuration guide.</p>
 
 <p>First, let&rsquo;s create a FW VM with two ports - P1 and P2.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P1
-</span><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P2
-</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>port P1 <span class="p">&amp;</span>ndash<span class="p">;</span>port P2 FW
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+openstack port create &ndash;network demo-net P1
+openstack port create &ndash;network demo-net P2
+openstack server create &ndash;image cirros &ndash;flavor m1.tiny &ndash;port P1 &ndash;port P2 FW
+{% endcodeblock %}</p>
 
-<p>Next, we need create an ingress/egress port pair and assign it to a port pair group.</p>
+<p>Next, we need create an ingress/egress port pair and assign it to a port pair group. The default setting for <strong>correlation</strong> in a port pair (not shown) is <code>none</code>. That means that SFC encapsulation header (MPLS) will get stripped before the packet is sent to P1.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port pair create <span class="p">&amp;</span>ndash<span class="p">;</span>ingress P1 <span class="p">&amp;</span>ndash<span class="p">;</span>egress P2 PPAIR
-</span><span class='line'>openstack sfc port pair group create <span class="p">&amp;</span>ndash<span class="p">;</span>port-pair PPAIR PPGROUP
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+openstack sfc port pair create &ndash;ingress P1 &ndash;egress P2 PPAIR
+openstack sfc port pair group create &ndash;port-pair PPAIR PPGROUP
+{% endcodeblock %}</p>
 
-<p>Finally, we can create a flow classifier for ICMP traffic coming from VM1&rsquo;s port P0 and tie it together with a previously created port pair group.</p>
+<p>Port pair group also allows to specify the L2-L4 headers which to use for load-balancing in OpenFlow groups, overriding the default behaviour described in the next section.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc flow classifier create <span class="p">&amp;</span>ndash<span class="p">;</span>protocol icmp <span class="p">&amp;</span>ndash<span class="p">;</span>logical-source-port P0 FLOW-ICMP
-</span><span class='line'>openstack sfc port chain create <span class="p">&amp;</span>ndash<span class="p">;</span>port-pair-group PPGROUP <span class="p">&amp;</span>ndash<span class="p">;</span>flow-classifier FLOW-ICMP PCHAIN
-</span></code></pre></td></tr></table></div></figure></p>
+<p>Another required element is a flow classifier. We will be redirecting ICMP traffic coming from VM1&rsquo;s port P0</p>
+
+<p>{% codeblock lang:bash %}
+openstack sfc flow classifier create &ndash;protocol icmp &ndash;logical-source-port P0 FLOW-ICMP
+{% endcodeblock %}</p>
+
+<p>Finally, we can tie together flow classifier with a previously created port pair group. The default setting for <strong>correlation</strong> (not shown again) in this case is <code>mpls</code>. That means that each chain will have its own unique MPLS label to be used as an SFC encapsulation.</p>
+
+<p>{% codeblock lang:bash %}
+openstack sfc port chain create &ndash;port-pair-group PPGROUP &ndash;flow-classifier FLOW-ICMP PCHAIN
+{% endcodeblock %}</p>
 
 <p>That&rsquo;s all the configuration needed to setup SFC. However if you login VM1&rsquo;s console and try pinging default gateway, it will fail. Next, I&rsquo;m going to give a quick demo of how to use a real-time network analyzer tool called Skydive to troubleshoot this issue.</p>
 
@@ -109,143 +131,126 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p>Skydive CLI client is available inside the <code>skydive_analyzer</code> container. We need to start an interactive bash session inside this container and set some environment variables:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>docker <span class="nb">exec</span> -it skydive_analyzer bash
-</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_ANALYZERS</span><span class="o">=</span>192.168.133.100:8085
-</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_USERNAME</span><span class="o">=</span>admin
-</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_PASSWORD</span><span class="o">=</span>admin
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+docker exec -it skydive_analyzer bash
+export SKYDIVE_ANALYZERS=192.168.133.100:8085
+export SKYDIVE_USERNAME=admin
+export SKYDIVE_PASSWORD=admin
+{% endcodeblock %}</p>
 
 <p>The first thing we can do to troubleshoot is see if ICMP traffic is entering the <code>ingress</code> port of the FW VM. Based on the output of <code>openstack port list</code> command I know that P1 has got an IP of <code>10.0.0.8</code>. Let&rsquo;s if we can identify a tap port corresponding to P1:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'><span class="o">{</span>
-</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>IPs<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rdquo<span class="p">;</span>,
-</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>NetworkID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>8eabb451-b026-417c-b54b-8e79ee6e71c3<span class="p">&amp;</span>rdquo<span class="p">;</span>,
-</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>NetworkName<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>demo-net<span class="p">&amp;</span>rdquo<span class="p">;</span>,
-</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>PortID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>e6334df9-a5c4-4e86-a5f3-671760c2bbbe<span class="p">&amp;</span>rdquo<span class="p">;</span>,
-</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>TenantID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>bd5829e0cb5b40b68ab4f8e7dc68b14d<span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'><span class="o">}</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Values(&lsquo;Neutron&rsquo;)&rdquo;
+{
+  &ldquo;IPs&rdquo;: &ldquo;10.0.0.8&rdquo;,
+  &ldquo;NetworkID&rdquo;: &ldquo;8eabb451-b026-417c-b54b-8e79ee6e71c3&rdquo;,
+  &ldquo;NetworkName&rdquo;: &ldquo;demo-net&rdquo;,
+  &ldquo;PortID&rdquo;: &ldquo;e6334df9-a5c4-4e86-a5f3-671760c2bbbe&rdquo;,
+  &ldquo;TenantID&rdquo;: &ldquo;bd5829e0cb5b40b68ab4f8e7dc68b14d&rdquo;
+}
+{% endcodeblock %}</p>
 
 <p>The output above proves that skydive agent has successfully read the configuration of the port and we can start a capture on that object to see any packets arriving on P1.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'><span class="o">[</span>
-</span><span class='line'>  7
-</span><span class='line'><span class="o">]</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;)&rdquo;
+skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
+[
+  7
+]
+{% endcodeblock %}</p>
 
 <p>If you <code>watch</code> the last command for several seconds you should see that the number in brackets is increasing. That means that packets are hitting the ingress port of the FW VM. Now let&rsquo;s repeat the same test on <code>egress</code> port P2.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'><span class="o">[]</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;)&rdquo;
+skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows()&rdquo;
+[]
+{% endcodeblock %}</p>
 
 <p>The output above tells us that there are no packets coming out of the FW VM. This is expected since we haven&rsquo;t done any changes to the blank cirros image to make it forward the packets between the two interfaces. If we examine the IP configuration of the FW VM, we would see that it doesn&rsquo;t have an IP address configured on the second interface. We would also need to create a source-based routing policy to force all traffic from VM1 (<code>10.0.0.6</code>) to egress via interface <code>eth2</code> and make sure IP forwarding is turned on. The following commands would need to be executed on FW VM:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo cirros-dhcpc up eth1
-</span><span class='line'>sudo ip rule add from 10.0.0.6 table default
-</span><span class='line'>sudo ip route add default via 10.0.0.1 dev eth1 table default
-</span><span class='line'>sudo sysctl -w net.ipv4.ip_forward<span class="o">=</span>1
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+sudo cirros-dhcpc up eth1
+sudo ip rule add from 10.0.0.6 table default
+sudo ip route add default via 10.0.0.1 dev eth1 table default
+sudo sysctl -w net.ipv4.ip_forward=1
+{% endcodeblock %}</p>
 
 <p>Having done that, we should see some packets coming out of <code>egress</code> port P2.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'><span class="o">[</span>
-</span><span class='line'>  7
-</span><span class='line'><span class="o">]</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
+[
+  7
+]
+{% endcodeblock %}</p>
 
 <p>However form the VM1&rsquo;s perspective the ping is still failing. Next step would be to see if the packets are hitting the integration bridge that port P2 is attached to:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'><span class="o">[]</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;)&rdquo;
+skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;).Flows()&rdquo;
+[]
+{% endcodeblock %}</p>
 
 <p>No packets means they are getting dropped somewhere between the P2 and the integration bridge. This can only be done by security groups. In fact, source MAC/IP anti-spoofing is enabled by default which would only allow packets matching the source MAC/IP addresses assigned to P2 and would drop any packets coming from VM1&rsquo;s IP address. The easiest fix would be to disable security groups for P2 completely:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port <span class="nb">set</span> <span class="p">&amp;</span>ndash<span class="p">;</span>no-security-group <span class="p">&amp;</span>ndash<span class="p">;</span>disable-port-security P2
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+openstack port set &ndash;no-security-group &ndash;disable-port-security P2
+{% endcodeblock %}</p>
 
 <p>After this step the counters should start incrementing and the ping from VM1 to its default gateway is resumed.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
-</span><span class='line'><span class="o">[</span>
-</span><span class='line'>  79
-</span><span class='line'><span class="o">]</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
+[
+  79
+]
+{% endcodeblock %}</p>
 
 <h2>SFC implementation in OVS forwarding pipeline</h2>
 
-<p>There are several ways to implement SFC, each unique to its own domain. In service provider WAN it can be accomplished by Segment Routing, in DC underlay it can be done with PBR policies. When it comes to OVS there are two major implementations. One approach, implemented in Opendaylight, uses Network Service Header (NSH) as a shim between VXLAN-GPE and the encapsulated packet. The benefit of this approach is that each SF, as well as the sender, can read and write NSH&rsquo;s metadata, making the service function path more transparent. Another approach, currently implemented in ML2&rsquo;s OVS-agent, is based on MPLS header. The only element being affected in this case is the integration bridge. Refer to my <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">older post</a> about vanilla OpenStack networking for a refresher of the vanilla OVS-agent architecture.</p>
+<p>The only element being affected in our case (both VM1 and FW are on the same compute node) is the integration bridge. Refer to my <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">older post</a> about vanilla OpenStack networking for a refresher of the vanilla OVS-agent architecture.</p>
 
 <p>Normally, I would start by collecting all port and flow details from the integration bridge with the following commands:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl dump-ports-desc br-int  <span class="p">|</span> grep addr
-</span><span class='line'>ovs-ofctl dump-flows br-int <span class="p">|</span> cut -d <span class="p">&amp;</span>lsquo<span class="p">;</span>,<span class="p">&amp;</span>rsquo<span class="p">;</span> -f3-
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+ovs-ofctl dump-ports-desc br-int  | grep addr
+ovs-ofctl dump-flows br-int | cut -d &lsquo;,&rsquo; -f3-
+{% endcodeblock %}</p>
 
 <p>However, for the sake of brevity, I will omit the actual outputs and only show graphical representation of forwarding tables and packet flows. The tables below have two columns - first showing what is being matched and second showing the resulting action. Let&rsquo;s start with the OpenFlow rules in an integration bridge before SFC is configured:</p>
 
-<p><img class="center" src="/images/sfc-before-tables.png"></p>
+<p>{% img center /images/sfc-before-tables.png %}</p>
 
 <p>As we can see, the table structure is quite simple, since integration bridge mostly relies on data-plane MAC learning. A couple of MAC and ARP anti-spoofing tables will check the validity of a packet and send it to table 60 where <code>NORMAL</code> action will trigger the &ldquo;flood-and-learn&rdquo; behaviour. Therefore, an ICMP packet coming from VM1 will take the following path:</p>
 
-<p><img class="center" src="/images/sfc-before-packet.png"></p>
+<p>{% img center /images/sfc-before-packet.png %}</p>
 
 <p>After we&rsquo;ve configured SFC, the forwarding pipeline is changed and now looks like this:</p>
 
-<p><img class="center" src="/images/sfc-after-tables.png"></p>
+<p>{% img center /images/sfc-after-tables.png %}</p>
 
-<p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. This is where SF scale-out that I mentioned earlier is implemented. In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5.</p>
+<p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. By default OVS will use a combination of L2-L4 header as described <a href="http://docs.openvswitch.org/en/latest/faq/openflow/">here</a> to calculate a hash which determines the output bucket, similar to how per-flow load-balancing works in traditional routers and switches. This behaviour can be overridden with a specific set of headers in <code>lb_fields</code> setting of a port pair group.</p>
 
-<p>Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the next SF in the chain. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to all SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
+<p>In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5. Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the service function path. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
 
-<p><img class="center" src="/images/sfc-after-packet.png"></p>
+<p>{% img center /images/sfc-after-packet.png %}</p>
 
 <p>After being processed by a SF, the packet leaves the <code>egress</code> port and re-enters the integration bridge. This time table 0 knows that the packet has already been processed by a SF and, since the anti-spoofing rules have been disabled, simply floods the packet out of all ports in the same VLAN. The packet gets flooded to the tunnel bridge where it gets replicated and delivered to the <code>qrouter</code> sitting on the controller node as per the <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">default behaviour</a>.</p>
+
+<h2>Upcoming enhancements</h2>
+
+<p>SFC is a pretty vast topic and is still under active development. Some of the upcoming enhancement to the current implementation of SFC will include:</p>
+
+<ul>
+<li><strong>NSH</strong> header for SFC correlation</li>
+<li><strong>TAP</strong> functionality which can replace the separate Tap-as-a-service OpenStack project</li>
+<li><strong>Service graphs</strong> allowing multiple chains to be interconnected to create more complex service chain scenarios</li>
+</ul>
+
 
 <h2>Coming Up</h2>
 
@@ -281,17 +286,15 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p>My lab consists of a single controller and a single compute VM. The goal was to make them as small as possible so they could run on a laptop with limited resources. Both VMs are connected to three VM bridged networks - provisioning, management and external VM access.</p>
 
-<p><img class="center" src="/images/kolla-lab.png"></p>
+<p>{% img center /images/kolla-lab.png %}</p>
 
 <p>I&rsquo;ve written some bash and Ansible scripts to automate the deployment of VMs on top of any Fedora derivative (e.g. Centos7). These scripts should be run directly from the hypervisor:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/kolla-odl-bgpvpn.git&quot;</span>&gt;https://github.com/networkop/kolla-odl-bgpvpn.git&lt;/a&gt; <span class="p">&amp;</span>amp<span class="p">;&amp;</span>amp<span class="p">;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
-</span><span class='line'>./1-create.sh <span class="k">do</span>
-</span><span class='line'>./2-bootstrap.sh <span class="k">do</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://github.com/networkop/kolla-odl-bgpvpn.git</a> &amp;&amp; cd kolla-odl-bgpvpn
+./1-create.sh do
+./2-bootstrap.sh do
+{% endcodeblock  %}</p>
 
 <p>The first bash script downloads the VM OS (Centos7), creates two blank VMs and sets up a local Docker registry. The second script installs all the dependencies, including Docker and Ansible.</p>
 
@@ -301,9 +304,9 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p>In my case I needed to build the latest version of OpenStack packages, not just the latest major release. I also wanted to build a few additional, non-Openstack images (Opendaylight and Quagga). Because of that I had to build all Docker images locally and push them into a local docker registry. The procedure to build container images is very well documented in the official <a href="https://docs.openstack.org/kolla/latest/image-building.html">Kolla image building guide</a>. I&rsquo;ve modified it slightly to include the Quagga Dockerfile and automated it so that the whole process can be run with a single command:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>./3-build.sh <span class="k">do</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+./3-build.sh do
+{% endcodeblock  %}</p>
 
 <p>This step can take quite a long time (anything from 1 to 4 hours depending on the network and disk I/O speed), however, once it&rsquo;s been done these container images can be used to deploy as many OpenStack instances as necessary.</p>
 
@@ -319,9 +322,9 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p>To get started with Kolla-Ansible all what it takes is a few modifications to the global configuration file to make sure that network settings match the underlying OS interface configuration and an update to the inventory file to point it to the correct deployment hosts. In my case I&rsquo;m making additional changes to enable SFC, Skydive and Tacker and adding files for Quagga container, all of which can be done with the following command:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>./4-deploy.sh <span class="k">do</span>
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+./4-deploy.sh do
+{% endcodeblock  %}</p>
 
 <p>The best thing about this method of deployment is that it takes (in my case) under 5 minutes to get the full OpenStack cloud from scratch. That means if I break something or want to redeploy with some major changes (add/remove Opendaylight), all what I have to do is destroy the existing deployment (approx. 1 minute), modify global configuration file and re-deploy OpenStack. This makes Kolla-Ansible an ideal choice for my lab environment.</p>
 
@@ -329,45 +332,30 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p>Once the deployment has been completed, we should be able to see a number of running Docker containers - one for each OpenStack process.</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker ps
-</span><span class='line'>CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
-</span><span class='line'>0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               skydive_agent
-</span><span class='line'>63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               neutron_openvswitch_agent
-</span><span class='line'>f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_vswitchd
-</span><span class='line'>3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_db
-</span><span class='line'>9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_compute
-</span><span class='line'>8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_libvirt
-</span><span class='line'>220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_ssh
-</span><span class='line'>743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               cron
-</span><span class='line'>8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               kolla_toolbox
-</span><span class='line'>f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               fluentd
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+root@compute-1# docker ps
+CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
+0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               skydive_agent
+63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               neutron_openvswitch_agent
+f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               openvswitch_vswitchd
+3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               openvswitch_db
+9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_compute
+8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_libvirt
+220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_ssh
+743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               cron
+8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               kolla_toolbox
+f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               fluentd
+{% endcodeblock  %}</p>
 
 <p>All the standard docker tools are available to interact with those containers. For example, this is how we can see what processes are running inside a container:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker <span class="nb">exec </span>nova_compute ps -www aux
-</span><span class='line'>USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-</span><span class='line'>nova         <span class="m">1</span>  0.0  0.0    <span class="m">188</span>     <span class="m">4</span> pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
-</span><span class='line'>nova         <span class="m">7</span>  0.7  1.3 <span class="m">2292560</span> <span class="m">134896</span> ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
-</span><span class='line'>root        <span class="m">86</span>  0.0  0.3 <span class="m">179816</span> <span class="m">32900</span> ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper <span class="p">&amp;</span>ndash<span class="p">;</span>config-file /etc/nova/nova.conf <span class="p">&amp;</span>ndash<span class="p">;</span>privsep_context vif_plug_ovs.privsep.vif_plug <span class="p">&amp;</span>ndash<span class="p">;</span>privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+root@compute-1# docker exec nova_compute ps -www aux
+USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+nova         1  0.0  0.0    188     4 pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
+nova         7  0.7  1.3 2292560 134896 ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
+root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper &ndash;config-file /etc/nova/nova.conf &ndash;privsep_context vif_plug_ovs.privsep.vif_plug &ndash;privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
+{% endcodeblock  %}</p>
 
 <p>Some of you may have noticed that none of the containers expose any ports. So how do they communicate? The answer is very simple - all containers run in a <strong>host</strong> networking mode, effectively disabling any network isolation and giving all contaners access to TCP/IP stacks of their Docker hosts. This is a simple way to avoid having to deal with Docker networking complexities, while at the same time preserving the immutability and portability of Docker containers.</p>
 
@@ -401,7 +389,7 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 </ul>
 
 
-<p><img class="center" src="/images/ovn-zoom1.png"></p>
+<p>{% img center /images/ovn-zoom1.png %}</p>
 
 <p>So far nothing unusual, this is a simple Neutron data model, all that information is stored in Neutron&rsquo;s database and can be queried with <code>neutron</code> CLI commands.</p>
 
@@ -419,7 +407,7 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p>This is a visual representation of our network topology inside OVN&rsquo;s Northbound DB, built based on the output of <code>ovn-nbctl show</code> command:</p>
 
-<p><img class="center" src="/images/ovn-zoom2.png"></p>
+<p>{% img center /images/ovn-zoom2.png %}</p>
 
 <p>This topology is pretty similar to Neutron&rsquo;s native data model with the exception of a gateway router. In OVN, a gateway router is a special non-distributed router which performs functions that are very hard or impossible to distribute amongst all nodes, like NAT and Load Balancing. This router only exists on a single compute node which is selected by the scheduler based on the <code>ovn_l3_scheduler</code> setting of the ML2 plugin. It is attached to a distributed router via a point-to-point /30 subnet defined in the <code>ovn_l3_admin_net_cidr</code> setting of the ML2 plugin.</p>
 
@@ -439,7 +427,7 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 </ol>
 
 
-<p><img class="center" src="/images/ovn-zoom3-l2.png"></p>
+<p>{% img center /images/ovn-zoom3-l2.png %}</p>
 
 <p>Let&rsquo;s have a closer look at each of the stages of the forwarding pipeline. I&rsquo;ll include snippets of logical flows demonstrating the most interesting behaviour at each stage. Full logical datapath is quite long and can be viewed with <code>ovn-sbctl lflow-list [DATAPATH]</code> command. Here is some useful information, collected from the Northbound database, that will be used in the examples below:</p>
 
@@ -560,7 +548,7 @@ table=8 (ls_out_port_sec_l2), priority=50, match=(outport == "5c62cfbe-0b2f-4c2a
 
 <p>Similar to a logical switch pipeline, L3 datapath is split into ingress and egress parts. In this example we&rsquo;ll concentrate on  the Gateway router datapath. This router is connected to a distributed logical router via a transit subnet (SWtr) and to an external network via an external bridge (SWex) and performs NAT translation for all VM traffic.</p>
 
-<p><img class="center" src="/images/ovn-zoom3-l3.png"></p>
+<p>{% img center /images/ovn-zoom3-l3.png %}</p>
 
 <p>Here is some useful information about router interfaces and ports that will be used in the examples below.</p>
 
@@ -674,11 +662,11 @@ action=(get_arp(outport, reg0); next;)
 
 <p>To demonstrate the details of OpenFlow implementation, I&rsquo;ll use the traffic flow between VM1 and external destination (8.8.8.8). For the sake of brevity I will only cover the major steps of packet processing inside OVS, omitting security checks and ARP/DHCP processing.</p>
 
-<p><img class="center" src="/images/ovn-zoom4-openflow.png"></p>
+<p>{% img center /images/ovn-zoom4-openflow.png %}</p>
 
 <p>When packets traverse OpenFlow tables they get labelled or annotated with special values to simplify matching in subsequent tables. For example, when table 0 matches the incoming port, it annotates the packet with the datapath ID. Since it would have been impractical to label packets with globally unique UUIDs from Soutbound DB, these UUIDs get mapped to smaller values called <strong>tunnel keys</strong>. To make things even more confusing, each port will have a local kernel ID, unique within each hypervisor. We&rsquo;ll need both tunnel keys and local port IDs to be able to track the packets inside the OVS. The figure below depicts all port and datapath IDs that have been collected from the Soutbound DB and local OVSDB on each hypervisor. Local port numbers are attached with a dotted line to their respective tunnel keys.</p>
 
-<p><img class="center" src="/images/ovn-zoom4-tunnelkey.png"></p>
+<p>{% img center /images/ovn-zoom4-tunnelkey.png %}</p>
 
 <p>When VM1 sends the first packet to 8.8.8.8, it reaches OVS on local port 13. OVN Controller knows that this port belongs to VM1 and installs an OpenFlow rule to match all packets from this port and annotate them with datapath ID (OXM_OF_METADATA), incoming port ID (NXM_NX_REG14), conntrack zone (NXM_NX_REG13). It then moves these annotated packets to the first table of the ingress pipeline.
 <code>
@@ -789,7 +777,7 @@ table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
 
 <p>GENEVE was designed to have a variable-length header. The first few bytes are well-defined fixed size fields followed by variable-length Options. This kind of structure allows software developers to innovate at their own pace while still getting the benefits of hardware offload for the fixed-size portion of the header. OVN developers <a href="http://openvswitch.org/support/dist-docs/ovn-architecture.7.html">decided</a> to use Options header type 0x80 to store the 15-bit logical ingress port ID and a 16-bit egress port ID (an extra bit is for logical multicast groups).</p>
 
-<p><img class="center" src="/images/ovn-zoom5-geneve.png"></p>
+<p>{% img center /images/ovn-zoom5-geneve.png %}</p>
 
 <p>The figure above shows the ICMP ping coming from VM1(10.0.0.2) to Google&rsquo;s DNS. As I&rsquo;ve showed in the previous section, GENEVE is used between the ingress and egress pipelines of a transit switch (SWtr), whose datapath ID is encoded in the VNI field (0x7). Packets enter the transit switch on port 1 and leave it on port 2. These two values are encoded in the <code>00010002</code> value of the <code>Options Data</code> field.</p>
 
@@ -835,7 +823,7 @@ table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
 </ol>
 
 
-<p><img class="center" src="/images/ovn-arch.png"></p>
+<p>{% img center /images/ovn-arch.png %}</p>
 
 <p>If you want to learn more about OVN architecture and use cases, <a href="http://docs.openstack.org/developer/networking-ovn/readme.html">OpenStack OVN page</a> has an excellent collection of resources for further reading.</p>
 
@@ -860,7 +848,7 @@ packstack --answer-file=/root/packstack.answer
 
 <p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/08/26/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
 
-<p><img class="center" src="/images/ovn-openstack.png"></p>
+<p>{% img center /images/ovn-openstack.png %}</p>
 
 <h2>OVN Build</h2>
 
@@ -979,13 +967,11 @@ Chassis "b89b8683-7c74-43df-8ac6-1d57ddefec77"
 
 <p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="/blog/2016/08/26/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
-</span><span class='line'><span class="nb">cd </span>chef-unl-os
-</span><span class='line'>chef-client -z -E lab ovn.rb
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+git clone <a href="https://github.com/networkop/chef-unl-os.git">https://github.com/networkop/chef-unl-os.git</a>
+cd chef-unl-os
+chef-client -z -E lab ovn.rb
+{% endcodeblock %}</p>
 
 <h2>Test topology setup</h2>
 
@@ -1035,7 +1021,7 @@ openstack floating ip create NET-EXT
 openstack server add floating ip VM3 169.254.0.53
 </code></pre>
 
-<p><img class="center" src="/images/ovn-topo.png"></p>
+<p>{% img center /images/ovn-topo.png %}</p>
 
 <p>In the next post we will use the above virtual topology to explore the dataplane packet flow inside an OVN-managed OpenvSwitch and how it uses the new encapsulation protocol GENEVE to optimise egress forwarding lookups on remote compute nodes.</p>
 ]]></content>
@@ -1065,7 +1051,7 @@ openstack server add floating ip VM3 169.254.0.53
 
 <p>Let&rsquo;s see what we&rsquo;re going to be dealing with in this post. This is a simple virtual topology with two VMs sitting in two different subnets. VM1 has a floating IP assigned that is used for external access.</p>
 
-<p><img class="center" src="/images/dvr-topo.png"></p>
+<p>{% img center /images/dvr-topo.png %}</p>
 
 <p>Before we get to the packet walk details, let me briefly describe how to build the above topology using Neutron CLI. I&rsquo;ll assume that OpenStack has just been installed and nothing has been configured yet, effectively we&rsquo;ll pick up from where we left our lab in the <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">previous post</a>.</p>
 
@@ -1074,133 +1060,102 @@ openstack server add floating ip VM3 169.254.0.53
 <ol>
 <li>Upload Cirros Linux image to OpenStack's image repository
 
-<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class=''><span class='line'>curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
-</span><span class='line'>     image-create --name='IMG-CIRROS' \
-</span><span class='line'>     --visibility=public \
-</span><span class='line'>     --container-format=bare \
-</span><span class='line'>     --disk-format=qcow2</span></code></pre></td></tr></table></div></figure>
+```
+curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
+     image-create --name='IMG-CIRROS' \
+     --visibility=public \
+     --container-format=bare \
+     --disk-format=qcow2
+```
 </li>
 <li>Create 2 virtual subnets - RED and BLUE
 
-<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class=''><span class='line'>neutron net-create NET-BLUE
-</span><span class='line'>neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24 \
-</span><span class='line'>  --dns-nameserver 8.8.8.8
-</span><span class='line'>
-</span><span class='line'>neutron net-create NET-RED
-</span><span class='line'>neutron subnet-create --name SUB-RED NET-RED 10.0.1.0/24 \
-</span><span class='line'>  --dns-nameserver 8.8.8.8</span></code></pre></td></tr></table></div></figure>
+```
+neutron net-create NET-BLUE
+neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24 \
+  --dns-nameserver 8.8.8.8
+
+neutron net-create NET-RED
+neutron subnet-create --name SUB-RED NET-RED 10.0.1.0/24 \
+  --dns-nameserver 8.8.8.8
+```
 </li>
 <li>Create external network
 
-<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class=''><span class='line'>neutron net-create EXT-NET --provider:network_type flat \
-</span><span class='line'>  --provider:physical_network extnet  \
-</span><span class='line'>  --router:external \
-</span><span class='line'>  --shared
-</span><span class='line'>
-</span><span class='line'>neutron subnet-create --name EXT-SUB \
-</span><span class='line'> --enable_dhcp=False \
-</span><span class='line'> --allocation-pool=start=169.254.0.50,end=169.254.0.99 \
-</span><span class='line'> --gateway=169.254.0.1 EXT-NET 169.254.0.0/24</span></code></pre></td></tr></table></div></figure>
+```
+neutron net-create EXT-NET --provider:network_type flat \
+  --provider:physical_network extnet  \
+  --router:external \
+  --shared
+
+neutron subnet-create --name EXT-SUB \
+ --enable_dhcp=False \
+ --allocation-pool=start=169.254.0.50,end=169.254.0.99 \
+ --gateway=169.254.0.1 EXT-NET 169.254.0.0/24
+```
 </li>
 
 <li>Create a router and attach it to all three networks created above
 
-<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class=''><span class='line'>neutron router-create R1
-</span><span class='line'>neutron router-interface-add R1 SUB-RED
-</span><span class='line'>neutron router-interface-add R1 SUB-BLUE
-</span><span class='line'>neutron router-gateway-set R1 EXT-NET</span></code></pre></td></tr></table></div></figure>
+```
+neutron router-create R1
+neutron router-interface-add R1 SUB-RED
+neutron router-interface-add R1 SUB-BLUE
+neutron router-gateway-set R1 EXT-NET
+```
 </li>
 
 <li>Create two host aggregates to spread the VMs across two different hosts
 
-<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class=''><span class='line'>nova aggregate-create AGG-RED AZ-RED
-</span><span class='line'>nova aggregate-create AGG-BLUE AZ-BLUE
-</span><span class='line'>nova aggregate-add-host AGG-BLUE compute-2
-</span><span class='line'>nova aggregate-add-host AGG-RED compute-3</span></code></pre></td></tr></table></div></figure>
+```
+nova aggregate-create AGG-RED AZ-RED
+nova aggregate-create AGG-BLUE AZ-BLUE
+nova aggregate-add-host AGG-BLUE compute-2
+nova aggregate-add-host AGG-RED compute-3
+```
 </li>
 
 <li>Boot VMs on two different hypervisors
 
-<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class=''><span class='line'>nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
-</span><span class='line'>     --nic net-name=NET-BLUE \
-</span><span class='line'>    --availability-zone AZ-BLUE \
-</span><span class='line'>     VM1
-</span><span class='line'>
-</span><span class='line'>nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
-</span><span class='line'>    --nic net-name=NET-RED \
-</span><span class='line'>    --availability-zone AZ-RED \
-</span><span class='line'>    VM2</span></code></pre></td></tr></table></div></figure>
+```
+nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
+     --nic net-name=NET-BLUE \
+    --availability-zone AZ-BLUE \
+     VM1
+
+nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
+    --nic net-name=NET-RED \
+    --availability-zone AZ-RED \
+    VM2
+```
 </li>
 
 <li>Assign a floating IP (Static NAT) to VM1
 
-<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class=''><span class='line'>nova floating-ip-create EXT-NET
-</span><span class='line'>nova floating-ip-associate VM1 169.254.0.55</span></code></pre></td></tr></table></div></figure>
+```
+nova floating-ip-create EXT-NET
+nova floating-ip-associate VM1 169.254.0.55
+```
 </li>
 
 <li>Enable ingress ICMP and SSH access
 
-<figure class='code'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class=''><span class='line'>nova secgroup-add-rule default tcp 22 22 0.0.0.0/0
-</span><span class='line'>nova secgroup-add-rule default icmp -1 -1 0.0.0.0/0</span></code></pre></td></tr></table></div></figure>
+```
+nova secgroup-add-rule default tcp 22 22 0.0.0.0/0
+nova secgroup-add-rule default icmp -1 -1 0.0.0.0/0
+```
 </li>
 
 <li>Make sure that both VMs are up and running.
 
-<figure class='code'><figcaption><span>nova list</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-</span><span class='line'><span class="p">|</span> ID                                   <span class="p">|</span> Name <span class="p">|</span> Status <span class="p">|</span> Task State <span class="p">|</span> Power State <span class="p">|</span> Networks                         <span class="p">|</span>
-</span><span class='line'>+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-</span><span class='line'><span class="p">|</span> 92263ae8-43d1-4cd0-b271-2b11f0efbe7f <span class="p">|</span> VM1  <span class="p">|</span> ACTIVE <span class="p">|</span> -          <span class="p">|</span> Running     <span class="p">|</span> NET-BLUE<span class="o">=</span>10.0.0.12, 169.254.0.55 <span class="p">|</span>
-</span><span class='line'><span class="p">|</span> b4562f24-2461-49fb-875b-fa1bf869dc4a <span class="p">|</span> VM2  <span class="p">|</span> ACTIVE <span class="p">|</span> -          <span class="p">|</span> Running     <span class="p">|</span> NET-RED<span class="o">=</span>10.0.1.4                 <span class="p">|</span>
-</span><span class='line'>+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-</span></code></pre></td></tr></table></div></figure>
+```bash nova list
++--------------------------------------+------+--------+------------+-------------+----------------------------------+
+| ID                                   | Name | Status | Task State | Power State | Networks                         |
++--------------------------------------+------+--------+------------+-------------+----------------------------------+
+| 92263ae8-43d1-4cd0-b271-2b11f0efbe7f | VM1  | ACTIVE | -          | Running     | NET-BLUE=10.0.0.12, 169.254.0.55 |
+| b4562f24-2461-49fb-875b-fa1bf869dc4a | VM2  | ACTIVE | -          | Running     | NET-RED=10.0.1.4                 |
++--------------------------------------+------+--------+------------+-------------+----------------------------------+
+```
 </li>
 </ol>
 
@@ -1209,7 +1164,7 @@ openstack server add floating ip VM3 169.254.0.53
 
 <p>Using the technique described in my <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">earlier post</a> I&rsquo;ve collected the dynamically allocated port numbers and created a physical representation of our virtual network.</p>
 
-<p><img class="center" src="/images/dvr-before.png"></p>
+<p>{% img center /images/dvr-before.png %}</p>
 
 <p>For the sake of brevity I will omit the verification commands. The traffic flow between VM1 and VM2 will follow the standard path that I&rsquo;ve explored in my <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">native Neutron SDN post</a>.<br/>
 It is obvious that in this case traffic flows are suboptimal. Instead of going directly between the peer compute nodes, the packet has to hairpin through a Neutron router. This adds to the end-to-end latency and creates unnecessary load on the Network node. These are one of the main reasons why Distributed Virtual Routing was introduced in OpenStack Juno.</p>
@@ -1218,25 +1173,23 @@ It is obvious that in this case traffic flows are suboptimal. Instead of going d
 
 <p>Enabling DVR requires configuration changes of multiple files on all OpenStack nodes. At a high level, all compute nodes will now run Neutron&rsquo;s L3-agent service which will be responsible for provisioning of DVR and other auxiliary namespaces. The details of specific configuration options that need to be enabled can be found in the official OpenStack <a href="http://docs.openstack.org/mitaka/networking-guide/scenario-dvr-ovs.html">Networking guide</a>. As usual, I&rsquo;ve incorporated all the necessary changes into a single Chef <a href="https://github.com/networkop/chef-unl-os/tree/master/cookbooks/neutron">cookbook</a>, so in order to enable DVR in our lab all what you need to do is run the following commands from the UNetLab VM:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>git pull origin master
-</span><span class='line'>chef-client -z -E lab neutron.rb
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+git pull origin master
+chef-client -z -E lab neutron.rb
+{% endcodeblock %}</p>
 
 <p>Once all changes has been made, we need to either create a new router or update the existing one to enable the DVR functionality:</p>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>neutron router-update <span class="p">&amp;</span>ndash<span class="p">;</span>admin-state-up False <span class="p">&amp;</span>ndash<span class="p">;</span>distributed True R1
-</span><span class='line'>neutron router-update <span class="p">&amp;</span>ndash<span class="p">;</span>admin-state-up True R1
-</span></code></pre></td></tr></table></div></figure></p>
+<p>{% codeblock lang:bash %}
+neutron router-update &ndash;admin-state-up False &ndash;distributed True R1
+neutron router-update &ndash;admin-state-up True R1
+{% endcodeblock %}</p>
 
 <h2>DVR East-West traffic flow</h2>
 
 <p>Now let&rsquo;s see how the traffic flows have changed with the introduction of DVR.</p>
 
-<p><img class="center" src="/images/dvr-ew.png"></p>
+<p>{% img center /images/dvr-ew.png %}</p>
 
 <p>We&rsquo;re going to be examining the following traffic flow:</p>
 
@@ -1319,7 +1272,7 @@ OpenFlow actions=goto_table:4
 
 <h3>Case 1 - Overload NAT (VM2 with no FIP)</h3>
 
-<p><img class="center" src="/images/dvr-snat.png"></p>
+<p>{% img center /images/dvr-snat.png %}</p>
 
 <p>External connectivity for VMs with no floating IP is still performed by the Network node. This time however, NATing is performed by a new element - SNAT namespace. As per the normal behaviour, VM2 will send a packet to its default gateway first. Let&rsquo;s have a closer look at the routing table of the DVR:</p>
 
@@ -1393,7 +1346,7 @@ OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0xb9be3fe6292
 
 <h3>Case 2 - Static NAT (VM1 with FIP)</h3>
 
-<p><img class="center" src="/images/dvr-dnat.png"></p>
+<p>{% img center /images/dvr-dnat.png %}</p>
 
 <p>The first step in this scenario is the same - VM1 sends a packet to the MAC address of its default gateway. As before, the default route is missing in the main routing table.</p>
 

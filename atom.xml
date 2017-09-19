@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-15T14:25:41+01:00</updated>
+  <updated>2017-09-19T16:17:17+01:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -44,6 +44,28 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 <p><img class="center" src="http://networkop.github.io/images/sfc-overview.png"></p>
 
 <p>One important property of a SF is elasticity. More instances of the same type can be added to a pool of SF and SFF will load-balance the traffic between them. This is the reason why, as we&rsquo;ll see in the next section, SFF treats connections to a SF as a group of ports rather than just a single port.</p>
+
+<h2>Insertion modes and implementation models</h2>
+
+<p>In legacy, pre-SDN environments SFs had no idea if they were a part of a service chain and network devices (routers and switches) had to &ldquo;insert&rdquo; the interesting traffic into the service function using one of the following two modes:</p>
+
+<ul>
+<li><p><strong>L2 mode</strong> is when SF is physically inserted between the source and destination inside a single broadcast domain, so traffic flows through a SF without any intervention from a switch. Example of this mode could be a firewall in transparent mode, physically connected between a switch and a default gateway router. All packets entering a SF have their original source and destination MAC addresses, which requires SF to be in promiscuous mode.</p></li>
+<li><p><strong>L3 mode</strong> is when a router overrides its default destination-based forwarding and redirects the interesting traffic to a SF. In legacy networks this could have been achieved with PBR or WCCP. In this case SF needs to be L2-attached to a router and all redirected packets have their destination MAC updated to that of a SF&rsquo;s ingress interface.</p></li>
+</ul>
+
+
+<p>Modern SDN networks make it really easy to modify forwarding behaviour of network elements, both physical and virtual. There is no need for policy-based routing or bump-in-the-wire designs anymore. When flow needs to be redirected to a SF on a virtual switch, all what&rsquo;s required is a matching OpenFlow entry with a high enough priority. However redirecting traffic to a SF is just one part of the problem. Another part is how to make SFs smarter, to provide greater visibility of end-to-end service function path.</p>
+
+<p>So far SFs have only been able to extract metadata from the packet itself. This limited the flexibility of SF logic and became computationally expensive in case many SFs need to access some L7 header information. Ideal way would be to have an additional header which can be used to read and write arbitrary information and pass it along the service function chain. RFC7665 defines requirements for &ldquo;SFC Encapsulation&rdquo; header which can be used to uniquely identify an instance of a chain as well as share metadata between all its elements. Neutron API refers to SFC encapsulation as <em>correlation</em> since its primary function is to identify a particular service function path. There are two implementations of SFC encapsulation in use today:</p>
+
+<ul>
+<li><strong>MPLS</strong> - used by current OVS agent driver (as of Pike). This method does not provide any means to share metadata and serves only for SFP identification. It is intended as an interim solution until NSH becomes available upstream in OVS.</li>
+<li><strong>NSH</strong> - complete implementation of SFC encapsulation defined in RFC7665. This method is currently implemented in Opendaylight where NSH is used as a shim between VXLAN-GPE and the encapsulated packet</li>
+</ul>
+
+
+<p>It should be noted that the new approach with SFC encapsulation still allows for legacy, non-SFC-aware SFs to be chained. In this case SFC encapsulation is stripped off the packet by an &ldquo;SFC proxy&rdquo; before the packet is sent to the ingress port of a service function. All logical elements forming an SFC forwarding pipeline, including SFC proxy, Classifier and Forwarder, are implemented inside the same OVS bridges (br-int and br-tun) used by vanilla OVS-agent driver.</p>
 
 <h2>Configuring Neutron SFC</h2>
 
@@ -86,7 +108,7 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 </span></code></pre></td></tr></table></div></figure>
 
 
-<p>Next, we need create an ingress/egress port pair and assign it to a port pair group.</p>
+<p>Next, we need create an ingress/egress port pair and assign it to a port pair group. The default setting for <strong>correlation</strong> in a port pair (not shown) is <code>none</code>. That means that SFC encapsulation header (MPLS) will get stripped before the packet is sent to P1.</p>
 
 <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
 <span class='line-number'>2</span>
@@ -95,12 +117,19 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 </span></code></pre></td></tr></table></div></figure>
 
 
-<p>Finally, we can create a flow classifier for ICMP traffic coming from VM1&rsquo;s port P0 and tie it together with a previously created port pair group.</p>
+<p>Port pair group also allows to specify the L2-L4 headers which to use for load-balancing in OpenFlow groups, overriding the default behaviour described in the next section.</p>
+
+<p>Another required element is a flow classifier. We will be redirecting ICMP traffic coming from VM1&rsquo;s port P0</p>
 
 <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
 </pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc flow classifier create --protocol icmp --logical-source-port P0 FLOW-ICMP
-</span><span class='line'>openstack sfc port chain create --port-pair-group PPGROUP --flow-classifier FLOW-ICMP PCHAIN
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Finally, we can tie together flow classifier with a previously created port pair group. The default setting for <strong>correlation</strong> (not shown again) in this case is <code>mpls</code>. That means that each chain will have its own unique MPLS label to be used as an SFC encapsulation.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port chain create --port-pair-group PPGROUP --flow-classifier FLOW-ICMP PCHAIN
 </span></code></pre></td></tr></table></div></figure>
 
 
@@ -231,7 +260,7 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <h2>SFC implementation in OVS forwarding pipeline</h2>
 
-<p>There are several ways to implement SFC, each unique to its own domain. In service provider WAN it can be accomplished by Segment Routing, in DC underlay it can be done with PBR policies. When it comes to OVS there are two major implementations. One approach, implemented in Opendaylight, uses Network Service Header (NSH) as a shim between VXLAN-GPE and the encapsulated packet. The benefit of this approach is that each SF, as well as the sender, can read and write NSH&rsquo;s metadata, making the service function path more transparent. Another approach, currently implemented in ML2&rsquo;s OVS-agent, is based on MPLS header. The only element being affected in this case is the integration bridge. Refer to my <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">older post</a> about vanilla OpenStack networking for a refresher of the vanilla OVS-agent architecture.</p>
+<p>The only element being affected in our case (both VM1 and FW are on the same compute node) is the integration bridge. Refer to my <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">older post</a> about vanilla OpenStack networking for a refresher of the vanilla OVS-agent architecture.</p>
 
 <p>Normally, I would start by collecting all port and flow details from the integration bridge with the following commands:</p>
 
@@ -254,13 +283,24 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p><img class="center" src="http://networkop.github.io/images/sfc-after-tables.png"></p>
 
-<p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. This is where SF scale-out that I mentioned earlier is implemented. In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5.</p>
+<p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. By default OVS will use a combination of L2-L4 header as described <a href="http://docs.openvswitch.org/en/latest/faq/openflow/">here</a> to calculate a hash which determines the output bucket, similar to how per-flow load-balancing works in traditional routers and switches. This behaviour can be overridden with a specific set of headers in <code>lb_fields</code> setting of a port pair group.</p>
 
-<p>Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the next SF in the chain. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to all SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
+<p>In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5. Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the service function path. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
 
 <p><img class="center" src="http://networkop.github.io/images/sfc-after-packet.png"></p>
 
 <p>After being processed by a SF, the packet leaves the <code>egress</code> port and re-enters the integration bridge. This time table 0 knows that the packet has already been processed by a SF and, since the anti-spoofing rules have been disabled, simply floods the packet out of all ports in the same VLAN. The packet gets flooded to the tunnel bridge where it gets replicated and delivered to the <code>qrouter</code> sitting on the controller node as per the <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">default behaviour</a>.</p>
+
+<h2>Upcoming enhancements</h2>
+
+<p>SFC is a pretty vast topic and is still under active development. Some of the upcoming enhancement to the current implementation of SFC will include:</p>
+
+<ul>
+<li><strong>NSH</strong> header for SFC correlation</li>
+<li><strong>TAP</strong> functionality which can replace the separate Tap-as-a-service OpenStack project</li>
+<li><strong>Service graphs</strong> allowing multiple chains to be interconnected to create more complex service chain scenarios</li>
+</ul>
+
 
 <h2>Coming Up</h2>
 
