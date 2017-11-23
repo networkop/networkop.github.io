@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Unetlab | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/unetlab/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-19T16:17:42+01:00</updated>
+  <updated>2017-11-23T12:21:53+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -73,79 +73,119 @@ sed -ri 's/(.*ethernet.*) = 1/\1 = 8/' qfx_re.php
 
 <p>Once you&rsquo;ve done all the above changes, you should have a working vQFX 10k node available in UNL GUI. For the purpose of demonstration of EVPN features I&rsquo;ve created the following topology:</p>
 
-<p>{% img center /images/qfx-unl.png %}</p>
+<p><img class="center" src="/images/qfx-unl.png"></p>
 
 <h2>EVPN L2 and L3 services</h2>
 
 <p>EVPN standards define multiple routes types to distribute NLRI information across the network. The two most &ldquo;significant&rdquo; route types are 2 and 5. Type-2 NLRI was designed to carry the MAC (and optionally IP) address to VTEP IP binding information which is used to populate the dynamic MAC address table. This function, that was previously accomplished by a central SDN controller, is now performed in a scalable, standard-based, controller-independent fashion. <a href="http://www.juniper.net/documentation/en_US/junos16.1/topics/concept/evpn-route-type5-understanding.html">Type-5 NLRI</a> contains IP Prefix to VTEP IP mapping and is similar to the function of traditional L3 VPNs. In order to explore the capabilities of EVPN implementation on vQFX I&rsquo;ve created and artificial scenario with 3 virtual switches, 3 VLANs and 4 hosts.</p>
 
-<p>{% img center /images/qfx-lab.png %}</p>
+<p><img class="center" src="/images/qfx-lab.png"></p>
 
 <p>VLAN10 (green) is present on all 3 switches, VLAN20 (purple) is only configured on switches 1 and 2 and VLAN88 (red) only exists on SW3. I&rsquo;ve provided configuration snippets below for reference purposes only and only for SW1. Remaining switches are configured similarly.</p>
 
 <h3>Configuring Basic IP and BGP setup</h3>
 
-<p>{% codeblock lang:bash %}
-set interfaces xe-0/0/0 unit 0 family inet address 12.12.12.1/24
-set interfaces xe-0/0/2 unit 0 family inet address 13.13.13.1/24
-set interfaces lo0 unit 0 family inet address 99.99.99.1/32
-set routing-options static route 99.99.99.2/32 next-hop 12.12.12.2
-set routing-options static route 99.99.99.3/32 next-hop 13.13.13.3</p>
-
-<p>set routing-options router-id 99.99.99.1
-set routing-options autonomous-system 555</p>
-
-<p>set routing-options autonomous-system 555
-set protocols bgp group EVPN type internal
-set protocols bgp group EVPN local-address 99.99.99.1
-set protocols bgp group EVPN family evpn signaling
-set protocols bgp group EVPN neighbor 99.99.99.2
-set protocols bgp group EVPN neighbor 99.99.99.3
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>interfaces xe-0/0/0 unit <span class="m">0</span> family inet address 12.12.12.1/24
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/2 unit <span class="m">0</span> family inet address 13.13.13.1/24
+</span><span class='line'><span class="nb">set </span>interfaces lo0 unit <span class="m">0</span> family inet address 99.99.99.1/32
+</span><span class='line'><span class="nb">set </span>routing-options static route 99.99.99.2/32 next-hop 12.12.12.2
+</span><span class='line'><span class="nb">set </span>routing-options static route 99.99.99.3/32 next-hop 13.13.13.3&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set routing-options router-id 99.99.99.1
+</span><span class='line'><span class="nb">set </span>routing-options autonomous-system 555&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set routing-options autonomous-system 555
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN <span class="nb">type </span>internal
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN <span class="nb">local</span>-address 99.99.99.1
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN family evpn signaling
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN neighbor 99.99.99.2
+</span><span class='line'><span class="nb">set </span>protocols bgp group EVPN neighbor 99.99.99.3
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h3>Configuring End-host connectivity and IRB</h3>
 
-<p>{% codeblock lang:bash %}
-set vlans BD5010 vlan-id 10
-set vlans BD5010 l3-interface irb.10
-set vlans BD5020 vlan-id 20
-set vlans BD5020 l3-interface irb.20
-set interfaces xe-0/0/1 unit 0 family ethernet-switching vlan members 10
-set interfaces xe-0/0/3 unit 0 family ethernet-switching vlan members 20
-set interfaces irb unit 10 family inet address 10.0.0.254/24
-set interfaces irb unit 20 family inet address 20.0.0.254/24
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>vlans BD5010 vlan-id 10
+</span><span class='line'><span class="nb">set </span>vlans BD5010 l3-interface irb.10
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vlan-id 20
+</span><span class='line'><span class="nb">set </span>vlans BD5020 l3-interface irb.20
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/1 unit <span class="m">0</span> family ethernet-switching vlan members 10
+</span><span class='line'><span class="nb">set </span>interfaces xe-0/0/3 unit <span class="m">0</span> family ethernet-switching vlan members 20
+</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">10</span> family inet address 10.0.0.254/24
+</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">20</span> family inet address 20.0.0.254/24
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h3>Configuring L2 EVPN services</h3>
 
-<p>{% codeblock lang:bash %}
-set protocols evpn encapsulation vxlan
-set protocols evpn extended-vni-list all
-set protocols evpn multicast-mode ingress-replication</p>
-
-<p>set switch-options vtep-source-interface lo0.0
-set switch-options route-distinguisher 555:0
-set switch-options vrf-target target:555:123</p>
-
-<p>set vlans BD5010 vxlan vni 5010
-set vlans BD5010 vxlan ingress-node-replication
-set vlans BD5020 vxlan vni 5020
-set vlans BD5020 vxlan ingress-node-replication
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>protocols evpn encapsulation vxlan
+</span><span class='line'><span class="nb">set </span>protocols evpn extended-vni-list all
+</span><span class='line'><span class="nb">set </span>protocols evpn multicast-mode ingress-replication&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set switch-options vtep-source-interface lo0.0
+</span><span class='line'><span class="nb">set </span>switch-options route-distinguisher 555:0
+</span><span class='line'><span class="nb">set </span>switch-options vrf-target target:555:123&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set vlans BD5010 vxlan vni 5010
+</span><span class='line'><span class="nb">set </span>vlans BD5010 vxlan ingress-node-replication
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vxlan vni 5020
+</span><span class='line'><span class="nb">set </span>vlans BD5020 vxlan ingress-node-replication
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h3>Configuring L3 EVPN service</h3>
 
-<p>{% codeblock lang:bash %}
-set routing-instances EVPN-VRF instance-type vrf
-set routing-instances EVPN-VRF interface irb.10
-set routing-instances EVPN-VRF interface irb.20
-set routing-instances EVPN-VRF interface lo0.10
-set routing-instances EVPN-VRF route-distinguisher 555:1
-set routing-instances EVPN-VRF vrf-target target:123:5055
-set routing-instances EVPN-VRF protocols evpn ip-prefix-routes advertise direct-nexthop
-set routing-instances EVPN-VRF protocols evpn ip-prefix-routes encapsulation vxlan
-set routing-instances EVPN-VRF protocols evpn ip-prefix-routes vni 5555
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF instance-type vrf
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface irb.10
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface irb.20
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF interface lo0.10
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF route-distinguisher 555:1
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF vrf-target target:123:5055
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes advertise direct-nexthop
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes encapsulation vxlan
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-VRF protocols evpn ip-prefix-routes vni 5555
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>Traffic flow overview</h2>
 
@@ -265,7 +305,7 @@ VRF info: (vrf in name/id, vrf out name/id)
 
 <p>All the above requirements and assumptions result in the following topology that we need to build inside UNetLab:</p>
 
-<p>{% img center /images/neutron-native.png %}</p>
+<p><img class="center" src="/images/neutron-native.png"></p>
 
 <p>For servers I&rsquo;ll be using OpenStack node type that I&rsquo;ve described in my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a>. The two compute nodes do not need as much RAM as the control node, so I&rsquo;ll reduce it to just 2GB.</p>
 
@@ -411,7 +451,7 @@ VLAN=yes
 <!--more-->
 
 
-<p>{% img center /images/unl-os.png %}</p>
+<p><img class="center" src="/images/unl-os.png"></p>
 
 <h2>What the hell am I trying to do?</h2>
 
@@ -436,26 +476,30 @@ VLAN=yes
 <ol>
 <li><p>Add Openstack node definition to initialization file <code>/opt/unetlab/html/includes/init.php</code>.</p>
 
-<p> {% codeblock lang:php   %}
- &lsquo;linux&rsquo;                 =>      &lsquo;Linux&rsquo;,
- &lsquo;openstack&rsquo;             =>      &lsquo;Openstack&rsquo;,
- &lsquo;mikrotik&rsquo;              =>      &lsquo;MikroTik RouterOS&rsquo;,
- {% endcodeblock  %}</p></li>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='php'><span class='line'> <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">linux</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;</span>                 <span class="o">=&gt;</span>      <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">Linux</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;,</span>
+</span><span class='line'> <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">openstack</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;</span>             <span class="o">=&gt;</span>      <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">Openstack</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;,</span>
+</span><span class='line'> <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">mikrotik</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;</span>              <span class="o">=&gt;</span>      <span class="o">&amp;</span><span class="nx">lsquo</span><span class="p">;</span><span class="nx">MikroTik</span> <span class="nx">RouterOS</span><span class="o">&amp;</span><span class="nx">rsquo</span><span class="p">;,</span>
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Create a new Openstack node template based on existing linux node template.</p>
 
-<p>{% codeblock lang:bash   %}
-$ cp /opt/unetlab/html/templates/linux.php /opt/unetlab/html/templates/openstack.php
-{% endcodeblock  %}</p></li>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>cp /opt/unetlab/html/templates/linux.php /opt/unetlab/html/templates/openstack.php
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Edit the template file replacing all occurences of &lsquo;Linux&rsquo; with &lsquo;Openstack&rsquo;</p>
 
-<p>{% codeblock lang:bash   %}
-$ sed -i &rsquo;s/Linux/Openstack/g; s/linux/openstack/g' /opt/unetlab/html/templates/openstack.php
-{% endcodeblock  %}</p></li>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sed -i <span class="p">&amp;</span>rsquo<span class="p">;</span>s/Linux/Openstack/g<span class="p">;</span> s/linux/openstack/g<span class="err">&#39;</span> /opt/unetlab/html/templates/openstack.php
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Edit the template file to double the RAM and CPU and pass all host&rsquo;s CPU instructions to Openstack nodes</p>
 
-<p>{% codeblock lang:bash   %}
-$ sed -i &rsquo;s/2048/4096/; s/(cpu.*) = 1/\1 = 2/; s/(order=)dc/\1cd -cpu host/&lsquo; /opt/unetlab/html/templates/openstack.php
-{% endcodeblock  %}</p></li>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sed -i <span class="p">&amp;</span>rsquo<span class="p">;</span>s/2048/4096/<span class="p">;</span> s/<span class="o">(</span>cpu.*<span class="o">)</span> <span class="o">=</span> 1/<span class="se">\1</span> <span class="o">=</span> 2/<span class="p">;</span> s/<span class="o">(</span><span class="nv">order</span><span class="o">=)</span>dc/<span class="se">\1</span>cd -cpu host/<span class="p">&amp;</span>lsquo<span class="p">;</span> /opt/unetlab/html/templates/openstack.php
+</span></code></pre></td></tr></table></div></figure></p></li>
 </ol>
 
 
@@ -469,19 +513,21 @@ The other option is to build CentOS inside UNL from scratch. This is how you can
 <ol>
 <li><p>Create a new directory for Openstack image</p>
 
-<p> {% codeblock lang:bash   %}
- $ mkdir -p /opt/unetlab/addons/qemu/openstack-1
- {% endcodeblock  %}</p></li>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>mkdir -p /opt/unetlab/addons/qemu/openstack-1
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Create a link to CentOS ISO boot image from our new directory</p>
 
-<p>{% codeblock lang:bash   %}
-$ ln -s ~/CentOS-7-x86_64-Minimal-1511.iso /opt/unetlab/addons/qemu/openstack-1/cdrom.iso
-{% endcodeblock  %}</p></li>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ln -s ~/CentOS-7-x86_64-Minimal-1511.iso /opt/unetlab/addons/qemu/openstack-1/cdrom.iso
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Create a blank 6Gb disk image</p>
 
-<p>{% codeblock lang:bash   %}
-$ /opt/qemu/bin/qemu-img create -f qcow2 -o preallocation=metadata /opt/unetlab/addons/qemu/openstack-1/virtioa.qcow2 6G
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>/opt/qemu/bin/qemu-img create -f qcow2 -o <span class="nv">preallocation</span><span class="o">=</span>metadata /opt/unetlab/addons/qemu/openstack-1/virtioa.qcow2 6G
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>If you want to create <strong>snapshots</strong> at any stage of the process you&rsquo;d need to use a copy of this file under /opt/unetlab/tmp/pod_id/lab_uuid/node_id/ directory</p></li>
 </ol>
@@ -497,18 +543,22 @@ So instead of mucking around with <strong>Ultra</strong> I decided to give me ol
 <ol>
 <li><p>The wrapper file simply strips the leading &lsquo;vnc://&rsquo; and trailing &lsquo;/&rsquo; off the passed argument</p>
 
-<p>{% codeblock lang:winbatch   %}
-SET arg=%1
-SET arg=%arg:~6%
-SET arg=%arg:~0,-1%
-start &ldquo;&rdquo; &ldquo;c:\Program Files\TightVNC\tvnviewer.exe&rdquo; %arg%
-{% endcodeblock  %}</p></li>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='winbatch'><span class='line'><span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%1</span>
+</span><span class='line'><span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%arg:~6%</span>
+</span><span class='line'><span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%arg:~0</span><span class="p">,</span><span class="m">-1</span>%
+</span><span class='line'>start &amp;ldquo;&amp;rdquo; &amp;ldquo;c:\Program Files\TightVNC\tvnviewer.exe&amp;rdquo; <span class="nv">%arg%</span>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>The registry entry now points to the TightVNC wrapper</p>
 
-<p>{% codeblock lang:registry   %}
-[HKEY_CLASSES_ROOT\vnc\shell\open\command]
-@=&ldquo;\"c:\Program Files\TightVNC\wrapper.bat\&rdquo; %1"
-{% endcodeblock  %}</p></li>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='registry'><span class='line'><span class="k">[</span><span class="nb">HKEY_CLASSES_ROOT</span><span class="k">\vnc\shell\open\command]</span>
+</span><span class='line'><span class="na">@</span><span class="o">=</span><span class="s">&amp;ldquo;\&quot;c:\Program Files\TightVNC\wrapper.bat\&amp;rdquo; %1&quot;</span>
+</span></code></pre></td></tr></table></div></figure></p></li>
 </ol>
 
 
@@ -520,60 +570,93 @@ As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all
 <ol>
 <li><p>Disable Network Manager and SELinux.</p>
 
-<p> {% codeblock lang:bash   %}
- $ service NetworkManager stop
- $ systemctl disable NetworkManager.service
- $ setenforce 0
- $ sed -i &rsquo;s/enforcing/permissive/&lsquo; /etc/selinux/config
- {% endcodeblock  %}</p></li>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>service NetworkManager stop
+</span><span class='line'> <span class="nv">$ </span>systemctl disable NetworkManager.service
+</span><span class='line'> <span class="nv">$ </span>setenforce 0
+</span><span class='line'> <span class="nv">$ </span>sed -i <span class="p">&amp;</span>rsquo<span class="p">;</span>s/enforcing/permissive/<span class="p">&amp;</span>lsquo<span class="p">;</span> /etc/selinux/config
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Configure static IP address <code>192.168.91.10</code> on the network interface. <br/>
  Assuming your interface name is <code>eth0</code> make sure you /etc/sysconfig/network-scripts/ifcfg-eth0 looks something like this:</p>
 
-<p> {% codeblock lang:bash   %}
- TYPE=&ldquo;Ethernet&rdquo;
- BOOTPROTO=&ldquo;static&rdquo;
- IPADDR=192.168.91.10
- PREFIX=24
- GATEWAY=192.168.91.2
- DNS1=192.168.91.2
- NAME=&ldquo;eth0&rdquo;
- DEVICE=&ldquo;eth0&rdquo;
- ONBOOT=&ldquo;yes&rdquo;<br/>
- {% endcodeblock  %}</p>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">TYPE</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>Ethernet<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'> <span class="nv">BOOTPROTO</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>static<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'> <span class="nv">IPADDR</span><span class="o">=</span>192.168.91.10
+</span><span class='line'> <span class="nv">PREFIX</span><span class="o">=</span>24
+</span><span class='line'> <span class="nv">GATEWAY</span><span class="o">=</span>192.168.91.2
+</span><span class='line'> <span class="nv">DNS1</span><span class="o">=</span>192.168.91.2
+</span><span class='line'> <span class="nv">NAME</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>eth0<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'> <span class="nv">DEVICE</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>eth0<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'> <span class="nv">ONBOOT</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>yes<span class="p">&amp;</span>rdquo<span class="p">;</span>&lt;br/&gt;
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p> Issue a <code>service network restart</code> and reconnect to the new static IP address. Make sure that you still have access to Internet after making this change.</p></li>
 <li><p>Setup RDO repositories</p>
 
-<p> {% codeblock lang:bash   %}
- $ sudo yum install -y <a href="https://rdoproject.org/repos/rdo-release.rpm">https://rdoproject.org/repos/rdo-release.rpm</a>
- {% endcodeblock  %}</p></li>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>sudo yum install -y &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://rdoproject.org/repos/rdo-release.rpm&quot;</span>&gt;https://rdoproject.org/repos/rdo-release.rpm&lt;/a&gt;
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Update your current packages</p>
 
-<p> {% codeblock lang:bash   %}
- $ sudo yum update -y
- {% endcodeblock  %}</p></li>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>sudo yum update -y
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Install Packstack</p>
 
-<p> {% codeblock lang:bash   %}
- $ sudo yum install -y openstack-packstack
- {% endcodeblock  %}</p>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>sudo yum install -y openstack-packstack
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p> That&rsquo;s where it&rsquo;d make sense to take a snapshot with <code>qemu-img snapshot -c pre-install virtioa.qcow2</code> command</p></li>
 <li><p>Deploy a single-node Openstack environment</p>
 
-<p> {% codeblock lang:bash   %}
- $ packstack --allinone \
- --os-cinder-install=n \
- --os-ceilometer-install=n \
- --os-trove-install=n \
- --os-ironic-install=n \
- --nagios-install=n \
- --os-swift-install=n \
- --os-neutron-ovs-bridge-mappings=extnet:br-ex \
- --os-neutron-ovs-bridge-interfaces=br-ex:eth0 \
- --os-neutron-ml2-type-drivers=vxlan,flat \
- --provision-demo=n
- {% endcodeblock  %}</p>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span>packstack --allinone <span class="se">\</span>
+</span><span class='line'> --os-cinder-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'> --os-ceilometer-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'> --os-trove-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'> --os-ironic-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'> --nagios-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'> --os-swift-install<span class="o">=</span>n <span class="se">\</span>
+</span><span class='line'> --os-neutron-ovs-bridge-mappings<span class="o">=</span>extnet:br-ex <span class="se">\</span>
+</span><span class='line'> --os-neutron-ovs-bridge-interfaces<span class="o">=</span>br-ex:eth0 <span class="se">\</span>
+</span><span class='line'> --os-neutron-ml2-type-drivers<span class="o">=</span>vxlan,flat <span class="se">\</span>
+</span><span class='line'> --provision-demo<span class="o">=</span>n
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p> Here we&rsquo;re overriding some of the default Packstack options. We&rsquo;re not installing some of the components we&rsquo;re not going to use and setting up a name (<strong>extnet</strong>) for our external physical segment, which we&rsquo;ll use in the next section.</p></li>
 </ol>
@@ -585,46 +668,66 @@ As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all
 
 <p>At this stage we need to setup virtual networking infrastructure inside Openstack. This will be almost the same as described in RDO&rsquo;s external network <a href="https://www.rdoproject.org/networking/neutron-with-existing-external-network/">setup guide</a>. The only exceptions will be the <a href="https://www.rdoproject.org/networking/difference-between-floating-ip-and-private-ip/">floating IP range</a>, which will match our existing environment, and the fact that we&rsquo;re no going to setup any additional tenants yet. This is how our topology will look like:</p>
 
-<p>{% img center /images/os-net-1.png %}</p>
+<p><img class="center" src="/images/os-net-1.png"></p>
 
 <ol>
 <li><p>Switch to Openstack&rsquo;s <code>admin</code> user
- {% codeblock lang:bash   %}
- $ source ~/keystonerc_admin
- {% endcodeblock  %}</p></li>
+ <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> <span class="nv">$ </span><span class="nb">source</span> ~/keystonerc_admin
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Create external network
- {% codeblock lang:bash   %}
- neutron net-create external_network --provider:network_type flat \
- --provider:physical_network extnet  \
- --router:external \
- --shared
- {% endcodeblock  %}</p></li>
+ <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> neutron net-create external_network --provider:network_type flat <span class="se">\</span>
+</span><span class='line'> --provider:physical_network extnet  <span class="se">\</span>
+</span><span class='line'> --router:external <span class="se">\</span>
+</span><span class='line'> --shared
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>Create a public subnet</p>
 
-<p> {% codeblock lang:bash   %}
- neutron subnet-create --name public_subnet \
- --enable_dhcp=False \
- --allocation-pool=start=192.168.91.90,end=192.168.91.126 \
- --gateway=192.168.91.2 external_network 192.168.91.0/24
- {% endcodeblock  %}</p>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> neutron subnet-create --name public_subnet <span class="se">\</span>
+</span><span class='line'> --enable_dhcp<span class="o">=</span>False <span class="se">\</span>
+</span><span class='line'> --allocation-pool<span class="o">=</span><span class="nv">start</span><span class="o">=</span>192.168.91.90,end<span class="o">=</span>192.168.91.126 <span class="se">\</span>
+</span><span class='line'> --gateway<span class="o">=</span>192.168.91.2 external_network 192.168.91.0/24
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p> Default gateway is VMware&rsquo;s NAT IP address</p></li>
 <li><p>Create a private network and subnet</p>
 
-<p> {% codeblock lang:bash   %}
- neutron net-create private_network
- neutron subnet-create --name private_subnet private_network 10.0.0.0/24 \
- --dns-nameserver 8.8.8.8
- {% endcodeblock  %}</p>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> neutron net-create private_network
+</span><span class='line'> neutron subnet-create --name private_subnet private_network 10.0.0.0/24 <span class="se">\</span>
+</span><span class='line'> --dns-nameserver 8.8.8.8
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>  This network is not routable outside of Openstack and is used for inter-VM communication</p></li>
 <li><p>Create a virtual router and attach it to both networks</p>
 
-<p> {% codeblock lang:bash   %}
- neutron router-create router
- neutron router-gateway-set router external_network
- neutron router-interface-add router private_subnet
- {% endcodeblock  %}</p></li>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> neutron router-create router
+</span><span class='line'> neutron router-gateway-set router external_network
+</span><span class='line'> neutron router-interface-add router private_subnet
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 </ol>
 
 
@@ -637,13 +740,19 @@ As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all
 <ol>
 <li><p>Download a test linux image</p>
 
-<p> {% codeblock lang:bash   %}
- curl <a href="http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img">http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img</a> | glance \
- image-create --name=&lsquo;cirros image&rsquo; \
- --visibility=public \
- --container-format=bare \
- --disk-format=qcow2
- {% endcodeblock  %}</p></li>
+<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> curl &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img&quot;</span>&gt;http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img&lt;/a&gt; <span class="p">|</span> glance <span class="se">\</span>
+</span><span class='line'> image-create --name<span class="o">=</span><span class="p">&amp;</span>lsquo<span class="p">;</span>cirros image<span class="p">&amp;</span>rsquo<span class="p">;</span> <span class="se">\</span>
+</span><span class='line'> --visibility<span class="o">=</span>public <span class="se">\</span>
+</span><span class='line'> --container-format<span class="o">=</span>bare <span class="se">\</span>
+</span><span class='line'> --disk-format<span class="o">=</span>qcow2
+</span><span class='line'>
+</span></code></pre></td></tr></table></div></figure></p></li>
 <li><p>From Horizon&rsquo;s home page navigate to Project -> Compute -> Images.</p></li>
 <li><p>Click on <code>Launch Instance</code> and give the new VM a name.</p></li>
 <li><p>Make sure it&rsquo;s attached to <code>private_network</code> under the Networking tab.</p></li>
@@ -674,7 +783,7 @@ As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all
 
 <p>In the <a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">previous post</a> we have learned how to create a Node. To perform further actions on it we need to know it&rsquo;s UUID. According to HTTP specification <code>201 - Created</code> response SHOULD return a <code>Location</code> header with resource URI, which would contain resource UUID. However, UNetLab&rsquo;s implementation does not return a Location header so we need to extract that information ourselves. To do that we&rsquo;ll use the previously defined <code>.get_nodes()</code> method which returns all attributes of all configured Nodes in the following format:</p>
 
-<p>{% img centre /images/rest-unl-get-nodes.png REST SDK GET ALL NODES %}</p>
+<p><img class="centre" src="/images/rest-unl-get-nodes.png" title="REST SDK GET ALL NODES" ></p>
 
 <p>The best place to extract UUID would be when Node is being created. After the <code>Create</code> request has been sent to a server we&rsquo;ll send another <code>Read</code> request and extract all attributes of a Node based on its name.</p>
 
@@ -875,7 +984,7 @@ def send_and_wait(session, text):
 
 <p>At this stage we&rsquo;ve got all the code to finish our sample app. The goal is to create and configure the following 3-node topology:</p>
 
-<p>{% img centre /images/rest-sample-app.png REST SDK SAMPLE TOPO %}</p>
+<p><img class="centre" src="/images/rest-sample-app.png" title="REST SDK SAMPLE TOPO" ></p>
 
 <p>We&rsquo;ll assume that all configs will be stored as text files under the <code>./config</code> directory and will have device names as their filename. A helper function <code>read_file</code> will read the contents of a configuration text file into a Python string.</p>
 
@@ -953,7 +1062,7 @@ def app_1():
 
 <p>All these objects and their relationships are depicted on the following simplified <abbr title="Unified Modeling Language">UML</abbr> diagram. If you&rsquo;re interested in what different connections mean you can read <a href="http://www.codeproject.com/Articles/618/OOP-and-UML">this guide</a>.</p>
 
-<p>{% img centre /images/rest-oop-design.png REST SDK UML Diagram %}</p>
+<p><img class="centre" src="/images/rest-oop-design.png" title="REST SDK UML Diagram" ></p>
 
 <p>Here I&rsquo;ve used inheritance to <em>extend</em> RestServer functionality to make a UnlServer. This makes sense because UnlServer object will re-use a lot of the methods from the RestServer. I could have combined them in a single object but I&rsquo;ve decided to split the application-agnostic bit into a separate component to allow it to be re-used by other RESTful clients in the future.</p>
 

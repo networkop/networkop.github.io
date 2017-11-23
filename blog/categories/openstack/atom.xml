@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Openstack | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/openstack/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-19T16:17:42+01:00</updated>
+  <updated>2017-11-23T12:21:53+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,419 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - NFV Management and Orchestration]]></title>
+    <link href="http://networkop.github.io/blog/2017/11/23/os-nfv-mano/"/>
+    <updated>2017-11-23T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2017/11/23/os-nfv-mano</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll have a brief look at the NFV MANO framework developed by ETSI and create a simple vIDS network service using Tacker.</p>
+
+<!--more-->
+
+
+<p>In the ongoing hysteria surrounding all things SDN, one important thing gets often overlooked. You don&rsquo;t build SDN for its own sake. SDN is just a little cog in a big machine called &ldquo;cloud&rdquo;. To take it even further, I would argue that the best SDN solution is the one that you don&rsquo;t know even exists. Despite what the big vendors tell you, operators are not supposed to interact with SDN interface, be it GUI or CLI. If you dig up some of the earliest presentation about Cisco ACI, when the people talking about it were the actual people who designed the product, you&rsquo;ll notice one common motif being repeated over and over again. That is that ACI was never designed for direct human interaction, but rather was supposed to be configured by a higher level orchestrating system. In data center environments such orchestrating system may glue together services of virtualization layer and SDN layer to provide a seamless &ldquo;cloud&rdquo; experience to the end users. The focus of this post will be one incarnation of such orchestration system, specific to SP/Telco world, commonly known as NFV MANO.</p>
+
+<hr />
+
+<h2>NFV MANO for Telco SDN</h2>
+
+<p>At the early dawn of SDN/NFV era a lot of people got very excited by <strong>&ldquo;the promise&rdquo;</strong> and started applying the disaggregation and virtualization paradigms to all areas of networking. For Telcos that meant virtualizing network functions that built the service core of their networks - EPC, IMS, RAN. Traditionally those network functions were a collection of vertically-integrated baremetal appliances that took a long time to commission and had to be overprovisioned to cope with the peak-hour demand. Virtualizing them would have made it possible to achieve quicker time-to-market, elasticity to cope with a changing network demand and hardware/software disaggregation.</p>
+
+<p>As expected however, such fundamental change has to come at price. Not only do Telcos get a new virtualization platform to manage but they also need to worry about lifecycle management and end-to-end orchestration (MANO) of VNFs. Since any such change presents an opportunity for new streams of revenue, it didn&rsquo;t take long for vendors to jump on the bandwagon and start working on a new architecture designed to address those issues.</p>
+
+<p>The first problem was the easiest to solve since VMware and OpenStack already existed at that stage and could be used to host VNFs with very little modifications. The management and orchestration problem, however, was only partially solved by existing orchestration solutions. There were a lot of gaps between the current operational model and the new VNF world and although these problems could have been solved by Telcos engaging themselves with the open-source community, this proved to be too big of a change for them and they&rsquo;ve turned to the only thing they could trust - the standards bodies.</p>
+
+<h2>ETSI MANO</h2>
+
+<p>ETSI NFV MANO working group has set out to define a reference architecture for management and orchestration of virtualized resources in Telco data centers. The goal of NFV MANO initiative was to do a research into what&rsquo;s required to manage and orchestrate VNFs, what&rsquo;s currently available and identify potential gaps for other standards bodies to fill. Initial ETSI NFV Release 1 (2014) defined a base framework through relatively weak requirements and recommendations and was followed by Release 2 (2016) that made them more concrete by locking down the interfaces and data model specifications. For a very long time Release 1 was the only available NFV MANO standard, which led to a lot of inconsistencies in each vendors' implementations of it. This was very frustrating for Telcos since it required a lot of integration effort to build a multi-vendor MANO stack. Another potential issue with ETSI MANO standard is its limited scope - a lot of critical components like OSS and EMS are left outside of it which created a lot of confusion for Telcos and resulted in other standardisation efforts addressing those gaps.</p>
+
+<p>On the below diagram I have shown an adbridged version of the original ETSI MANO <a href="https://www.ietf.org/proceedings/88/slides/slides-88-opsawg-6.pdf">reference architecture diagram</a> adapted to the use case I&rsquo;ll be demonstrating in this post.</p>
+
+<p><img class="center" src="/images/etsi-mano.png"></p>
+
+<p>This architecture consists of the following building blocks:</p>
+
+<ul>
+<li><strong>NFVI</strong> (NFV Infrastructure) - OpenStacks compute or VMware&rsquo;s ESXI nodes</li>
+<li><strong>VIM</strong> (Virtual Infrastructure Manager) - OpenStack&rsquo;s controller/API or VMware&rsquo;s vCenter nodes</li>
+<li><strong>VNFM</strong> (VNF Manager) - an element responsible for lifecycle management (create,delete,scale) and monitoring of VNFs</li>
+<li><strong>NFVO</strong> (NFV Orchestrator) - an element responsible for lifecyle management of Network Services (described below)</li>
+</ul>
+
+
+<p>All these elements are working together towards a single goal - managing and orchestrating a Network Service (NS), which itself is comprised of multiple VNFs, Virtual Links (VLs), VNF Forwarding Graphs (VNFFGs) and Physical Network Functions (PNFs). In this post I create a NS for a simple virtual IDS use case, described in my previous <a href="/blog/2017/09/15/os-sfc-skydive/">SFC post</a>. The goal is to steer all ICMP traffic coming from VM1 through a vIDS VNF which will forward the traffic to its original destination.</p>
+
+<p><img class="center" src="/images/vids-created.png"></p>
+
+<p>Before I get to the implementation, let me give a quick overview of how a Network Service is build from its constituent parts, in the context of our vIDS use case.</p>
+
+<h2>Relationship between NS, VNF and VNFFG</h2>
+
+<p>According to ETSI MANO, a <strong>Network Service</strong> (NS) is a subset of end-to-end service implemented by VNFs and instantiated on the NFVI. As I&rsquo;ve mentioned before, some examples of a NS would be vEPC, vIMS or vCPE. NS can be described in either a YANG or a Tosca template called NS Descriptor (NSD). The main goal of a NSD is to tie together VNFs, VLs, VNFFGs and PNFs by defining relationship between various templates describing those objects (VNFDs, VLDs, VNFFGDs). Once NSD is onboarded (uploaded), it can be instantiated by NFVO, which communicates with VIM and VNFM to create the constituent components and stitch them together as described in a template. NSD normally does not contain VNFD or VNFFGD templates, but imports them through their names, which means that in order to instantiate a NSD, the corresponding VNFDs and VNFFGDs should already be onboarded.</p>
+
+<p><img class="center" src="/images/vids-nsd.png"></p>
+
+<p><strong>VNF Descriptor</strong> is a template describing the compute and network parameters of a single VNF. Each VNF consists of one or more VNF components (VNFCs), represented in Tosca as Virtual Deployment Units (VDUs). A VDU is the smallest part of a VNF and can be implemented as either a container or, as it is in our case, a VM. Apart from the usual set of parameters like CPU, RAM and disk, VNFD also describes all the virtual networks required for internal communication between VNFCs, called internal VLs. VNFM can ask VIM to create those networks when the VNF is being instantiated. VNFD also contains a reference to external networks, which are supposed to be created by NFVO. Those networks are used to connect different VNFs together or to connect VNFs to PNFs and other elements outside of NFVI platform. If external VLs are defined in a VNFD, VNFM will need to source them externally, either as input parameters to VNFM or from NFVO. In fact, VNF instantiation by VNFM, as described in Tacker <a href="https://docs.openstack.org/tacker/latest/user/vnfm_usage_guide.html">documentation</a>, is only used for testing purposes and since a VNF only makes sense as a part of a Network Service, the intended way is to use a NSD to instantiate all VNFs in production environment.</p>
+
+<p>The final component that we&rsquo;re going to use is VNF Forwarding Graph. <strong>VNFFG Descriptor</strong> is an optional component that describes how different VNFs are supposed to be chained together to form a Network Service. In the absence of VNFFG, VNFs will fall back to the default destination-based forwarding, when the IPs of VNFs forming a NS are either automatically discovered (e.g. through DNS) or provisioned statically. Tacker&rsquo;s implementation of VNFFG is not fully integrated with NSD yet and VNFFGD has to be instantiated separately and, as will be shown below, linked to an already running instance of a Network Service through its ID.</p>
+
+<h2>Using Tacker to orchestrate a Network Service</h2>
+
+<p>Tacker is an OpenStack project implementing a generic VNFM and NFVO. At the input it consumes Tosca-based templates, converts them to Heat templates which are then used to spin up VMs on OpenStack. This diagram from Brocade, the biggest Tacker contributor (at least until its acquisition), is the best overview of internal Tacker architecture.</p>
+
+<p><img class="center" src="/images/brocade-tacker.jpg"></p>
+
+<p>For this demo environment I&rsquo;ll keep using my OpenStack Kolla lab environment described in my <a href="/blog/2017/09/08/os-lab-docker/">previous post</a>.</p>
+
+<h3>Step 1 - VIM registration</h3>
+
+<p>Before we can start using Tacker, it needs to know how to reach the OpenStack environment, so the first step in the workflow is OpenStack or VIM registration. We need to provide the address of the keystone endpoint along with the admin credentials to give Tacker enough rights to create and delete VMs and SFC objects:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./vim.yaml
+</span><span class='line'>auth_url: <span class="p">&amp;</span>lsquo<span class="p">;</span>&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://192.168.133.254:35357/v3&quot;</span>&gt;http://192.168.133.254:35357/v3&lt;/a&gt;<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>username: <span class="p">&amp;</span>lsquo<span class="p">;</span>admin<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>password: <span class="p">&amp;</span>lsquo<span class="p">;</span>admin<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>project_name: <span class="p">&amp;</span>lsquo<span class="p">;</span>admin<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>project_domain_name: <span class="p">&amp;</span>lsquo<span class="p">;</span>Default<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>user_domain_name: <span class="p">&amp;</span>lsquo<span class="p">;</span>Default<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;tacker vim-register <span class="p">&amp;</span>ndash<span class="p">;</span>is-default <span class="p">&amp;</span>ndash<span class="p">;</span>config-file vim.yaml <span class="p">&amp;</span>ndash<span class="p">;</span>description MYVIM KOLLA-OPENSTACK
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The successful result can be checked with <code>tacker vim-list</code> which should report that registered VIM is now reachable.</p>
+
+<h3>Step 2 - Onboarding a VNFD</h3>
+
+<p>VNFD defines a set of VMs (VNFCs), network ports (CPs) and networks (VLs) and their relationship. In our case we have a single cirros-based VM with a pair of ingress/egress ports. In this template we also define a special node type <code>tosca.nodes.nfv.vIDS</code> which will be used by NSD to pass the required parameters for ingress and egress VLs. These parameters are going to be used by VNFD to attach network ports (CPs) to virtual networks (VLs) as defined in the <code>substitution_mappings</code> section.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+<span class='line-number'>56</span>
+<span class='line-number'>57</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./vnfd.yaml
+</span><span class='line'>tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
+</span><span class='line'>description: Cirros vIDS example&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;node_types:
+</span><span class='line'>  tosca.nodes.nfv.vIDS:
+</span><span class='line'>    requirements:
+</span><span class='line'>      - INGRESS_VL:
+</span><span class='line'>          <span class="nb">type</span>: tosca.nodes.nfv.VL
+</span><span class='line'>          required: <span class="nb">true</span>
+</span><span class='line'>      - EGRESS_VL:
+</span><span class='line'>          <span class="nb">type</span>: tosca.nodes.nfv.VL
+</span><span class='line'>          required: <span class="nb">true</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;topology_template:
+</span><span class='line'>  substitution_mappings:
+</span><span class='line'>    node_type: tosca.nodes.nfv.vIDS
+</span><span class='line'>    requirements:
+</span><span class='line'>      INGRESS_VL: <span class="o">[</span>CP1, virtualLink<span class="o">]</span>
+</span><span class='line'>      EGRESS_VL:  <span class="o">[</span>CP2, virtualLink<span class="o">]</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;  node_templates:
+</span><span class='line'>    VDU1:
+</span><span class='line'>      <span class="nb">type</span>: tosca.nodes.nfv.VDU.Tacker
+</span><span class='line'>      properties:
+</span><span class='line'>        availability_zone: nova
+</span><span class='line'>        flavor: m1.nano
+</span><span class='line'>        image: cirros
+</span><span class='line'>        mgmt_driver: noop
+</span><span class='line'>        user_data_format: RAW
+</span><span class='line'>        user_data: <span class="p">|</span>
+</span><span class='line'>          <span class="c">#!/bin/sh</span>
+</span><span class='line'>          sudo cirros-dhcpc up eth1
+</span><span class='line'>          sudo ip rule add iif eth0 table default
+</span><span class='line'>          sudo ip route add default via 10.0.0.1 dev eth1 table default
+</span><span class='line'>          sudo sysctl -w net.ipv4.ip_forward<span class="o">=</span>1&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;pre&gt;&lt;code&gt;CP1:
+</span><span class='line'>  <span class="nb">type</span>: tosca.nodes.nfv.CP.Tacker
+</span><span class='line'>  properties:
+</span><span class='line'>    anti_spoofing_protection: <span class="nb">false</span>
+</span><span class='line'><span class="nb">  </span>requirements:
+</span><span class='line'>    - virtualBinding:
+</span><span class='line'>        node: VDU1
+</span><span class='line'>
+</span><span class='line'>CP2:
+</span><span class='line'>  <span class="nb">type</span>: tosca.nodes.nfv.CP.Tacker
+</span><span class='line'>  properties:
+</span><span class='line'>    anti_spoofing_protection: <span class="nb">false</span>
+</span><span class='line'><span class="nb">  </span>requirements:
+</span><span class='line'>    - virtualBinding:
+</span><span class='line'>        node: VDU1
+</span><span class='line'>&lt;/code&gt;&lt;/pre&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;tacker vnfd-create <span class="p">&amp;</span>ndash<span class="p">;</span>vnfd-file vnfd.yaml vIDS-TEMPLATE
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h3>Step 4 - Onboarding a NSD</h3>
+
+<p>In our use case the NSD template is going to really small. All what we need to define is a single VNF of the <code>tosca.nodes.nfv.vIDS</code> type that was defined previously in the VNFD. We also define a VL node which points to the pre-existing <code>demo-net</code> virtual network and pass this VL to both INGRESS_VL and EGRESS_VL parameters of the VNFD.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./nsd.yaml
+</span><span class='line'>tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
+</span><span class='line'>imports:
+</span><span class='line'>  - vIDS-TEMPLATE&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;topology_template:
+</span><span class='line'>  node_templates:
+</span><span class='line'>    vIDS:
+</span><span class='line'>      <span class="nb">type</span>: tosca.nodes.nfv.vIDS
+</span><span class='line'>      requirements:
+</span><span class='line'>        - INGRESS_VL: VL1
+</span><span class='line'>        - EGRESS_VL: VL1
+</span><span class='line'>    VL1:
+</span><span class='line'>      <span class="nb">type</span>: tosca.nodes.nfv.VL
+</span><span class='line'>      properties:
+</span><span class='line'>          network_name: demo-net
+</span><span class='line'>          vendor: tacker
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;tacker nsd-create <span class="p">&amp;</span>ndash<span class="p">;</span>nsd-file nsd.yaml NSD-vIDS-TEMPLATE
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h3>Step 5 - Instantiating a NSD</h3>
+
+<p>As I&rsquo;ve mentioned before, VNFFG is not integrated with NSD yet, so we&rsquo;ll add it later. For now, we have provided enough information to instantiate our NSD.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>tacker ns-create <span class="p">&amp;</span>ndash<span class="p">;</span>nsd-name NSD-vIDS-TEMPLATE NS-vIDS-1
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>This last command creates a cirros-based VM with two interfaces and connects them to <code>demo-net</code> virtual network. All ICMP traffic from VM1 still goes directly to its default gateway so the last thing we need to do is create a VNFFG.</p>
+
+<h3>Step 6 - Onboarding and Instantiating a VNFFG</h3>
+
+<p>VNFFG consists of two two types of nodes. The first type defines a Forwarding Path (FP) as a set of virtual ports (CPs) and a flow classifier to build an equivalent service function chain inside the VIM. The second type groups multiple forwarding paths to build a complex service chain graphs, however only one FP is supported by Tacker at the time of writing.</p>
+
+<p>The following template demonstrates another important feature - template parametrization. Instead of defining all parameters statically in a template, they can be provided as inputs during instantiation, which allows to keep templates generic. In this case I&rsquo;ve replaced the network port id parameter with <code>PORT_ID</code> variable which will be provided during VNFFGD instantiation.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./vnffg.yaml
+</span><span class='line'>tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;description: vIDS VNFFG tosca&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;topology_template:
+</span><span class='line'>  inputs:
+</span><span class='line'>    PORT_ID:
+</span><span class='line'>      <span class="nb">type</span>: string
+</span><span class='line'>      description: Port ID of the target VM&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;  node_templates:&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;pre&gt;&lt;code&gt;Forwarding_Path-1:
+</span><span class='line'>  <span class="nb">type</span>: tosca.nodes.nfv.FP.Tacker
+</span><span class='line'>  description: creates path <span class="o">(</span>CP1-<span class="p">&amp;</span>gt<span class="p">;</span>CP2<span class="o">)</span>
+</span><span class='line'>  properties:
+</span><span class='line'>    id: 51
+</span><span class='line'>    policy:
+</span><span class='line'>      <span class="nb">type</span>: ACL
+</span><span class='line'>      criteria:
+</span><span class='line'>        - network_src_port_id: <span class="o">{</span> get_input: PORT_ID <span class="o">}</span>
+</span><span class='line'>        - ip_proto: 1
+</span><span class='line'>    path:
+</span><span class='line'>      - forwarder: vIDS-TEMPLATE
+</span><span class='line'>        capability: CP1
+</span><span class='line'>      - forwarder: vIDS-TEMPLATE
+</span><span class='line'>        capability: CP2
+</span><span class='line'>&lt;/code&gt;&lt;/pre&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;  groups:
+</span><span class='line'>    VNFFG1:
+</span><span class='line'>      <span class="nb">type</span>: tosca.groups.nfv.VNFFG
+</span><span class='line'>      description: Set of Forwarding Paths
+</span><span class='line'>      properties:
+</span><span class='line'>        vendor: tacker
+</span><span class='line'>        version: 1.0
+</span><span class='line'>        number_of_endpoints: 1
+</span><span class='line'>        dependent_virtual_link: <span class="o">[</span>VL1<span class="o">]</span>
+</span><span class='line'>        connection_point: <span class="o">[</span>CP1<span class="o">]</span>
+</span><span class='line'>        constituent_vnfs: <span class="o">[</span>vIDS-TEMPLATE<span class="o">]</span>
+</span><span class='line'>      members: <span class="o">[</span>Forwarding_Path-1<span class="o">]</span>
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;tacker vnffgd-create <span class="p">&amp;</span>ndash<span class="p">;</span>vnffgd-file vnffgd.yaml VNFFG-TEMPLATE
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>In order to instantiate a VNFFGD we need to provide two runtime parameters:</p>
+
+<ul>
+<li>OpenStack port ID of VM1 for forwarding path flow classifier</li>
+<li>ID of the VNF created by the Network Service</li>
+</ul>
+
+
+<p>All these parameters can be obtained using the CLI commands as shown below:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">CLIENT_IP</span><span class="o">=</span><span class="k">$(</span>openstack server list <span class="p">|</span> grep VM1 <span class="p">|</span> grep -Eo <span class="p">&amp;</span>lsquo<span class="p">;</span><span class="o">[</span>0-9<span class="o">]</span>+.<span class="o">[</span>0-9<span class="o">]</span>+.<span class="o">[</span>0-9<span class="o">]</span>+.<span class="o">[</span>0-9<span class="o">]</span>+<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="k">)</span>
+</span><span class='line'><span class="nv">PORT_ID</span><span class="o">=</span><span class="k">$(</span>openstack port list <span class="p">|</span> grep <span class="nv">$CLIENT_IP</span> <span class="p">|</span> awk <span class="p">&amp;</span>lsquo<span class="p">;</span><span class="o">{</span>print <span class="nv">$2</span><span class="o">}</span><span class="p">&amp;</span>rsquo<span class="p">;</span><span class="k">)</span>
+</span><span class='line'><span class="nb">echo</span> <span class="p">&amp;</span>ldquo<span class="p">;</span>PORT_ID: <span class="nv">$PORT_ID</span><span class="p">&amp;</span>rdquo<span class="p">;</span> &gt; params-vnffg.yaml
+</span><span class='line'><span class="nv">vIDS_ID</span><span class="o">=</span><span class="k">$(</span>tacker ns-show NS-vIDS-1 -f value -c vnf_ids <span class="p">|</span> sed <span class="p">&amp;</span>ldquo<span class="p">;</span>s/<span class="p">&amp;</span>lsquo<span class="p">;</span>/<span class="se">\&amp;</span>rdquo<span class="p">;</span>/g<span class="s2">&quot; | jq &amp;rsquo;.vIDS&#39; | sed &amp;ldquo;s/\&amp;rdquo;//g&quot;</span><span class="k">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The following command creates a VNFFG and an equivalent SFC to steer all ICMP traffic from VM1 through vIDS VNF. The result can be verified using Skydive following the procedure described in my <a href="/blog/2017/09/15/os-sfc-skydive/">previous post</a>.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>tacker vnffg-create <span class="p">&amp;</span>ndash<span class="p">;</span>vnffgd-name VNFFG-TEMPLATE <span class="se">\</span>
+</span><span class='line'>                    <span class="p">&amp;</span>ndash<span class="p">;</span>vnf-mapping vIDS-TEMPLATE:<span class="nv">$vIDS_ID</span> <span class="se">\</span>
+</span><span class='line'>                    <span class="p">&amp;</span>ndash<span class="p">;</span>param-file params-vnffg.yaml VNFFG-1
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>Other Tacker features</h2>
+
+<p>This post only scratches the surface of what&rsquo;s available in Tacker with a lot of other salient features left out of scope, including:</p>
+
+<ul>
+<li>VNF monitoring - through monitoring driver its possible to do VNF monitoring from VNFM using various methods ranging from a single ICMP/HTTP ping to Alarm-based monitoring using OpenStack&rsquo;s <a href="https://wiki.openstack.org/wiki/Telemetry">Telemetry framework</a></li>
+<li>Enhanced Placement Awareness - VNFD Tosca template extensions that allow the definition of required performance features like NUMA topology mapping, SR-IOV and CPU pinning.</li>
+<li>Mistral workflows - ability to drive Tacker workflows through Mistral</li>
+</ul>
+
+
+<h2>Conclusion</h2>
+
+<p>Tacker is one of <a href="https://thenewstack.io/opensource-nfv-part-4-opensource-mano/">many</a> NFV orchestration platforms in a very competitive environment. Other <a href="https://www.mirantis.com/blog/which-nfv-orchestration-platform-best-review-osm-open-o-cord-cloudify/">open-source initiatives</a> have been created in response to the shortcomings of the original ETSI Release 1 reference architecture. The fact the some of the biggest Telcos have finally realised that the only way to achieve the goal of NFV orchestration is to get involved with open-source and do it themselves, may be a good sign for the industry and maybe not so good for the ETSI NFV MANO working group. Whether ONAP with its broader scope becomes a new de-facto standard for NFV orchestration, still remains to be seen, until then ETSI MANO remains the only viable standard for NFV lifecycle management and orchestration.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack SDN - Skydiving Into Service Function Chaining]]></title>
@@ -41,7 +454,7 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 </ul>
 
 
-<p>{% img center /images/sfc-overview.png %}</p>
+<p><img class="center" src="/images/sfc-overview.png"></p>
 
 <p>One important property of a SF is elasticity. More instances of the same type can be added to a pool of SF and SFF will load-balance the traffic between them. This is the reason why, as we&rsquo;ll see in the next section, SFF treats connections to a SF as a group of ports rather than just a single port.</p>
 
@@ -73,53 +486,59 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p> First, let&rsquo;s generate OpenStack credentials using a post-deployment script. We later can use a default bootstrap script to downloads the cirros image and set up some basic networking and security rules.</p>
 
-<p>{% codeblock lang:bash %}
-kolla-ansible post-deploy
-source /etc/kolla/admin-openrc.sh
-/usr/share/kolla-ansible/init-runonce
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>kolla-ansible post-deploy
+</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'>/usr/share/kolla-ansible/init-runonce
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The goal for this post is to create a simple uni-directional SFC to steer the ICMP requests from VM1 to its default gateway through another VM that will be playing the role of a firewall.</p>
 
-<p>{% img center /images/sfc-example.png %}</p>
+<p><img class="center" src="/images/sfc-example.png"></p>
 
 <p>The network was already created by the bootstrap script so all what we have to do is create a test VM. I&rsquo;m creating a port in a separate step simply so that I can refer to it by name instead of UUID.</p>
 
-<p>{% codeblock lang:bash %}
-openstack port create &ndash;network demo-net P0
-openstack server create &ndash;image cirros &ndash;flavor m1.tiny &ndash;port P0 VM1
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P0
+</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>port P0 VM1
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>I&rsquo;ll go over all the necessary steps to setup SFC, but will only provide a brief explanation. Refer to the official OpenStack <a href="https://docs.openstack.org/newton/networking-guide/config-sfc.html">Networking Guide</a> for a complete SFC configuration guide.</p>
 
 <p>First, let&rsquo;s create a FW VM with two ports - P1 and P2.</p>
 
-<p>{% codeblock lang:bash %}
-openstack port create &ndash;network demo-net P1
-openstack port create &ndash;network demo-net P2
-openstack server create &ndash;image cirros &ndash;flavor m1.tiny &ndash;port P1 &ndash;port P2 FW
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P1
+</span><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P2
+</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>port P1 <span class="p">&amp;</span>ndash<span class="p">;</span>port P2 FW
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Next, we need create an ingress/egress port pair and assign it to a port pair group. The default setting for <strong>correlation</strong> in a port pair (not shown) is <code>none</code>. That means that SFC encapsulation header (MPLS) will get stripped before the packet is sent to P1.</p>
 
-<p>{% codeblock lang:bash %}
-openstack sfc port pair create &ndash;ingress P1 &ndash;egress P2 PPAIR
-openstack sfc port pair group create &ndash;port-pair PPAIR PPGROUP
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port pair create <span class="p">&amp;</span>ndash<span class="p">;</span>ingress P1 <span class="p">&amp;</span>ndash<span class="p">;</span>egress P2 PPAIR
+</span><span class='line'>openstack sfc port pair group create <span class="p">&amp;</span>ndash<span class="p">;</span>port-pair PPAIR PPGROUP
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Port pair group also allows to specify the L2-L4 headers which to use for load-balancing in OpenFlow groups, overriding the default behaviour described in the next section.</p>
 
 <p>Another required element is a flow classifier. We will be redirecting ICMP traffic coming from VM1&rsquo;s port P0</p>
 
-<p>{% codeblock lang:bash %}
-openstack sfc flow classifier create &ndash;protocol icmp &ndash;logical-source-port P0 FLOW-ICMP
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc flow classifier create <span class="p">&amp;</span>ndash<span class="p">;</span>protocol icmp <span class="p">&amp;</span>ndash<span class="p">;</span>logical-source-port P0 FLOW-ICMP
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Finally, we can tie together flow classifier with a previously created port pair group. The default setting for <strong>correlation</strong> (not shown again) in this case is <code>mpls</code>. That means that each chain will have its own unique MPLS label to be used as an SFC encapsulation.</p>
 
-<p>{% codeblock lang:bash %}
-openstack sfc port chain create &ndash;port-pair-group PPGROUP &ndash;flow-classifier FLOW-ICMP PCHAIN
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port chain create <span class="p">&amp;</span>ndash<span class="p">;</span>port-pair-group PPGROUP <span class="p">&amp;</span>ndash<span class="p">;</span>flow-classifier FLOW-ICMP PCHAIN
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>That&rsquo;s all the configuration needed to setup SFC. However if you login VM1&rsquo;s console and try pinging default gateway, it will fail. Next, I&rsquo;m going to give a quick demo of how to use a real-time network analyzer tool called Skydive to troubleshoot this issue.</p>
 
@@ -131,84 +550,111 @@ openstack sfc port chain create &ndash;port-pair-group PPGROUP &ndash;flow-class
 
 <p>Skydive CLI client is available inside the <code>skydive_analyzer</code> container. We need to start an interactive bash session inside this container and set some environment variables:</p>
 
-<p>{% codeblock lang:bash %}
-docker exec -it skydive_analyzer bash
-export SKYDIVE_ANALYZERS=192.168.133.100:8085
-export SKYDIVE_USERNAME=admin
-export SKYDIVE_PASSWORD=admin
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>docker <span class="nb">exec</span> -it skydive_analyzer bash
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_ANALYZERS</span><span class="o">=</span>192.168.133.100:8085
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_USERNAME</span><span class="o">=</span>admin
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_PASSWORD</span><span class="o">=</span>admin
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The first thing we can do to troubleshoot is see if ICMP traffic is entering the <code>ingress</code> port of the FW VM. Based on the output of <code>openstack port list</code> command I know that P1 has got an IP of <code>10.0.0.8</code>. Let&rsquo;s if we can identify a tap port corresponding to P1:</p>
 
-<p>{% codeblock lang:bash %}
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Values(&lsquo;Neutron&rsquo;)&rdquo;
-{
-  &ldquo;IPs&rdquo;: &ldquo;10.0.0.8&rdquo;,
-  &ldquo;NetworkID&rdquo;: &ldquo;8eabb451-b026-417c-b54b-8e79ee6e71c3&rdquo;,
-  &ldquo;NetworkName&rdquo;: &ldquo;demo-net&rdquo;,
-  &ldquo;PortID&rdquo;: &ldquo;e6334df9-a5c4-4e86-a5f3-671760c2bbbe&rdquo;,
-  &ldquo;TenantID&rdquo;: &ldquo;bd5829e0cb5b40b68ab4f8e7dc68b14d&rdquo;
-}
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>IPs<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>NetworkID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>8eabb451-b026-417c-b54b-8e79ee6e71c3<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>NetworkName<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>demo-net<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>PortID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>e6334df9-a5c4-4e86-a5f3-671760c2bbbe<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>TenantID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>bd5829e0cb5b40b68ab4f8e7dc68b14d<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The output above proves that skydive agent has successfully read the configuration of the port and we can start a capture on that object to see any packets arriving on P1.</p>
 
-<p>{% codeblock lang:bash %}
-skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;)&rdquo;
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
-[
-  7
-]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>If you <code>watch</code> the last command for several seconds you should see that the number in brackets is increasing. That means that packets are hitting the ingress port of the FW VM. Now let&rsquo;s repeat the same test on <code>egress</code> port P2.</p>
 
-<p>{% codeblock lang:bash %}
-skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;)&rdquo;
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows()&rdquo;
-[]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The output above tells us that there are no packets coming out of the FW VM. This is expected since we haven&rsquo;t done any changes to the blank cirros image to make it forward the packets between the two interfaces. If we examine the IP configuration of the FW VM, we would see that it doesn&rsquo;t have an IP address configured on the second interface. We would also need to create a source-based routing policy to force all traffic from VM1 (<code>10.0.0.6</code>) to egress via interface <code>eth2</code> and make sure IP forwarding is turned on. The following commands would need to be executed on FW VM:</p>
 
-<p>{% codeblock lang:bash %}
-sudo cirros-dhcpc up eth1
-sudo ip rule add from 10.0.0.6 table default
-sudo ip route add default via 10.0.0.1 dev eth1 table default
-sudo sysctl -w net.ipv4.ip_forward=1
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo cirros-dhcpc up eth1
+</span><span class='line'>sudo ip rule add from 10.0.0.6 table default
+</span><span class='line'>sudo ip route add default via 10.0.0.1 dev eth1 table default
+</span><span class='line'>sudo sysctl -w net.ipv4.ip_forward<span class="o">=</span>1
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Having done that, we should see some packets coming out of <code>egress</code> port P2.</p>
 
-<p>{% codeblock lang:bash %}
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
-[
-  7
-]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>However form the VM1&rsquo;s perspective the ping is still failing. Next step would be to see if the packets are hitting the integration bridge that port P2 is attached to:</p>
 
-<p>{% codeblock lang:bash %}
-skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;)&rdquo;
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;).Flows()&rdquo;
-[]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>No packets means they are getting dropped somewhere between the P2 and the integration bridge. This can only be done by security groups. In fact, source MAC/IP anti-spoofing is enabled by default which would only allow packets matching the source MAC/IP addresses assigned to P2 and would drop any packets coming from VM1&rsquo;s IP address. The easiest fix would be to disable security groups for P2 completely:</p>
 
-<p>{% codeblock lang:bash %}
-openstack port set &ndash;no-security-group &ndash;disable-port-security P2
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port <span class="nb">set</span> <span class="p">&amp;</span>ndash<span class="p">;</span>no-security-group <span class="p">&amp;</span>ndash<span class="p">;</span>disable-port-security P2
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>After this step the counters should start incrementing and the ping from VM1 to its default gateway is resumed.</p>
 
-<p>{% codeblock lang:bash %}
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
-[
-  79
-]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  79
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>SFC implementation in OVS forwarding pipeline</h2>
 
@@ -216,28 +662,29 @@ skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs
 
 <p>Normally, I would start by collecting all port and flow details from the integration bridge with the following commands:</p>
 
-<p>{% codeblock lang:bash %}
-ovs-ofctl dump-ports-desc br-int  | grep addr
-ovs-ofctl dump-flows br-int | cut -d &lsquo;,&rsquo; -f3-
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl dump-ports-desc br-int  <span class="p">|</span> grep addr
+</span><span class='line'>ovs-ofctl dump-flows br-int <span class="p">|</span> cut -d <span class="p">&amp;</span>lsquo<span class="p">;</span>,<span class="p">&amp;</span>rsquo<span class="p">;</span> -f3-
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>However, for the sake of brevity, I will omit the actual outputs and only show graphical representation of forwarding tables and packet flows. The tables below have two columns - first showing what is being matched and second showing the resulting action. Let&rsquo;s start with the OpenFlow rules in an integration bridge before SFC is configured:</p>
 
-<p>{% img center /images/sfc-before-tables.png %}</p>
+<p><img class="center" src="/images/sfc-before-tables.png"></p>
 
 <p>As we can see, the table structure is quite simple, since integration bridge mostly relies on data-plane MAC learning. A couple of MAC and ARP anti-spoofing tables will check the validity of a packet and send it to table 60 where <code>NORMAL</code> action will trigger the &ldquo;flood-and-learn&rdquo; behaviour. Therefore, an ICMP packet coming from VM1 will take the following path:</p>
 
-<p>{% img center /images/sfc-before-packet.png %}</p>
+<p><img class="center" src="/images/sfc-before-packet.png"></p>
 
 <p>After we&rsquo;ve configured SFC, the forwarding pipeline is changed and now looks like this:</p>
 
-<p>{% img center /images/sfc-after-tables.png %}</p>
+<p><img class="center" src="/images/sfc-after-tables.png"></p>
 
 <p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. By default OVS will use a combination of L2-L4 header as described <a href="http://docs.openvswitch.org/en/latest/faq/openflow/">here</a> to calculate a hash which determines the output bucket, similar to how per-flow load-balancing works in traditional routers and switches. This behaviour can be overridden with a specific set of headers in <code>lb_fields</code> setting of a port pair group.</p>
 
 <p>In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5. Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the service function path. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
 
-<p>{% img center /images/sfc-after-packet.png %}</p>
+<p><img class="center" src="/images/sfc-after-packet.png"></p>
 
 <p>After being processed by a SF, the packet leaves the <code>egress</code> port and re-enters the integration bridge. This time table 0 knows that the packet has already been processed by a SF and, since the anti-spoofing rules have been disabled, simply floods the packet out of all ports in the same VLAN. The packet gets flooded to the tunnel bridge where it gets replicated and delivered to the <code>qrouter</code> sitting on the controller node as per the <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">default behaviour</a>.</p>
 
@@ -286,15 +733,17 @@ ovs-ofctl dump-flows br-int | cut -d &lsquo;,&rsquo; -f3-
 
 <p>My lab consists of a single controller and a single compute VM. The goal was to make them as small as possible so they could run on a laptop with limited resources. Both VMs are connected to three VM bridged networks - provisioning, management and external VM access.</p>
 
-<p>{% img center /images/kolla-lab.png %}</p>
+<p><img class="center" src="/images/kolla-lab.png"></p>
 
 <p>I&rsquo;ve written some bash and Ansible scripts to automate the deployment of VMs on top of any Fedora derivative (e.g. Centos7). These scripts should be run directly from the hypervisor:</p>
 
-<p>{% codeblock lang:bash %}
-git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://github.com/networkop/kolla-odl-bgpvpn.git</a> &amp;&amp; cd kolla-odl-bgpvpn
-./1-create.sh do
-./2-bootstrap.sh do
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/kolla-odl-bgpvpn.git&quot;</span>&gt;https://github.com/networkop/kolla-odl-bgpvpn.git&lt;/a&gt; <span class="p">&amp;</span>amp<span class="p">;&amp;</span>amp<span class="p">;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-bootstrap.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The first bash script downloads the VM OS (Centos7), creates two blank VMs and sets up a local Docker registry. The second script installs all the dependencies, including Docker and Ansible.</p>
 
@@ -304,9 +753,9 @@ git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://gi
 
 <p>In my case I needed to build the latest version of OpenStack packages, not just the latest major release. I also wanted to build a few additional, non-Openstack images (Opendaylight and Quagga). Because of that I had to build all Docker images locally and push them into a local docker registry. The procedure to build container images is very well documented in the official <a href="https://docs.openstack.org/kolla/latest/image-building.html">Kolla image building guide</a>. I&rsquo;ve modified it slightly to include the Quagga Dockerfile and automated it so that the whole process can be run with a single command:</p>
 
-<p>{% codeblock lang:bash %}
-./3-build.sh do
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./3-build.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>This step can take quite a long time (anything from 1 to 4 hours depending on the network and disk I/O speed), however, once it&rsquo;s been done these container images can be used to deploy as many OpenStack instances as necessary.</p>
 
@@ -322,9 +771,9 @@ git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://gi
 
 <p>To get started with Kolla-Ansible all what it takes is a few modifications to the global configuration file to make sure that network settings match the underlying OS interface configuration and an update to the inventory file to point it to the correct deployment hosts. In my case I&rsquo;m making additional changes to enable SFC, Skydive and Tacker and adding files for Quagga container, all of which can be done with the following command:</p>
 
-<p>{% codeblock lang:bash %}
-./4-deploy.sh do
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./4-deploy.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The best thing about this method of deployment is that it takes (in my case) under 5 minutes to get the full OpenStack cloud from scratch. That means if I break something or want to redeploy with some major changes (add/remove Opendaylight), all what I have to do is destroy the existing deployment (approx. 1 minute), modify global configuration file and re-deploy OpenStack. This makes Kolla-Ansible an ideal choice for my lab environment.</p>
 
@@ -332,30 +781,45 @@ git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://gi
 
 <p>Once the deployment has been completed, we should be able to see a number of running Docker containers - one for each OpenStack process.</p>
 
-<p>{% codeblock lang:bash %}
-root@compute-1# docker ps
-CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
-0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               skydive_agent
-63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               neutron_openvswitch_agent
-f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               openvswitch_vswitchd
-3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               openvswitch_db
-9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_compute
-8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_libvirt
-220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_ssh
-743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               cron
-8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               kolla_toolbox
-f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               fluentd
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker ps
+</span><span class='line'>CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
+</span><span class='line'>0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               skydive_agent
+</span><span class='line'>63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               neutron_openvswitch_agent
+</span><span class='line'>f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_vswitchd
+</span><span class='line'>3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_db
+</span><span class='line'>9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_compute
+</span><span class='line'>8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_libvirt
+</span><span class='line'>220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_ssh
+</span><span class='line'>743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               cron
+</span><span class='line'>8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               kolla_toolbox
+</span><span class='line'>f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               fluentd
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>All the standard docker tools are available to interact with those containers. For example, this is how we can see what processes are running inside a container:</p>
 
-<p>{% codeblock lang:bash %}
-root@compute-1# docker exec nova_compute ps -www aux
-USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-nova         1  0.0  0.0    188     4 pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
-nova         7  0.7  1.3 2292560 134896 ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
-root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper &ndash;config-file /etc/nova/nova.conf &ndash;privsep_context vif_plug_ovs.privsep.vif_plug &ndash;privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker <span class="nb">exec </span>nova_compute ps -www aux
+</span><span class='line'>USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span><span class='line'>nova         <span class="m">1</span>  0.0  0.0    <span class="m">188</span>     <span class="m">4</span> pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
+</span><span class='line'>nova         <span class="m">7</span>  0.7  1.3 <span class="m">2292560</span> <span class="m">134896</span> ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
+</span><span class='line'>root        <span class="m">86</span>  0.0  0.3 <span class="m">179816</span> <span class="m">32900</span> ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper <span class="p">&amp;</span>ndash<span class="p">;</span>config-file /etc/nova/nova.conf <span class="p">&amp;</span>ndash<span class="p">;</span>privsep_context vif_plug_ovs.privsep.vif_plug <span class="p">&amp;</span>ndash<span class="p">;</span>privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Some of you may have noticed that none of the containers expose any ports. So how do they communicate? The answer is very simple - all containers run in a <strong>host</strong> networking mode, effectively disabling any network isolation and giving all contaners access to TCP/IP stacks of their Docker hosts. This is a simple way to avoid having to deal with Docker networking complexities, while at the same time preserving the immutability and portability of Docker containers.</p>
 
@@ -389,7 +853,7 @@ root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/
 </ul>
 
 
-<p>{% img center /images/ovn-zoom1.png %}</p>
+<p><img class="center" src="/images/ovn-zoom1.png"></p>
 
 <p>So far nothing unusual, this is a simple Neutron data model, all that information is stored in Neutron&rsquo;s database and can be queried with <code>neutron</code> CLI commands.</p>
 
@@ -407,7 +871,7 @@ root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/
 
 <p>This is a visual representation of our network topology inside OVN&rsquo;s Northbound DB, built based on the output of <code>ovn-nbctl show</code> command:</p>
 
-<p>{% img center /images/ovn-zoom2.png %}</p>
+<p><img class="center" src="/images/ovn-zoom2.png"></p>
 
 <p>This topology is pretty similar to Neutron&rsquo;s native data model with the exception of a gateway router. In OVN, a gateway router is a special non-distributed router which performs functions that are very hard or impossible to distribute amongst all nodes, like NAT and Load Balancing. This router only exists on a single compute node which is selected by the scheduler based on the <code>ovn_l3_scheduler</code> setting of the ML2 plugin. It is attached to a distributed router via a point-to-point /30 subnet defined in the <code>ovn_l3_admin_net_cidr</code> setting of the ML2 plugin.</p>
 
@@ -427,7 +891,7 @@ root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/
 </ol>
 
 
-<p>{% img center /images/ovn-zoom3-l2.png %}</p>
+<p><img class="center" src="/images/ovn-zoom3-l2.png"></p>
 
 <p>Let&rsquo;s have a closer look at each of the stages of the forwarding pipeline. I&rsquo;ll include snippets of logical flows demonstrating the most interesting behaviour at each stage. Full logical datapath is quite long and can be viewed with <code>ovn-sbctl lflow-list [DATAPATH]</code> command. Here is some useful information, collected from the Northbound database, that will be used in the examples below:</p>
 
@@ -548,7 +1012,7 @@ table=8 (ls_out_port_sec_l2), priority=50, match=(outport == "5c62cfbe-0b2f-4c2a
 
 <p>Similar to a logical switch pipeline, L3 datapath is split into ingress and egress parts. In this example we&rsquo;ll concentrate on  the Gateway router datapath. This router is connected to a distributed logical router via a transit subnet (SWtr) and to an external network via an external bridge (SWex) and performs NAT translation for all VM traffic.</p>
 
-<p>{% img center /images/ovn-zoom3-l3.png %}</p>
+<p><img class="center" src="/images/ovn-zoom3-l3.png"></p>
 
 <p>Here is some useful information about router interfaces and ports that will be used in the examples below.</p>
 
@@ -662,11 +1126,11 @@ action=(get_arp(outport, reg0); next;)
 
 <p>To demonstrate the details of OpenFlow implementation, I&rsquo;ll use the traffic flow between VM1 and external destination (8.8.8.8). For the sake of brevity I will only cover the major steps of packet processing inside OVS, omitting security checks and ARP/DHCP processing.</p>
 
-<p>{% img center /images/ovn-zoom4-openflow.png %}</p>
+<p><img class="center" src="/images/ovn-zoom4-openflow.png"></p>
 
 <p>When packets traverse OpenFlow tables they get labelled or annotated with special values to simplify matching in subsequent tables. For example, when table 0 matches the incoming port, it annotates the packet with the datapath ID. Since it would have been impractical to label packets with globally unique UUIDs from Soutbound DB, these UUIDs get mapped to smaller values called <strong>tunnel keys</strong>. To make things even more confusing, each port will have a local kernel ID, unique within each hypervisor. We&rsquo;ll need both tunnel keys and local port IDs to be able to track the packets inside the OVS. The figure below depicts all port and datapath IDs that have been collected from the Soutbound DB and local OVSDB on each hypervisor. Local port numbers are attached with a dotted line to their respective tunnel keys.</p>
 
-<p>{% img center /images/ovn-zoom4-tunnelkey.png %}</p>
+<p><img class="center" src="/images/ovn-zoom4-tunnelkey.png"></p>
 
 <p>When VM1 sends the first packet to 8.8.8.8, it reaches OVS on local port 13. OVN Controller knows that this port belongs to VM1 and installs an OpenFlow rule to match all packets from this port and annotate them with datapath ID (OXM_OF_METADATA), incoming port ID (NXM_NX_REG14), conntrack zone (NXM_NX_REG13). It then moves these annotated packets to the first table of the ingress pipeline.
 <code>
@@ -777,7 +1241,7 @@ table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
 
 <p>GENEVE was designed to have a variable-length header. The first few bytes are well-defined fixed size fields followed by variable-length Options. This kind of structure allows software developers to innovate at their own pace while still getting the benefits of hardware offload for the fixed-size portion of the header. OVN developers <a href="http://openvswitch.org/support/dist-docs/ovn-architecture.7.html">decided</a> to use Options header type 0x80 to store the 15-bit logical ingress port ID and a 16-bit egress port ID (an extra bit is for logical multicast groups).</p>
 
-<p>{% img center /images/ovn-zoom5-geneve.png %}</p>
+<p><img class="center" src="/images/ovn-zoom5-geneve.png"></p>
 
 <p>The figure above shows the ICMP ping coming from VM1(10.0.0.2) to Google&rsquo;s DNS. As I&rsquo;ve showed in the previous section, GENEVE is used between the ingress and egress pipelines of a transit switch (SWtr), whose datapath ID is encoded in the VNI field (0x7). Packets enter the transit switch on port 1 and leave it on port 2. These two values are encoded in the <code>00010002</code> value of the <code>Options Data</code> field.</p>
 
@@ -823,7 +1287,7 @@ table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
 </ol>
 
 
-<p>{% img center /images/ovn-arch.png %}</p>
+<p><img class="center" src="/images/ovn-arch.png"></p>
 
 <p>If you want to learn more about OVN architecture and use cases, <a href="http://docs.openstack.org/developer/networking-ovn/readme.html">OpenStack OVN page</a> has an excellent collection of resources for further reading.</p>
 
@@ -848,7 +1312,7 @@ packstack --answer-file=/root/packstack.answer
 
 <p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/08/26/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
 
-<p>{% img center /images/ovn-openstack.png %}</p>
+<p><img class="center" src="/images/ovn-openstack.png"></p>
 
 <h2>OVN Build</h2>
 
@@ -967,11 +1431,13 @@ Chassis "b89b8683-7c74-43df-8ac6-1d57ddefec77"
 
 <p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="/blog/2016/08/26/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
 
-<p>{% codeblock lang:bash %}
-git clone <a href="https://github.com/networkop/chef-unl-os.git">https://github.com/networkop/chef-unl-os.git</a>
-cd chef-unl-os
-chef-client -z -E lab ovn.rb
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
+</span><span class='line'><span class="nb">cd </span>chef-unl-os
+</span><span class='line'>chef-client -z -E lab ovn.rb
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>Test topology setup</h2>
 
@@ -1021,440 +1487,9 @@ openstack floating ip create NET-EXT
 openstack server add floating ip VM3 169.254.0.53
 </code></pre>
 
-<p>{% img center /images/ovn-topo.png %}</p>
+<p><img class="center" src="/images/ovn-topo.png"></p>
 
 <p>In the next post we will use the above virtual topology to explore the dataplane packet flow inside an OVN-managed OpenvSwitch and how it uses the new encapsulation protocol GENEVE to optimise egress forwarding lookups on remote compute nodes.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[OpenStack SDN - Distributed Virtual Routing]]></title>
-    <link href="http://networkop.github.io/blog/2016/10/13/os-dvr/"/>
-    <updated>2016-10-13T00:00:00+01:00</updated>
-    <id>http://networkop.github.io/blog/2016/10/13/os-dvr</id>
-    <content type="html"><![CDATA[<p>In this post we&rsquo;ll explore how DVR is implemented in OpenStack Neutron and what are some of its benefits and shortcomings.</p>
-
-<!--more-->
-
-
-<p>To be honest I was a little hesitant to write this post because the topic of Neutron&rsquo;s DVR has already been <abbr title="beaten to death">exhaustively covered</abbr> by many, including <a href="https://assafmuller.com/category/dvr/">Assaf Muller</a>, <a href="http://blog.gampel.net/2014/12/openstack-neutron-distributed-virtual.html">Eran Gampel</a> and in the official OpenStack <a href="http://docs.openstack.org/mitaka/networking-guide/scenario-dvr-ovs.html">networking guide</a>. The coverage of the topic was so thorough that I barely had anything to add. However I still decided to write a DVR post of my own for the following two reasons:</p>
-
-<ol>
-<li>I often use my own posts as references and it&rsquo;s always easier for me to find information in my own writings.</li>
-<li>I wanted to use this post as a reference platform for subsequent posts about dynamic routing and OVN project.</li>
-</ol>
-
-
-<p>The topic of Neutron&rsquo;s DVR is quite vast so I had to compromise between the length of this post and the level of details. In the end, I edited out most of the repeated content and replaced it with references to my older posts. I think I left everything that should be needed to follow along the narrative so hopefully it won&rsquo;t seem too patchy.</p>
-
-<h2>Virtual topology overview</h2>
-
-<p>Let&rsquo;s see what we&rsquo;re going to be dealing with in this post. This is a simple virtual topology with two VMs sitting in two different subnets. VM1 has a floating IP assigned that is used for external access.</p>
-
-<p>{% img center /images/dvr-topo.png %}</p>
-
-<p>Before we get to the packet walk details, let me briefly describe how to build the above topology using Neutron CLI. I&rsquo;ll assume that OpenStack has just been installed and nothing has been configured yet, effectively we&rsquo;ll pick up from where we left our lab in the <a href="http://networkop.github.io/blog/2016/09/09/os-lab-p2/">previous post</a>.</p>
-
-<h2>Virtual topology setup</h2>
-
-<ol>
-<li>Upload Cirros Linux image to OpenStack's image repository
-
-```
-curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
-     image-create --name='IMG-CIRROS' \
-     --visibility=public \
-     --container-format=bare \
-     --disk-format=qcow2
-```
-</li>
-<li>Create 2 virtual subnets - RED and BLUE
-
-```
-neutron net-create NET-BLUE
-neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24 \
-  --dns-nameserver 8.8.8.8
-
-neutron net-create NET-RED
-neutron subnet-create --name SUB-RED NET-RED 10.0.1.0/24 \
-  --dns-nameserver 8.8.8.8
-```
-</li>
-<li>Create external network
-
-```
-neutron net-create EXT-NET --provider:network_type flat \
-  --provider:physical_network extnet  \
-  --router:external \
-  --shared
-
-neutron subnet-create --name EXT-SUB \
- --enable_dhcp=False \
- --allocation-pool=start=169.254.0.50,end=169.254.0.99 \
- --gateway=169.254.0.1 EXT-NET 169.254.0.0/24
-```
-</li>
-
-<li>Create a router and attach it to all three networks created above
-
-```
-neutron router-create R1
-neutron router-interface-add R1 SUB-RED
-neutron router-interface-add R1 SUB-BLUE
-neutron router-gateway-set R1 EXT-NET
-```
-</li>
-
-<li>Create two host aggregates to spread the VMs across two different hosts
-
-```
-nova aggregate-create AGG-RED AZ-RED
-nova aggregate-create AGG-BLUE AZ-BLUE
-nova aggregate-add-host AGG-BLUE compute-2
-nova aggregate-add-host AGG-RED compute-3
-```
-</li>
-
-<li>Boot VMs on two different hypervisors
-
-```
-nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
-     --nic net-name=NET-BLUE \
-    --availability-zone AZ-BLUE \
-     VM1
-
-nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
-    --nic net-name=NET-RED \
-    --availability-zone AZ-RED \
-    VM2
-```
-</li>
-
-<li>Assign a floating IP (Static NAT) to VM1
-
-```
-nova floating-ip-create EXT-NET
-nova floating-ip-associate VM1 169.254.0.55
-```
-</li>
-
-<li>Enable ingress ICMP and SSH access
-
-```
-nova secgroup-add-rule default tcp 22 22 0.0.0.0/0
-nova secgroup-add-rule default icmp -1 -1 0.0.0.0/0
-```
-</li>
-
-<li>Make sure that both VMs are up and running.
-
-```bash nova list
-+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-| ID                                   | Name | Status | Task State | Power State | Networks                         |
-+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-| 92263ae8-43d1-4cd0-b271-2b11f0efbe7f | VM1  | ACTIVE | -          | Running     | NET-BLUE=10.0.0.12, 169.254.0.55 |
-| b4562f24-2461-49fb-875b-fa1bf869dc4a | VM2  | ACTIVE | -          | Running     | NET-RED=10.0.1.4                 |
-+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-```
-</li>
-</ol>
-
-
-<h2>non-DVR traffic flow</h2>
-
-<p>Using the technique described in my <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">earlier post</a> I&rsquo;ve collected the dynamically allocated port numbers and created a physical representation of our virtual network.</p>
-
-<p>{% img center /images/dvr-before.png %}</p>
-
-<p>For the sake of brevity I will omit the verification commands. The traffic flow between VM1 and VM2 will follow the standard path that I&rsquo;ve explored in my <a href="http://networkop.github.io/blog/2016/04/22/neutron-native/">native Neutron SDN post</a>.<br/>
-It is obvious that in this case traffic flows are suboptimal. Instead of going directly between the peer compute nodes, the packet has to hairpin through a Neutron router. This adds to the end-to-end latency and creates unnecessary load on the Network node. These are one of the main reasons why Distributed Virtual Routing was introduced in OpenStack Juno.</p>
-
-<h2>Enabling DVR</h2>
-
-<p>Enabling DVR requires configuration changes of multiple files on all OpenStack nodes. At a high level, all compute nodes will now run Neutron&rsquo;s L3-agent service which will be responsible for provisioning of DVR and other auxiliary namespaces. The details of specific configuration options that need to be enabled can be found in the official OpenStack <a href="http://docs.openstack.org/mitaka/networking-guide/scenario-dvr-ovs.html">Networking guide</a>. As usual, I&rsquo;ve incorporated all the necessary changes into a single Chef <a href="https://github.com/networkop/chef-unl-os/tree/master/cookbooks/neutron">cookbook</a>, so in order to enable DVR in our lab all what you need to do is run the following commands from the UNetLab VM:</p>
-
-<p>{% codeblock lang:bash %}
-git pull origin master
-chef-client -z -E lab neutron.rb
-{% endcodeblock %}</p>
-
-<p>Once all changes has been made, we need to either create a new router or update the existing one to enable the DVR functionality:</p>
-
-<p>{% codeblock lang:bash %}
-neutron router-update &ndash;admin-state-up False &ndash;distributed True R1
-neutron router-update &ndash;admin-state-up True R1
-{% endcodeblock %}</p>
-
-<h2>DVR East-West traffic flow</h2>
-
-<p>Now let&rsquo;s see how the traffic flows have changed with the introduction of DVR.</p>
-
-<p>{% img center /images/dvr-ew.png %}</p>
-
-<p>We&rsquo;re going to be examining the following traffic flow:</p>
-
-<ul>
-<li>From VM1 (10.0.0.12/fa:16:3e:83:92:96)</li>
-<li>Via router R1 (10.0.0.1/fa:16:3e:72:7a:50; 10.0.1.1/fa:16:3e:6a:2c:8b)</li>
-<li>To VM2 (10.0.1.4/fa:16:3e:76:31:68)</li>
-</ul>
-
-
-<p>R1 now has an instance on all compute nodes that have VMs in the BLUE or RED networks. That means that VM1 will send a packet directly to the R1&rsquo;s BLUE interface via the integration bridge.</p>
-
-<pre><code class="bash ovs-appctl fdb/show br-int"> port  VLAN  MAC                Age
-    2     1  fa:16:3e:83:92:96    1
-    4     1  fa:16:3e:72:7a:50    1
-    5     2  fa:16:3e:6a:2c:8b    1
-</code></pre>
-
-<p>This is dynamically populated MAC address table of the integration bridge. You can see that the MAC address of VM1 and both interfaces of R1 have been learned. That means that when VM1 sends a packet to its default gateway&rsquo;s MAC address, it will go directly to R1&rsquo;s BLUE interface on port 4.</p>
-
-<p>In this post I will omit the details of ARP resolution process which remains the same as <a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">before</a>, however there&rsquo;s one interesting detail that is worth mentioning before we move on. During the initial flood-and-learn phase on the <strong>br-int</strong>, the ARP request will get flooded down to the tunnel bridge. As per the standard behaviour, the packet should get replicated to all nodes. However, in this case we don&rsquo;t want to hear responses from other nodes, since the router is hosted locally. In order to help that, tunnel bridges explicitly drop all packets coming from integration bridges and destined for MAC addresses of locally hosted routers:</p>
-
-<p><code>bash ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=fa:16:3e:72:7a:50 | grep -E "Rule|action"
-Rule: table=0 cookie=0xa3536ac94478bd1d priority=1,in_port=1
-OpenFlow actions=goto_table:1
-        Rule: table=1 cookie=0xa3536ac94478bd1d priority=2,dl_vlan=1,dl_dst=fa:16:3e:72:7a:50
-        OpenFlow actions=drop
-</code></p>
-
-<p>Getting back to our traffic flow, once the IP packet has reached the DVR instance of R1 on compute node #2, the routing lookup occurs and the packet is sent back to the integration bridge with a new source MAC of R1&rsquo;s RED interface.</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid ip route">10.0.0.0/24 dev qr-102c4426-86  proto kernel  scope link  src 10.0.0.1
-10.0.1.0/24 dev qr-3779302e-62  proto kernel  scope link  src 10.0.1.1
-</code></pre>
-
-<p>Tunnel bridge will do its usual work by locating the target compute node based on the destination MAC address of VM2 (DVR requires <a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">L2 population</a> to be enabled) and will send the packet directly to the compute node #3.</p>
-
-<p><code>bash ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=2,dl_src=fa:16:3e:6a:2c:8b,dl_dst=fa:16:3e:76:31:68 | grep -E "Rule|action"
-Rule: table=0 cookie=0xa3536ac94478bd1d priority=1,in_port=1
-OpenFlow actions=goto_table:1
-        Rule: table=1 cookie=0xa3536ac94478bd1d priority=1,dl_vlan=2,dl_src=fa:16:3e:6a:2c:8b
-        OpenFlow actions=set_field:fa:16:3f:d3:10:60-&gt;eth_src,goto_table:2
-                Rule: table=2 cookie=0xa3536ac94478bd1d priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
-                OpenFlow actions=goto_table:20
-                        Rule: table=20 cookie=0xa3536ac94478bd1d priority=2,dl_vlan=2,dl_dst=fa:16:3e:76:31:68
-                        OpenFlow actions=pop_vlan,set_field:0x4d-&gt;tun_id,output:3
-</code></p>
-
-<p>Since all instances of R1 have the same set of IP/MAC addresses, the MAC address of a local router can be learned by the remote integration bridge hosting the same instance of DVR. In order to prevent that from happening, the sending <strong>br-tun</strong> replaces the source MAC address of the frame with the <code>set_field:fa:16:3f:d3:10:60-&gt;eth_src</code> action. This way the real R1&rsquo;s MAC address gets masked as the frame leaves the node. These &ldquo;mask&rdquo; MACs are generated by and learned from the Neutron server, which ensures that each node gets a unique address.</p>
-
-<p>The receiving node&rsquo;s <strong>br-tun</strong> will swap the VXLAN header with a VLAN ID and forward the frame up to the integration bridge.</p>
-
-<p><code>bash ovs-appctl ofproto/trace br-tun in_port=3,tun_id=0x4d,dl_dst=fa:16:3e:76:31:68 | grep -E "Rule|action"
-Rule: table=0 cookie=0x8a7dedf35101427f priority=1,in_port=3
-OpenFlow actions=goto_table:4
-        Rule: table=4 cookie=0x8a7dedf35101427f priority=1,tun_id=0x4d
-        OpenFlow actions=push_vlan:0x8100,set_field:4097-&gt;vlan_vid,goto_table:9
-                Rule: table=9 cookie=0x8a7dedf35101427f priority=0
-                OpenFlow actions=goto_table:10
-                        Rule: table=10 cookie=0x8a7dedf35101427f priority=1
-                        OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x8a7dedf35101427f,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:OXM_OF_IN_PORT[]),output:1
-                                Rule: table=0 cookie=0x9a1e0026794eadc5 priority=1
-                                OpenFlow actions=NORMAL
-</code></p>
-
-<p>Integration bridge of compute node #3 will lookup the destination MAC address and send the packet out port 2.</p>
-
-<pre><code class="bash ovs-appctl fdb/show br-int"> port  VLAN  MAC                Age
-    2     1  fa:16:3e:76:31:68    0
-    4     2  fa:16:3e:72:7a:50    0
-    5     1  fa:16:3e:6a:2c:8b    0
-    1     1  fa:16:3e:29:de:20    0
-</code></pre>
-
-<p>The reverse packet flow is similar - the packet will get routed on the compute node #3 and sent in a BLUE network to the compute node #2.</p>
-
-<h2>External connectivity</h2>
-
-<p>External connectivity will be very different for VMs with and without a floating IP. We will examine each case individually.</p>
-
-<h3>Case 1 - Overload NAT (VM2 with no FIP)</h3>
-
-<p>{% img center /images/dvr-snat.png %}</p>
-
-<p>External connectivity for VMs with no floating IP is still performed by the Network node. This time however, NATing is performed by a new element - SNAT namespace. As per the normal behaviour, VM2 will send a packet to its default gateway first. Let&rsquo;s have a closer look at the routing table of the DVR:</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid ip route">10.0.0.0/24 dev qr-102c4426-86  proto kernel  scope link  src 10.0.0.1
-10.0.1.0/24 dev qr-3779302e-62  proto kernel  scope link  src 10.0.1.1
-</code></pre>
-
-<p>There&rsquo;s no default route in the main routing table, so how would it get routed out? DVRs extensively use <a href="http://linux-ip.net/html/tools-ip-rule.html">Linux routing policy database</a> (RPDB), a feature that has a lot in common with OpenFlow tables. The principle of RPDB is that every packet gets matched against a set of routing tables until there&rsquo;s a hit. The tables are checked in the order of their priority (lowest to highest). One of the main features of RPDB is the ability to perform matches based on something other than the destination IP address, which is why it&rsquo;s often referred to as policy-based routing. To view the contents of RPDB use the <code>ip rule</code> command under the DVR namespace:</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid ip rule">0:      from all lookup local
-32766:  from all lookup main
-32767:  from all lookup default
-167772161:      from 10.0.0.1/24 lookup 167772161
-167772417:      from 10.0.1.1/24 lookup 167772417
-</code></pre>
-
-<p>In our case table 167772161 matches all packets sourced from the BLUE subnet and if we examine the corresponding routing table we&rsquo;ll find the missing default route there.</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid ip route list table 167772417">default via 10.0.1.12 dev qr-3779302e-62
-</code></pre>
-
-<p>The next hop of this default route points to the SNAT&rsquo;s interface in the BLUE network. MAC address is statically programmed by the local L3-agent.</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid ip neigh | grep 10.0.1.12">10.0.1.12 dev qr-3779302e-62 lladdr fa:16:3e:29:de:20 PERMANENT
-</code></pre>
-
-<p>Integration bridge sends the packet out port 1 to the tunnel bridge.</p>
-
-<pre><code class="bash ovs-appctl fdb/show br-int | grep fa:16:3e:29:de:20">    1     1  fa:16:3e:29:de:20    1
-</code></pre>
-
-<p>Tunnel bridge finds the corresponding match and sends the VXLAN-encapsulated packet to the Network node.</p>
-
-<p><code>bash ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=fa:16:3e:29:de:20 | tail -n 1
-Datapath actions: set(tunnel(tun_id=0x4d,src=10.0.0.4,dst=10.0.0.0,ttl=64,flags(df|key))),pop_vlan,3
-</code></p>
-
-<p>Tunnel bridge of the Network node forwards the frame up to the integration bridge.</p>
-
-<p><code>bash ovs-appctl ofproto/trace br-tun in_port=3,tun_id=0x4d,dl_dst=fa:16:3e:29:de:20 | grep output
-OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0xb9be3fe62922c800,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:OXM_OF_IN_PORT[]),output:1
-</code></p>
-
-<p>Integration bridge sends the frame to port 10, which is where SNAT namespace is attached</p>
-
-<pre><code class="bash ovs-appctl fdb/show br-int | grep fa:16:3e:29:de:20">   10     1  fa:16:3e:29:de:20    0
-</code></pre>
-
-<p>SNAT is a namespace with an interface in each of the subnets - BLUE, RED and External subnet</p>
-
-<pre><code class="bash ip netns exec snat-uuid ip a | grep -E "UP|inet"">16: sg-fefd493b-a5: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UNKNOWN
-    link/ether fa:16:3e:99:5c:3a brd ff:ff:ff:ff:ff:ff
-    inet 10.0.0.6/24 brd 10.0.0.255 scope global sg-fefd493b-a5
-18: sg-b3d58360-b4: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1450 qdisc noqueue state UNKNOWN
-    link/ether fa:16:3e:29:de:20 brd ff:ff:ff:ff:ff:ff
-    inet 10.0.1.12/24 brd 10.0.1.255 scope global sg-b3d58360-b4
-19: qg-765b5aca-ce: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN
-    link/ether fa:16:3e:d5:75:0e brd ff:ff:ff:ff:ff:ff
-    inet 169.254.0.57/24 brd 169.254.0.255 scope global qg-765b5aca-ce
-</code></pre>
-
-<p>SNAT has a single default route pointing to the External network&rsquo;s gateway.</p>
-
-<pre><code class="bash ip netns exec snat-uuid ip route | grep default">default via 169.254.0.1 dev qg-765b5aca-ce
-</code></pre>
-
-<p>Before sending the packet out, iptables will NAT the packet to hide it behind SNAT&rsquo;s <strong>qg</strong> external interface IP.</p>
-
-<pre><code class="bash ip netns exec snat-uuid iptables -t nat -L | grep SNAT">SNAT       all  --  anywhere             anywhere             to:169.254.0.57
-</code></pre>
-
-<h3>Case 2 - Static NAT (VM1 with FIP)</h3>
-
-<p>{% img center /images/dvr-dnat.png %}</p>
-
-<p>The first step in this scenario is the same - VM1 sends a packet to the MAC address of its default gateway. As before, the default route is missing in the main routing table.</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid ip route list table main">10.0.0.0/24 dev qr-102c4426-86  proto kernel  scope link  src 10.0.0.1
-10.0.1.0/24 dev qr-3779302e-62  proto kernel  scope link  src 10.0.1.1
-169.254.106.114/31 dev rfp-e4d4897e-7  proto kernel  scope link  src 169.254.106.114
-</code></pre>
-
-<p>Looking at the <strong>ip rule</strong> configuration we can find that table 16 matches all packets from that particular VM (10.0.0.12).</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid ip rule">0:      from all lookup local
-32766:  from all lookup main
-32767:  from all lookup default
-57481:  from 10.0.0.12 lookup 16
-167772161:      from 10.0.0.1/24 lookup 167772161
-167772417:      from 10.0.1.1/24 lookup 167772417
-</code></pre>
-
-<p>Routing table 16 sends the packet via a point-to-point veth pair link to the FIP namespace.</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid ip route list table 16">default via 169.254.106.115 dev rfp-e4d4897e-7
-</code></pre>
-
-<p>Before sending the packet out, DVR translates the source IP of the packet to the FIP assigned to that VM.</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid iptables -t nat -L | grep NAT">SNAT       all  --  10.0.0.12            anywhere             to:169.254.0.55
-</code></pre>
-
-<p>A FIP namespace is a simple router designed to connect multiple DVRs to external network. This way all routers can share the same &ldquo;uplink&rdquo; namespace and don&rsquo;t have to consume valuable addresses from external subnet.</p>
-
-<pre><code class="bash ip netns exec fip-uuid ip a | grep -E "UP|inet"">2: fpr-e4d4897e-7: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc pfifo_fast state UP qlen 1000
-    inet 169.254.106.115/31 scope global fpr-e4d4897e-7
-15: fg-d3bb699d-af: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN
-    inet 169.254.0.58/24 brd 169.254.0.255 scope global fg-d3bb699d-af
-</code></pre>
-
-<p>Default route inside the FIP namespace points to the External subnet&rsquo;s gateway IP.</p>
-
-<pre><code class="bash ip netns exec fip-uuid ip route | grep default">default via 169.254.0.1 dev fg-d3bb699d-af
-</code></pre>
-
-<p>The MAC address of the gateway is statically configured by the L3 agent.</p>
-
-<pre><code class="bash ip netns exec fip-uuid ip neigh | grep 169.254.0.1">169.254.0.1 dev fg-d3bb699d-af lladdr 32:3e:7d:13:ca:78 DELAY
-</code></pre>
-
-<p>The packet is sent to the <strong>br-int</strong> with the destination MAC address of the default gateway, which is learned on port 3.</p>
-
-<pre><code class="bash ovs-appctl fdb/show br-int | grep 32:3e:7d:13:ca:78">  3     3  32:3e:7d:13:ca:78    1
-</code></pre>
-
-<p>External bridge strips the VLAN ID of the packet coming from the <strong>br-int</strong> and does the lookup in the dynamic MAC address table.</p>
-
-<p><code>bash ovs-appctl ofproto/trace br-ex in_port=2,dl_vlan=3 | grep actions=
-OpenFlow actions=pop_vlan,NORMAL
-</code></p>
-
-<p>The frame is forwarded out the physical interface.</p>
-
-<pre><code class="bash ovs-appctl fdb/show br-ex | grep 32:3e:7d:13:ca:78">1     0  32:3e:7d:13:ca:78    1
-</code></pre>
-
-<p>Reverse packet flow will be quite similar, however in this case FIP namespace must be able to respond to ARP requests for the IPs that only exist on DVRs. In order to do that, it uses a proxy-ARP feature. First, L3 agent installs a static route for the FIP pointing back to the correct DVR over the veth pair interface:</p>
-
-<pre><code class="bash ip netns exec fip-uuid ip route get 169.254.0.55">169.254.0.55 via 169.254.106.114 dev fpr-e4d4897e-7  src 169.254.106.115
-</code></pre>
-
-<p>Now that the FIP namespace knows the route to the floating IP, it can respond to ARPs on behalf of DVR as long as proxy-ARP is enabled on the external <strong>fg</strong> interface:</p>
-
-<pre><code class="bash ip netns exec fip-uuid">cat /proc/sys/net/ipv4/conf/fg-d3bb699d-af/proxy_arp
-1
-</code></pre>
-
-<p>Finally, the DVR NATs the packet back to its internal IP in the BLUE subnet and forwards it straight to VM1.</p>
-
-<pre><code class="bash ip netns exec qrouter-uuid iptables -t nat -L | grep DNAT">DNAT       all  --  anywhere             169.254.0.55         to:10.0.0.12
-</code></pre>
-
-<h2>DVR Pros and Cons</h2>
-
-<p>Without a doubt DVR has introduced a number of much needed <strong>improvements</strong> to OpenStack networking:</p>
-
-<ul>
-<li>East-West traffic now follows the most optimal path thereby reducing the load on the Network node.</li>
-<li>External connectivity to floating IPs now also follows the most optimal path directly to the compute node hosting the VM.</li>
-</ul>
-
-
-<p>However, there&rsquo;s a number of <strong>issues</strong> that either remain unaddressed or result directly from the current DVR architecture:</p>
-
-<ul>
-<li>DHCP and SNAT are still hosted on the Network node.</li>
-<li>Asymmetric routing means that every DVR needs to have an interface in every configured subnet, even when there are no VMs that belong to those subnets on the current compute node.</li>
-<li>Direct connectivity to FIP means that all compute nodes now need to have direct L2 adjacency to external subnets.</li>
-<li>FIP namespace on compute nodes consumes IP addresses from external subnets which can be a problem if external subnet is in a public IPv4 address range.</li>
-<li>DVR implementation as a network namespace creates additional overhead in packet processing.</li>
-</ul>
-
-
-<p>Some of the above issues are not critical and can be fixed with a little effort:</p>
-
-<ul>
-<li>In order to reduce the scope of a External network VLAN span inside the DC, dedicate a subset of hosts that will have a direct L2 adjacency to external networks and only deploy external-facing VMs on those hosts.</li>
-<li>Since FIP namespace only requires an external IP address for <a href="http://lists.openstack.org/pipermail/openstack-dev/2016-June/096386.html">debugging purposes</a>, we can create an additional, secondary, subnet in RFC1918 space for FIP connectivity. This is enabled by a feature called subnet <a href="https://specs.openstack.org/openstack/neutron-specs/specs/newton/subnet-service-types.html">&ldquo;Service types&rdquo;</a> and is <a href="https://github.com/openstack/neutron-specs/blob/master/specs/newton/subnet-service-types.rst">available</a> in the latest Newton release.</li>
-</ul>
-
-
-<p>However the main issue still remains unresolved. Every North-South packet has to hop several times between the global and DVR/FIP/NAT namespaces. These kind of operations are very expensive in terms of consumed CPU and memory resources and can be very detrimental to network performance. Using namespaces may be the most straight-forward and non-disruptive way of implementing DVR, however it&rsquo;s definitely not the most optimal. Ideally we&rsquo;d like to see both L2 and L3 pipelines implemented in OpenvSwitch tables. This way all packets can benefit from OVS <a href="https://networkheresy.com/2014/11/13/accelerating-open-vswitch-to-ludicrous-speed/">fast-path flow caching</a>. But fear not, the solution to this already exists in a shape of <a href="https://www.openstack.org/summit/vancouver-2015/summit-videos/presentation/ovn-native-virtual-networking-for-open-vswitch">Open Virtual Network</a>. OVN is a project spawned from the OVS and aims to <a href="https://blog.russellbryant.net/2016/09/29/ovs-2-6-and-the-first-release-of-ovn/">address</a> a number of shortcomings existing in current implementations of virtual networks.</p>
 ]]></content>
   </entry>
   

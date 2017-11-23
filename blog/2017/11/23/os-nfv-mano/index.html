@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Openstack SDN - NFV Management and Orchestration - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="Creating a simple NFV network service using Tacker">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2017/11/23/os-nfv-mano/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2017/11/23/os-nfv-mano/">
+  <meta property="og:title" content="Openstack SDN - NFV Management and Orchestration - Network-oriented programming">
+  <meta property="og:description" content="Creating a simple NFV network service using Tacker">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/automation/index.html">Network Automation</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/sdn/index.html">SDN</a>
+                </li>
+                <li>
+                    <a href="/blog/archives">Archives</a>
+                </li>
+				<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-11-23T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">23/11/2017</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Openstack SDN - NFV Management and Orchestration
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll have a brief look at the NFV MANO framework developed by ETSI and create a simple vIDS network service using Tacker.</p>
+
+<!--more-->
+
+
+<p>In the ongoing hysteria surrounding all things SDN, one important thing gets often overlooked. You don&rsquo;t build SDN for its own sake. SDN is just a little cog in a big machine called &ldquo;cloud&rdquo;. To take it even further, I would argue that the best SDN solution is the one that you don&rsquo;t know even exists. Despite what the big vendors tell you, operators are not supposed to interact with SDN interface, be it GUI or CLI. If you dig up some of the earliest presentation about Cisco ACI, when the people talking about it were the actual people who designed the product, you&rsquo;ll notice one common motif being repeated over and over again. That is that ACI was never designed for direct human interaction, but rather was supposed to be configured by a higher level orchestrating system. In data center environments such orchestrating system may glue together services of virtualization layer and SDN layer to provide a seamless &ldquo;cloud&rdquo; experience to the end users. The focus of this post will be one incarnation of such orchestration system, specific to SP/Telco world, commonly known as NFV MANO.</p>
+
+<hr />
+
+<h2>NFV MANO for Telco SDN</h2>
+
+<p>At the early dawn of SDN/NFV era a lot of people got very excited by <strong>&ldquo;the promise&rdquo;</strong> and started applying the disaggregation and virtualization paradigms to all areas of networking. For Telcos that meant virtualizing network functions that built the service core of their networks - EPC, IMS, RAN. Traditionally those network functions were a collection of vertically-integrated baremetal appliances that took a long time to commission and had to be overprovisioned to cope with the peak-hour demand. Virtualizing them would have made it possible to achieve quicker time-to-market, elasticity to cope with a changing network demand and hardware/software disaggregation.</p>
+
+<p>As expected however, such fundamental change has to come at price. Not only do Telcos get a new virtualization platform to manage but they also need to worry about lifecycle management and end-to-end orchestration (MANO) of VNFs. Since any such change presents an opportunity for new streams of revenue, it didn&rsquo;t take long for vendors to jump on the bandwagon and start working on a new architecture designed to address those issues.</p>
+
+<p>The first problem was the easiest to solve since VMware and OpenStack already existed at that stage and could be used to host VNFs with very little modifications. The management and orchestration problem, however, was only partially solved by existing orchestration solutions. There were a lot of gaps between the current operational model and the new VNF world and although these problems could have been solved by Telcos engaging themselves with the open-source community, this proved to be too big of a change for them and they&rsquo;ve turned to the only thing they could trust - the standards bodies.</p>
+
+<h2>ETSI MANO</h2>
+
+<p>ETSI NFV MANO working group has set out to define a reference architecture for management and orchestration of virtualized resources in Telco data centers. The goal of NFV MANO initiative was to do a research into what&rsquo;s required to manage and orchestrate VNFs, what&rsquo;s currently available and identify potential gaps for other standards bodies to fill. Initial ETSI NFV Release 1 (2014) defined a base framework through relatively weak requirements and recommendations and was followed by Release 2 (2016) that made them more concrete by locking down the interfaces and data model specifications. For a very long time Release 1 was the only available NFV MANO standard, which led to a lot of inconsistencies in each vendors' implementations of it. This was very frustrating for Telcos since it required a lot of integration effort to build a multi-vendor MANO stack. Another potential issue with ETSI MANO standard is its limited scope - a lot of critical components like OSS and EMS are left outside of it which created a lot of confusion for Telcos and resulted in other standardisation efforts addressing those gaps.</p>
+
+<p>On the below diagram I have shown an adbridged version of the original ETSI MANO <a href="https://www.ietf.org/proceedings/88/slides/slides-88-opsawg-6.pdf">reference architecture diagram</a> adapted to the use case I&rsquo;ll be demonstrating in this post.</p>
+
+<p><img class="center" src="/images/etsi-mano.png"></p>
+
+<p>This architecture consists of the following building blocks:</p>
+
+<ul>
+<li><strong>NFVI</strong> (NFV Infrastructure) - OpenStacks compute or VMware&rsquo;s ESXI nodes</li>
+<li><strong>VIM</strong> (Virtual Infrastructure Manager) - OpenStack&rsquo;s controller/API or VMware&rsquo;s vCenter nodes</li>
+<li><strong>VNFM</strong> (VNF Manager) - an element responsible for lifecycle management (create,delete,scale) and monitoring of VNFs</li>
+<li><strong>NFVO</strong> (NFV Orchestrator) - an element responsible for lifecyle management of Network Services (described below)</li>
+</ul>
+
+
+<p>All these elements are working together towards a single goal - managing and orchestrating a Network Service (NS), which itself is comprised of multiple VNFs, Virtual Links (VLs), VNF Forwarding Graphs (VNFFGs) and Physical Network Functions (PNFs). In this post I create a NS for a simple virtual IDS use case, described in my previous <a href="/blog/2017/09/15/os-sfc-skydive/">SFC post</a>. The goal is to steer all ICMP traffic coming from VM1 through a vIDS VNF which will forward the traffic to its original destination.</p>
+
+<p><img class="center" src="/images/vids-created.png"></p>
+
+<p>Before I get to the implementation, let me give a quick overview of how a Network Service is build from its constituent parts, in the context of our vIDS use case.</p>
+
+<h2>Relationship between NS, VNF and VNFFG</h2>
+
+<p>According to ETSI MANO, a <strong>Network Service</strong> (NS) is a subset of end-to-end service implemented by VNFs and instantiated on the NFVI. As I&rsquo;ve mentioned before, some examples of a NS would be vEPC, vIMS or vCPE. NS can be described in either a YANG or a Tosca template called NS Descriptor (NSD). The main goal of a NSD is to tie together VNFs, VLs, VNFFGs and PNFs by defining relationship between various templates describing those objects (VNFDs, VLDs, VNFFGDs). Once NSD is onboarded (uploaded), it can be instantiated by NFVO, which communicates with VIM and VNFM to create the constituent components and stitch them together as described in a template. NSD normally does not contain VNFD or VNFFGD templates, but imports them through their names, which means that in order to instantiate a NSD, the corresponding VNFDs and VNFFGDs should already be onboarded.</p>
+
+<p><img class="center" src="/images/vids-nsd.png"></p>
+
+<p><strong>VNF Descriptor</strong> is a template describing the compute and network parameters of a single VNF. Each VNF consists of one or more VNF components (VNFCs), represented in Tosca as Virtual Deployment Units (VDUs). A VDU is the smallest part of a VNF and can be implemented as either a container or, as it is in our case, a VM. Apart from the usual set of parameters like CPU, RAM and disk, VNFD also describes all the virtual networks required for internal communication between VNFCs, called internal VLs. VNFM can ask VIM to create those networks when the VNF is being instantiated. VNFD also contains a reference to external networks, which are supposed to be created by NFVO. Those networks are used to connect different VNFs together or to connect VNFs to PNFs and other elements outside of NFVI platform. If external VLs are defined in a VNFD, VNFM will need to source them externally, either as input parameters to VNFM or from NFVO. In fact, VNF instantiation by VNFM, as described in Tacker <a href="https://docs.openstack.org/tacker/latest/user/vnfm_usage_guide.html">documentation</a>, is only used for testing purposes and since a VNF only makes sense as a part of a Network Service, the intended way is to use a NSD to instantiate all VNFs in production environment.</p>
+
+<p>The final component that we&rsquo;re going to use is VNF Forwarding Graph. <strong>VNFFG Descriptor</strong> is an optional component that describes how different VNFs are supposed to be chained together to form a Network Service. In the absence of VNFFG, VNFs will fall back to the default destination-based forwarding, when the IPs of VNFs forming a NS are either automatically discovered (e.g. through DNS) or provisioned statically. Tacker&rsquo;s implementation of VNFFG is not fully integrated with NSD yet and VNFFGD has to be instantiated separately and, as will be shown below, linked to an already running instance of a Network Service through its ID.</p>
+
+<h2>Using Tacker to orchestrate a Network Service</h2>
+
+<p>Tacker is an OpenStack project implementing a generic VNFM and NFVO. At the input it consumes Tosca-based templates, converts them to Heat templates which are then used to spin up VMs on OpenStack. This diagram from Brocade, the biggest Tacker contributor (at least until its acquisition), is the best overview of internal Tacker architecture.</p>
+
+<p><img class="center" src="/images/brocade-tacker.jpg"></p>
+
+<p>For this demo environment I&rsquo;ll keep using my OpenStack Kolla lab environment described in my <a href="/blog/2017/09/08/os-lab-docker/">previous post</a>.</p>
+
+<h3>Step 1 - VIM registration</h3>
+
+<p>Before we can start using Tacker, it needs to know how to reach the OpenStack environment, so the first step in the workflow is OpenStack or VIM registration. We need to provide the address of the keystone endpoint along with the admin credentials to give Tacker enough rights to create and delete VMs and SFC objects:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./vim.yaml</span>
+</span><span class='line'><span class="s">auth_url: &#39;http://192.168.133.254:35357/v3&#39;</span>
+</span><span class='line'><span class="s">username: &#39;admin&#39;</span>
+</span><span class='line'><span class="s">password: &#39;admin&#39;</span>
+</span><span class='line'><span class="s">project_name: &#39;admin&#39;</span>
+</span><span class='line'><span class="s">project_domain_name: &#39;Default&#39;</span>
+</span><span class='line'><span class="s">user_domain_name: &#39;Default&#39;</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>tacker vim-register --is-default --config-file vim.yaml --description MYVIM KOLLA-OPENSTACK
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The successful result can be checked with <code>tacker vim-list</code> which should report that registered VIM is now reachable.</p>
+
+<h3>Step 2 - Onboarding a VNFD</h3>
+
+<p>VNFD defines a set of VMs (VNFCs), network ports (CPs) and networks (VLs) and their relationship. In our case we have a single cirros-based VM with a pair of ingress/egress ports. In this template we also define a special node type <code>tosca.nodes.nfv.vIDS</code> which will be used by NSD to pass the required parameters for ingress and egress VLs. These parameters are going to be used by VNFD to attach network ports (CPs) to virtual networks (VLs) as defined in the <code>substitution_mappings</code> section.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./vnfd.yaml</span>
+</span><span class='line'><span class="s">tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0</span>
+</span><span class='line'><span class="s">description: Cirros vIDS example</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">node_types:</span>
+</span><span class='line'><span class="s">  tosca.nodes.nfv.vIDS:</span>
+</span><span class='line'><span class="s">    requirements:</span>
+</span><span class='line'><span class="s">      - INGRESS_VL:</span>
+</span><span class='line'><span class="s">          type: tosca.nodes.nfv.VL</span>
+</span><span class='line'><span class="s">          required: true</span>
+</span><span class='line'><span class="s">      - EGRESS_VL:</span>
+</span><span class='line'><span class="s">          type: tosca.nodes.nfv.VL</span>
+</span><span class='line'><span class="s">          required: true</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">topology_template:</span>
+</span><span class='line'><span class="s">  substitution_mappings:</span>
+</span><span class='line'><span class="s">    node_type: tosca.nodes.nfv.vIDS</span>
+</span><span class='line'><span class="s">    requirements:</span>
+</span><span class='line'><span class="s">      INGRESS_VL: [CP1, virtualLink]</span>
+</span><span class='line'><span class="s">      EGRESS_VL:  [CP2, virtualLink]</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">  node_templates:</span>
+</span><span class='line'><span class="s">    VDU1:</span>
+</span><span class='line'><span class="s">      type: tosca.nodes.nfv.VDU.Tacker</span>
+</span><span class='line'><span class="s">      properties:</span>
+</span><span class='line'><span class="s">        availability_zone: nova</span>
+</span><span class='line'><span class="s">        flavor: m1.nano</span>
+</span><span class='line'><span class="s">        image: cirros</span>
+</span><span class='line'><span class="s">        mgmt_driver: noop</span>
+</span><span class='line'><span class="s">        user_data_format: RAW</span>
+</span><span class='line'><span class="s">        user_data: |</span>
+</span><span class='line'><span class="s">          #!/bin/sh</span>
+</span><span class='line'><span class="s">          sudo cirros-dhcpc up eth1</span>
+</span><span class='line'><span class="s">          sudo ip rule add iif eth0 table default</span>
+</span><span class='line'><span class="s">          sudo ip route add default via 10.0.0.1 dev eth1 table default</span>
+</span><span class='line'><span class="s">          sudo sysctl -w net.ipv4.ip_forward=1</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">    CP1:</span>
+</span><span class='line'><span class="s">      type: tosca.nodes.nfv.CP.Tacker</span>
+</span><span class='line'><span class="s">      properties:</span>
+</span><span class='line'><span class="s">        anti_spoofing_protection: false</span>
+</span><span class='line'><span class="s">      requirements:</span>
+</span><span class='line'><span class="s">        - virtualBinding:</span>
+</span><span class='line'><span class="s">            node: VDU1</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">    CP2:</span>
+</span><span class='line'><span class="s">      type: tosca.nodes.nfv.CP.Tacker</span>
+</span><span class='line'><span class="s">      properties:</span>
+</span><span class='line'><span class="s">        anti_spoofing_protection: false</span>
+</span><span class='line'><span class="s">      requirements:</span>
+</span><span class='line'><span class="s">        - virtualBinding:</span>
+</span><span class='line'><span class="s">            node: VDU1</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>tacker vnfd-create --vnfd-file vnfd.yaml vIDS-TEMPLATE
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Step 4 - Onboarding a NSD</h3>
+
+<p>In our use case the NSD template is going to really small. All what we need to define is a single VNF of the <code>tosca.nodes.nfv.vIDS</code> type that was defined previously in the VNFD. We also define a VL node which points to the pre-existing <code>demo-net</code> virtual network and pass this VL to both INGRESS_VL and EGRESS_VL parameters of the VNFD.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./nsd.yaml</span>
+</span><span class='line'><span class="s">tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0</span>
+</span><span class='line'><span class="s">imports:</span>
+</span><span class='line'><span class="s">  - vIDS-TEMPLATE</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">topology_template:</span>
+</span><span class='line'><span class="s">  node_templates:</span>
+</span><span class='line'><span class="s">    vIDS:</span>
+</span><span class='line'><span class="s">      type: tosca.nodes.nfv.vIDS</span>
+</span><span class='line'><span class="s">      requirements:</span>
+</span><span class='line'><span class="s">        - INGRESS_VL: VL1</span>
+</span><span class='line'><span class="s">        - EGRESS_VL: VL1</span>
+</span><span class='line'><span class="s">    VL1:</span>
+</span><span class='line'><span class="s">      type: tosca.nodes.nfv.VL</span>
+</span><span class='line'><span class="s">      properties:</span>
+</span><span class='line'><span class="s">          network_name: demo-net</span>
+</span><span class='line'><span class="s">          vendor: tacker</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>tacker nsd-create --nsd-file nsd.yaml NSD-vIDS-TEMPLATE
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Step 5 - Instantiating a NSD</h3>
+
+<p>As I&rsquo;ve mentioned before, VNFFG is not integrated with NSD yet, so we&rsquo;ll add it later. For now, we have provided enough information to instantiate our NSD.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>tacker ns-create --nsd-name NSD-vIDS-TEMPLATE NS-vIDS-1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This last command creates a cirros-based VM with two interfaces and connects them to <code>demo-net</code> virtual network. All ICMP traffic from VM1 still goes directly to its default gateway so the last thing we need to do is create a VNFFG.</p>
+
+<h3>Step 6 - Onboarding and Instantiating a VNFFG</h3>
+
+<p>VNFFG consists of two two types of nodes. The first type defines a Forwarding Path (FP) as a set of virtual ports (CPs) and a flow classifier to build an equivalent service function chain inside the VIM. The second type groups multiple forwarding paths to build a complex service chain graphs, however only one FP is supported by Tacker at the time of writing.</p>
+
+<p>The following template demonstrates another important feature - template parametrization. Instead of defining all parameters statically in a template, they can be provided as inputs during instantiation, which allows to keep templates generic. In this case I&rsquo;ve replaced the network port id parameter with <code>PORT_ID</code> variable which will be provided during VNFFGD instantiation.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./vnffg.yaml</span>
+</span><span class='line'><span class="s">tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">description: vIDS VNFFG tosca</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">topology_template:</span>
+</span><span class='line'><span class="s">  inputs:</span>
+</span><span class='line'><span class="s">    PORT_ID:</span>
+</span><span class='line'><span class="s">      type: string</span>
+</span><span class='line'><span class="s">      description: Port ID of the target VM</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">  node_templates:</span>
+</span><span class='line'>
+</span><span class='line'><span class="s">    Forwarding_Path-1:</span>
+</span><span class='line'><span class="s">      type: tosca.nodes.nfv.FP.Tacker</span>
+</span><span class='line'><span class="s">      description: creates path (CP1-&gt;CP2)</span>
+</span><span class='line'><span class="s">      properties:</span>
+</span><span class='line'><span class="s">        id: 51</span>
+</span><span class='line'><span class="s">        policy:</span>
+</span><span class='line'><span class="s">          type: ACL</span>
+</span><span class='line'><span class="s">          criteria:</span>
+</span><span class='line'><span class="s">            - network_src_port_id: { get_input: PORT_ID }</span>
+</span><span class='line'><span class="s">            - ip_proto: 1</span>
+</span><span class='line'><span class="s">        path:</span>
+</span><span class='line'><span class="s">          - forwarder: vIDS-TEMPLATE</span>
+</span><span class='line'><span class="s">            capability: CP1</span>
+</span><span class='line'><span class="s">          - forwarder: vIDS-TEMPLATE</span>
+</span><span class='line'><span class="s">            capability: CP2</span>
+</span><span class='line'>
+</span><span class='line'>
+</span><span class='line'><span class="s">  groups:</span>
+</span><span class='line'><span class="s">    VNFFG1:</span>
+</span><span class='line'><span class="s">      type: tosca.groups.nfv.VNFFG</span>
+</span><span class='line'><span class="s">      description: Set of Forwarding Paths</span>
+</span><span class='line'><span class="s">      properties:</span>
+</span><span class='line'><span class="s">        vendor: tacker</span>
+</span><span class='line'><span class="s">        version: 1.0</span>
+</span><span class='line'><span class="s">        number_of_endpoints: 1</span>
+</span><span class='line'><span class="s">        dependent_virtual_link: [VL1]</span>
+</span><span class='line'><span class="s">        connection_point: [CP1]</span>
+</span><span class='line'><span class="s">        constituent_vnfs: [vIDS-TEMPLATE]</span>
+</span><span class='line'><span class="s">      members: [Forwarding_Path-1]</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>tacker vnffgd-create --vnffgd-file vnffgd.yaml VNFFG-TEMPLATE
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>In order to instantiate a VNFFGD we need to provide two runtime parameters:</p>
+
+<ul>
+<li>OpenStack port ID of VM1 for forwarding path flow classifier</li>
+<li>ID of the VNF created by the Network Service</li>
+</ul>
+
+
+<p>All these parameters can be obtained using the CLI commands as shown below:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">CLIENT_IP</span><span class="o">=</span><span class="k">$(</span>openstack server list <span class="p">|</span> grep VM1 <span class="p">|</span> grep -Eo <span class="s1">&#39;[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+&#39;</span><span class="k">)</span>
+</span><span class='line'><span class="nv">PORT_ID</span><span class="o">=</span><span class="k">$(</span>openstack port list <span class="p">|</span> grep <span class="nv">$CLIENT_IP</span> <span class="p">|</span> awk <span class="s1">&#39;{print $2}&#39;</span><span class="k">)</span>
+</span><span class='line'><span class="nb">echo</span> <span class="s2">&quot;PORT_ID: $PORT_ID&quot;</span> &gt; params-vnffg.yaml
+</span><span class='line'><span class="nv">vIDS_ID</span><span class="o">=</span><span class="k">$(</span>tacker ns-show NS-vIDS-1 -f value -c vnf_ids <span class="p">|</span> sed <span class="s2">&quot;s/&#39;/\&quot;/g&quot;</span> <span class="p">|</span> jq <span class="s1">&#39;.vIDS&#39;</span> <span class="p">|</span> sed <span class="s2">&quot;s/\&quot;//g&quot;</span><span class="k">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The following command creates a VNFFG and an equivalent SFC to steer all ICMP traffic from VM1 through vIDS VNF. The result can be verified using Skydive following the procedure described in my <a href="/blog/2017/09/15/os-sfc-skydive/">previous post</a>.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>tacker vnffg-create --vnffgd-name VNFFG-TEMPLATE <span class="se">\</span>
+</span><span class='line'>                    --vnf-mapping vIDS-TEMPLATE:<span class="nv">$vIDS_ID</span> <span class="se">\</span>
+</span><span class='line'>                    --param-file params-vnffg.yaml VNFFG-1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>Other Tacker features</h2>
+
+<p>This post only scratches the surface of what&rsquo;s available in Tacker with a lot of other salient features left out of scope, including:</p>
+
+<ul>
+<li>VNF monitoring - through monitoring driver its possible to do VNF monitoring from VNFM using various methods ranging from a single ICMP/HTTP ping to Alarm-based monitoring using OpenStack&rsquo;s <a href="https://wiki.openstack.org/wiki/Telemetry">Telemetry framework</a></li>
+<li>Enhanced Placement Awareness - VNFD Tosca template extensions that allow the definition of required performance features like NUMA topology mapping, SR-IOV and CPU pinning.</li>
+<li>Mistral workflows - ability to drive Tacker workflows through Mistral</li>
+</ul>
+
+
+<h2>Conclusion</h2>
+
+<p>Tacker is one of <a href="https://thenewstack.io/opensource-nfv-part-4-opensource-mano/">many</a> NFV orchestration platforms in a very competitive environment. Other <a href="https://www.mirantis.com/blog/which-nfv-orchestration-platform-best-review-osm-open-o-cord-cloudify/">open-source initiatives</a> have been created in response to the shortcomings of the original ETSI Release 1 reference architecture. The fact the some of the biggest Telcos have finally realised that the only way to achieve the goal of NFV orchestration is to get involved with open-source and do it themselves, may be a good sign for the industry and maybe not so good for the ETSI NFV MANO working group. Whether ONAP with its broader scope becomes a new de-facto standard for NFV orchestration, still remains to be seen, until then ETSI MANO remains the only viable standard for NFV lifecycle management and orchestration.</p>
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-11-23T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">23/11/2017</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2017/11/23/os-nfv-mano/" data-via="" data-counturl="http://networkop.github.io/blog/2017/11/23/os-nfv-mano/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+	
+	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2017/11/23/os-nfv-mano/" data-counter="right"></script>
+	
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2017/09/15/os-sfc-skydive/" title="Previous Post: Openstack SDN - Skydiving into Service Function Chaining">&laquo; Openstack SDN - Skydiving into Service Function Chaining</a></li>
+            
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item active" href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
+    
+    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
+    
+    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
+    
+    <a class="list-group-item " href="/blog/2017/05/12/linux-ssh/">Linux SSH Session Management for Network Engineers</a>
+    
+    <a class="list-group-item " href="/blog/2017/04/04/ansible-yang/">Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/automation/index.html">
+        <span class="badge">18</span>
+        automation
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/openstack/index.html">
+        <span class="badge">14</span>
+        openstack
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/sdn/index.html">
+        <span class="badge">13</span>
+        sdn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/network/index.html">
+        <span class="badge">11</span>
+        network
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">6</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">6</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/yang/index.html">
+        <span class="badge">4</span>
+        yang
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/devops/index.html">
+        <span class="badge">4</span>
+        devops
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/rest/index.html">
+        <span class="badge">4</span>
+        rest
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/cisco/index.html">
+        <span class="badge">4</span>
+        cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/restconf/index.html">
+        <span class="badge">2</span>
+        restconf
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ovn/index.html">
+        <span class="badge">2</span>
+        ovn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/howto/index.html">
+        <span class="badge">2</span>
+        howto
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">2</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">2</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">2</span>
+        routing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/odl/index.html">
+        <span class="badge">1</span>
+        odl
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/netconf/index.html">
+        <span class="badge">1</span>
+        netconf
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
+        <span class="badge">1</span>
+        pycharm
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/git/index.html">
+        <span class="badge">1</span>
+        git
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
+        <span class="badge">1</span>
+        syncthing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2017 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2017/11/23/os-nfv-mano/';
+        var disqus_url = 'http://networkop.github.io/blog/2017/11/23/os-nfv-mano/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>

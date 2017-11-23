@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Ovn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/ovn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-19T16:17:42+01:00</updated>
+  <updated>2017-11-23T12:21:53+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -35,7 +35,7 @@
 </ul>
 
 
-<p>{% img center /images/ovn-zoom1.png %}</p>
+<p><img class="center" src="/images/ovn-zoom1.png"></p>
 
 <p>So far nothing unusual, this is a simple Neutron data model, all that information is stored in Neutron&rsquo;s database and can be queried with <code>neutron</code> CLI commands.</p>
 
@@ -53,7 +53,7 @@
 
 <p>This is a visual representation of our network topology inside OVN&rsquo;s Northbound DB, built based on the output of <code>ovn-nbctl show</code> command:</p>
 
-<p>{% img center /images/ovn-zoom2.png %}</p>
+<p><img class="center" src="/images/ovn-zoom2.png"></p>
 
 <p>This topology is pretty similar to Neutron&rsquo;s native data model with the exception of a gateway router. In OVN, a gateway router is a special non-distributed router which performs functions that are very hard or impossible to distribute amongst all nodes, like NAT and Load Balancing. This router only exists on a single compute node which is selected by the scheduler based on the <code>ovn_l3_scheduler</code> setting of the ML2 plugin. It is attached to a distributed router via a point-to-point /30 subnet defined in the <code>ovn_l3_admin_net_cidr</code> setting of the ML2 plugin.</p>
 
@@ -73,7 +73,7 @@
 </ol>
 
 
-<p>{% img center /images/ovn-zoom3-l2.png %}</p>
+<p><img class="center" src="/images/ovn-zoom3-l2.png"></p>
 
 <p>Let&rsquo;s have a closer look at each of the stages of the forwarding pipeline. I&rsquo;ll include snippets of logical flows demonstrating the most interesting behaviour at each stage. Full logical datapath is quite long and can be viewed with <code>ovn-sbctl lflow-list [DATAPATH]</code> command. Here is some useful information, collected from the Northbound database, that will be used in the examples below:</p>
 
@@ -194,7 +194,7 @@ table=8 (ls_out_port_sec_l2), priority=50, match=(outport == "5c62cfbe-0b2f-4c2a
 
 <p>Similar to a logical switch pipeline, L3 datapath is split into ingress and egress parts. In this example we&rsquo;ll concentrate on  the Gateway router datapath. This router is connected to a distributed logical router via a transit subnet (SWtr) and to an external network via an external bridge (SWex) and performs NAT translation for all VM traffic.</p>
 
-<p>{% img center /images/ovn-zoom3-l3.png %}</p>
+<p><img class="center" src="/images/ovn-zoom3-l3.png"></p>
 
 <p>Here is some useful information about router interfaces and ports that will be used in the examples below.</p>
 
@@ -308,11 +308,11 @@ action=(get_arp(outport, reg0); next;)
 
 <p>To demonstrate the details of OpenFlow implementation, I&rsquo;ll use the traffic flow between VM1 and external destination (8.8.8.8). For the sake of brevity I will only cover the major steps of packet processing inside OVS, omitting security checks and ARP/DHCP processing.</p>
 
-<p>{% img center /images/ovn-zoom4-openflow.png %}</p>
+<p><img class="center" src="/images/ovn-zoom4-openflow.png"></p>
 
 <p>When packets traverse OpenFlow tables they get labelled or annotated with special values to simplify matching in subsequent tables. For example, when table 0 matches the incoming port, it annotates the packet with the datapath ID. Since it would have been impractical to label packets with globally unique UUIDs from Soutbound DB, these UUIDs get mapped to smaller values called <strong>tunnel keys</strong>. To make things even more confusing, each port will have a local kernel ID, unique within each hypervisor. We&rsquo;ll need both tunnel keys and local port IDs to be able to track the packets inside the OVS. The figure below depicts all port and datapath IDs that have been collected from the Soutbound DB and local OVSDB on each hypervisor. Local port numbers are attached with a dotted line to their respective tunnel keys.</p>
 
-<p>{% img center /images/ovn-zoom4-tunnelkey.png %}</p>
+<p><img class="center" src="/images/ovn-zoom4-tunnelkey.png"></p>
 
 <p>When VM1 sends the first packet to 8.8.8.8, it reaches OVS on local port 13. OVN Controller knows that this port belongs to VM1 and installs an OpenFlow rule to match all packets from this port and annotate them with datapath ID (OXM_OF_METADATA), incoming port ID (NXM_NX_REG14), conntrack zone (NXM_NX_REG13). It then moves these annotated packets to the first table of the ingress pipeline.
 <code>
@@ -423,7 +423,7 @@ table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
 
 <p>GENEVE was designed to have a variable-length header. The first few bytes are well-defined fixed size fields followed by variable-length Options. This kind of structure allows software developers to innovate at their own pace while still getting the benefits of hardware offload for the fixed-size portion of the header. OVN developers <a href="http://openvswitch.org/support/dist-docs/ovn-architecture.7.html">decided</a> to use Options header type 0x80 to store the 15-bit logical ingress port ID and a 16-bit egress port ID (an extra bit is for logical multicast groups).</p>
 
-<p>{% img center /images/ovn-zoom5-geneve.png %}</p>
+<p><img class="center" src="/images/ovn-zoom5-geneve.png"></p>
 
 <p>The figure above shows the ICMP ping coming from VM1(10.0.0.2) to Google&rsquo;s DNS. As I&rsquo;ve showed in the previous section, GENEVE is used between the ingress and egress pipelines of a transit switch (SWtr), whose datapath ID is encoded in the VNI field (0x7). Packets enter the transit switch on port 1 and leave it on port 2. These two values are encoded in the <code>00010002</code> value of the <code>Options Data</code> field.</p>
 
@@ -469,7 +469,7 @@ table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
 </ol>
 
 
-<p>{% img center /images/ovn-arch.png %}</p>
+<p><img class="center" src="/images/ovn-arch.png"></p>
 
 <p>If you want to learn more about OVN architecture and use cases, <a href="http://docs.openstack.org/developer/networking-ovn/readme.html">OpenStack OVN page</a> has an excellent collection of resources for further reading.</p>
 
@@ -494,7 +494,7 @@ packstack --answer-file=/root/packstack.answer
 
 <p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/08/26/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
 
-<p>{% img center /images/ovn-openstack.png %}</p>
+<p><img class="center" src="/images/ovn-openstack.png"></p>
 
 <h2>OVN Build</h2>
 
@@ -613,11 +613,13 @@ Chassis "b89b8683-7c74-43df-8ac6-1d57ddefec77"
 
 <p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="/blog/2016/08/26/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
 
-<p>{% codeblock lang:bash %}
-git clone <a href="https://github.com/networkop/chef-unl-os.git">https://github.com/networkop/chef-unl-os.git</a>
-cd chef-unl-os
-chef-client -z -E lab ovn.rb
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/chef-unl-os.git&quot;</span>&gt;https://github.com/networkop/chef-unl-os.git&lt;/a&gt;
+</span><span class='line'><span class="nb">cd </span>chef-unl-os
+</span><span class='line'>chef-client -z -E lab ovn.rb
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>Test topology setup</h2>
 
@@ -667,7 +669,7 @@ openstack floating ip create NET-EXT
 openstack server add floating ip VM3 169.254.0.53
 </code></pre>
 
-<p>{% img center /images/ovn-topo.png %}</p>
+<p><img class="center" src="/images/ovn-topo.png"></p>
 
 <p>In the next post we will use the above virtual topology to explore the dataplane packet flow inside an OVN-managed OpenvSwitch and how it uses the new encapsulation protocol GENEVE to optimise egress forwarding lookups on remote compute nodes.</p>
 ]]></content>

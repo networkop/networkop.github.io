@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Netconf | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/netconf/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-19T16:17:42+01:00</updated>
+  <updated>2017-11-23T12:21:53+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -74,24 +74,31 @@
 <h2>Environment setup</h2>
 
 <p>My test environment consists of a single instance of Cisco CSR1k running IOS XE 16.04.01. For the sake of simplicity I&rsquo;m not using any network emulator and simply run it as a stand-alone VM inside VMWare Workstation. CSR1k has the following configuration applied:
-{% codeblock lang:text %}
-username admin privilege 15 secret admin
-!
-interface GigabitEthernet1
-  ip address 192.168.145.51 255.255.255.0
-  no shutdown
-!
-netconf-yang
-{% endcodeblock  %}</p>
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>username admin privilege 15 secret admin
+</span><span class='line'>!
+</span><span class='line'>interface GigabitEthernet1
+</span><span class='line'>  ip address 192.168.145.51 255.255.255.0
+</span><span class='line'>  no shutdown
+</span><span class='line'>!
+</span><span class='line'>netconf-yang
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The last command is all what&rsquo;s required to enable NETCONF/YANG support.</p>
 
 <p>On the same hypervisor I have my development CentOS7 VM, which is connected to the same network as the first interface of CSR1k. My VM is able to ping and ssh into the CSR1k. We will need the following additional packages installed:</p>
 
-<p>{% codeblock lang:bash %}
-yum install openssl-devel python-devel python-pip gcc
-pip install ncclient pyang pyangbind ipython
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum install openssl-devel python-devel python-pip gcc
+</span><span class='line'>pip install ncclient pyang pyangbind ipython
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>Device configuration workflow</h2>
 
@@ -101,14 +108,19 @@ pip install ncclient pyang pyangbind ipython
 
 <p>The first thing you have to do with any NETCONF-capable device is discover its capabilities. We&rsquo;ll use ncclient&rsquo;s <a href="http://ncclient.readthedocs.io/en/latest/manager.html">manager</a> module to establish a session to CSR1k. Method <code>.connect()</code> of the manager object takes device IP, port and login credentials as input and returns a reference to a NETCONF session established with the device.</p>
 
-<p>{% codeblock lang:python %}
-from ncclient import manager</p>
-
-<p>m = manager.connect(host=&lsquo;192.168.145.51&rsquo;, port=830, username=&lsquo;admin&rsquo;,
-                    password=&lsquo;admin&rsquo;, device_params={&lsquo;name&rsquo;: &lsquo;csr&rsquo;})</p>
-
-<p>print m.server_capabilities
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ncclient</span> <span class="kn">import</span> <span class="n">manager</span><span class="o">&lt;/</span><span class="n">p</span><span class="o">&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="o">&lt;</span><span class="n">p</span><span class="o">&gt;</span><span class="n">m</span> <span class="o">=</span> <span class="n">manager</span><span class="o">.</span><span class="n">connect</span><span class="p">(</span><span class="n">host</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">192.168</span><span class="o">.</span><span class="mf">145.51</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="n">port</span><span class="o">=</span><span class="mi">830</span><span class="p">,</span> <span class="n">username</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span>
+</span><span class='line'>                    <span class="n">password</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="n">device_params</span><span class="o">=</span><span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">name</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">csr</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;})</span><span class="o">&lt;/</span><span class="n">p</span><span class="o">&gt;</span>
+</span><span class='line'>
+</span><span class='line'><span class="o">&lt;</span><span class="n">p</span><span class="o">&gt;</span><span class="k">print</span> <span class="n">m</span><span class="o">.</span><span class="n">server_capabilities</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>When the session is established, server capabilities advertised in the <strong>hello</strong> message get saved in the <code>server_capabilities</code> variable. Last command should print a long list of all capabilities and supported YANG models.</p>
 
@@ -117,52 +129,77 @@ from ncclient import manager</p>
 <p>The task we have set for ourselves is to configure an interface. CSR1k supports both native (Cisco-specific) and IETF-standard ways of doing it. In this post I&rsquo;ll show how to use the IETF models to do that. First we need to identify which model to use. Based on the discovered capabilities we can guess that <strong>ietf-ip</strong> could be used to configure IP addresses, so let&rsquo;s get this model first. One way to get a YANG model is to search for it on the Internet, and since its an IETF model, it most likely can be found in of the <a href="https://tools.ietf.org/html/rfc7277">RFCs</a>.
 Another way to get it is to download it from the device itself. All devices supporting <a href="https://tools.ietf.org/html/rfc6022">RFC6022</a> must be able to send the requested model in response to the <code>get_schema</code> call. Let&rsquo;s see how we can download the <strong>ietf-ip</strong> YANG model:</p>
 
-<p>{% codeblock lang:python %}
-schema = m.get_schema(&lsquo;ietf-ip&rsquo;)
-print schema
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">schema</span> <span class="o">=</span> <span class="n">m</span><span class="o">.</span><span class="n">get_schema</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">ietf</span><span class="o">-</span><span class="n">ip</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span><span class='line'><span class="k">print</span> <span class="n">schema</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>At this stage the model is embedded in the XML response and we still need to extract it and save it in a file. To do that we&rsquo;ll use python <code>lxml</code> library to parse the received XML document, pick the first child from the root of the tree (<strong>data</strong> element) and save it into a variable. A helper function <a href="https://github.com/networkop/yang/blob/master/helpers.py">write_file</a> simply saves the Python string contained in the <code>yang_text</code> variable in a file.</p>
 
-<p>{% codeblock lang:python %}
-import xml.etree.ElementTree as ET
-root = ET.fromstring(schema.xml)
-yang_text = list(root)[0].text
-write_file(&lsquo;ietf-ip.yang&rsquo;, yang_text)
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">xml.etree.ElementTree</span> <span class="kn">as</span> <span class="nn">ET</span>
+</span><span class='line'><span class="n">root</span> <span class="o">=</span> <span class="n">ET</span><span class="o">.</span><span class="n">fromstring</span><span class="p">(</span><span class="n">schema</span><span class="o">.</span><span class="n">xml</span><span class="p">)</span>
+</span><span class='line'><span class="n">yang_text</span> <span class="o">=</span> <span class="nb">list</span><span class="p">(</span><span class="n">root</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">text</span>
+</span><span class='line'><span class="n">write_file</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">ietf</span><span class="o">-</span><span class="n">ip</span><span class="o">.</span><span class="n">yang</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="n">yang_text</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Back at the Linux shell we can now start using pyang. The most basic function of pyang is to convert the YANG model into one of the <a href="https://github.com/mbj4668/pyang#features">many supported formats</a>. For example, tree format can be very helpful for high-level understanding of the structure of a YANG model. It produces a tree-like representation of a YANG model and annotates element types and constraints using syntax described in <a href="https://tools.ietf.org/html/rfc7277#section-1.2">this RFC</a>.</p>
 
-<p>{% codeblock lang:bash %}
-$ pyang -f tree ietf-ip.yang | head -
-module: ietf-ip
-  augment /if:interfaces/if:interface:
-    +&ndash;rw ipv4!
-    |  +&ndash;rw enabled?      boolean
-    |  +&ndash;rw forwarding?   boolean
-    |  +&ndash;rw mtu?          uint16
-    |  +&ndash;rw address* [ip]
-    |  |  +&ndash;rw ip               inet:ipv4-address-no-zone
-    |  |  +&ndash;rw (subnet)
-    |  |     +&ndash;:(prefix-length)
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>pyang -f tree ietf-ip.yang <span class="p">|</span> head -
+</span><span class='line'>module: ietf-ip
+</span><span class='line'>  augment /if:interfaces/if:interface:
+</span><span class='line'>    +<span class="p">&amp;</span>ndash<span class="p">;</span>rw ipv4!
+</span><span class='line'>    <span class="p">|</span>  +<span class="p">&amp;</span>ndash<span class="p">;</span>rw enabled?      boolean
+</span><span class='line'>    <span class="p">|</span>  +<span class="p">&amp;</span>ndash<span class="p">;</span>rw forwarding?   boolean
+</span><span class='line'>    <span class="p">|</span>  +<span class="p">&amp;</span>ndash<span class="p">;</span>rw mtu?          uint16
+</span><span class='line'>    <span class="p">|</span>  +<span class="p">&amp;</span>ndash<span class="p">;</span>rw address* <span class="o">[</span>ip<span class="o">]</span>
+</span><span class='line'>    <span class="p">|</span>  <span class="p">|</span>  +<span class="p">&amp;</span>ndash<span class="p">;</span>rw ip               inet:ipv4-address-no-zone
+</span><span class='line'>    <span class="p">|</span>  <span class="p">|</span>  +<span class="p">&amp;</span>ndash<span class="p">;</span>rw <span class="o">(</span>subnet<span class="o">)</span>
+</span><span class='line'>    <span class="p">|</span>  <span class="p">|</span>     +<span class="p">&amp;</span>ndash<span class="p">;</span>:<span class="o">(</span>prefix-length<span class="o">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>From the output above we can see the <strong>ietf-ip</strong> augments or extends the <strong>interface</strong> model. It adds new configurable (rw) containers with a list of IP prefixes to be assigned to an interface. Another thing we can see is that this model cannot be used on its own, since it doesn&rsquo;t specify the name of the interface it augments. This model can only be used together with <code>ietf-interfaces</code> YANG model which models the basic interface properties like MTU, state and description. In fact <code>ietf-ip</code> relies on a number of YANG models which are specified as imports at the beginning of the model definition.</p>
 
-<p>{% codeblock lang:text %}
-module ietf-ip {
- namespace &ldquo;urn:ietf:params:xml:ns:yang:ietf-ip&rdquo;;
- prefix ip;
- import ietf-interfaces {
-   prefix if;
- }
- import ietf-inet-types {
-   prefix inet;
- }
- import ietf-yang-types {
-   prefix yang;
- }
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>module ietf-ip {
+</span><span class='line'> namespace &amp;ldquo;urn:ietf:params:xml:ns:yang:ietf-ip&amp;rdquo;;
+</span><span class='line'> prefix ip;
+</span><span class='line'> import ietf-interfaces {
+</span><span class='line'>   prefix if;
+</span><span class='line'> }
+</span><span class='line'> import ietf-inet-types {
+</span><span class='line'>   prefix inet;
+</span><span class='line'> }
+</span><span class='line'> import ietf-yang-types {
+</span><span class='line'>   prefix yang;
+</span><span class='line'> }
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Each import statement specifies the model and the prefix by which it will be referred later in the document. These prefixes create a clear separation between namespaces of different models.</p>
 
@@ -172,88 +209,123 @@ module ietf-ip {
 
 <p>Now we can use <a href="https://github.com/robshakir/pyangbind">pyangbind</a>, an extension to pyang, to build a Python module based on the downloaded YANG models and start building interface configuration. Make sure your <code>$PYBINDPLUGIN</code> variable is set like its described <a href="https://github.com/robshakir/pyangbind">here</a>.</p>
 
-<p>{% codeblock lang:bash %}
-pyang &ndash;plugindir $PYBINDPLUGIN -f pybind -o ietf_ip_binding.py ietf-ip.yang ietf-interfaces.yang ietf-inet-types.yang ietf-inet-types.yang
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang <span class="p">&amp;</span>ndash<span class="p">;</span>plugindir <span class="nv">$PYBINDPLUGIN</span> -f pybind -o ietf_ip_binding.py ietf-ip.yang ietf-interfaces.yang ietf-inet-types.yang ietf-inet-types.yang
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The resulting <code>ietf_ip_binding.py</code> is now ready for use inside the Python shell. Note that we import <code>ietf_interfaces</code> as this is the parent object for <code>ietf_ip</code>. The details about how to work with generated Python binding can be found on pyangbind&rsquo;s <a href="https://github.com/robshakir/pyangbind">Github page</a>.</p>
 
-<p>{% codeblock lang:python %}
-from ietf_ip_binding import ietf_interfaces
-model = ietf_interfaces()
-model.get()
-{&lsquo;interfaces&rsquo;: {&lsquo;interface&rsquo;: {}}, &lsquo;interfaces-state&rsquo;: {&lsquo;interface&rsquo;: {}}}
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ietf_ip_binding</span> <span class="kn">import</span> <span class="n">ietf_interfaces</span>
+</span><span class='line'><span class="n">model</span> <span class="o">=</span> <span class="n">ietf_interfaces</span><span class="p">()</span>
+</span><span class='line'><span class="n">model</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</span><span class='line'><span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">interfaces</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">interface</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{}},</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">interfaces</span><span class="o">-</span><span class="n">state</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">interface</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{}}}</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>To setup an IP address, we first need to create a model of an interface we&rsquo;re planning to manipulate. We can then use <code>.get()</code> on the model&rsquo;s instance to see the list of all configurable parameters and their defaults.</p>
 
-<p>{% codeblock lang:python %}
-new_interface = model.interfaces.interface.add(&lsquo;GigabitEthernet2&rsquo;)
-new_interface.get()
-{&lsquo;description&rsquo;: u'&lsquo;,
- 'enabled&rsquo;: True,
- &lsquo;ipv4&rsquo;: {&lsquo;address&rsquo;: {},
-  &lsquo;enabled&rsquo;: True,
-  &lsquo;forwarding&rsquo;: False,
-  &lsquo;mtu&rsquo;: 0,
-  &lsquo;neighbor&rsquo;: {}},
- &lsquo;ipv6&rsquo;: {&lsquo;address&rsquo;: {},
-  &lsquo;autoconf&rsquo;: {&lsquo;create-global-addresses&rsquo;: True,
-   &lsquo;create-temporary-addresses&rsquo;: False,
-   &lsquo;temporary-preferred-lifetime&rsquo;: 86400L,
-   &lsquo;temporary-valid-lifetime&rsquo;: 604800L},
-  &lsquo;dup-addr-detect-transmits&rsquo;: 1L,
-  &lsquo;enabled&rsquo;: True,
-  &lsquo;forwarding&rsquo;: False,
-  &lsquo;mtu&rsquo;: 0L,
-  &lsquo;neighbor&rsquo;: {}},
- &lsquo;link-up-down-trap-enable&rsquo;: u'&lsquo;,
- 'name&rsquo;: u'GigabitEthernet2',
- &lsquo;type&rsquo;: u'&lsquo;}
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">new_interface</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">interfaces</span><span class="o">.</span><span class="n">interface</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">GigabitEthernet2</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">new_interface</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</span><span class='line'><span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">description</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="s">u&#39;&amp;lsquo;,</span>
+</span><span class='line'> <span class="s">&#39;enabled&amp;rsquo;: True,</span>
+</span><span class='line'> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">ipv4</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">address</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{},</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">enabled</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="bp">True</span><span class="p">,</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">forwarding</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="bp">False</span><span class="p">,</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">mtu</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="mi">0</span><span class="p">,</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">neighbor</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{}},</span>
+</span><span class='line'> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">ipv6</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">address</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{},</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">autoconf</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">create</span><span class="o">-</span><span class="k">global</span><span class="o">-</span><span class="n">addresses</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="bp">True</span><span class="p">,</span>
+</span><span class='line'>   <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">create</span><span class="o">-</span><span class="n">temporary</span><span class="o">-</span><span class="n">addresses</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="bp">False</span><span class="p">,</span>
+</span><span class='line'>   <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">temporary</span><span class="o">-</span><span class="n">preferred</span><span class="o">-</span><span class="n">lifetime</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="il">86400L</span><span class="p">,</span>
+</span><span class='line'>   <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">temporary</span><span class="o">-</span><span class="n">valid</span><span class="o">-</span><span class="n">lifetime</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="il">604800L</span><span class="p">},</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">dup</span><span class="o">-</span><span class="n">addr</span><span class="o">-</span><span class="n">detect</span><span class="o">-</span><span class="n">transmits</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="il">1L</span><span class="p">,</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">enabled</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="bp">True</span><span class="p">,</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">forwarding</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="bp">False</span><span class="p">,</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">mtu</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="il">0L</span><span class="p">,</span>
+</span><span class='line'>  <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">neighbor</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="p">{}},</span>
+</span><span class='line'> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">link</span><span class="o">-</span><span class="n">up</span><span class="o">-</span><span class="n">down</span><span class="o">-</span><span class="n">trap</span><span class="o">-</span><span class="n">enable</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="s">u&#39;&amp;lsquo;,</span>
+</span><span class='line'> <span class="s">&#39;name&amp;rsquo;: u&#39;</span><span class="n">GigabitEthernet2</span><span class="s">&#39;,</span>
+</span><span class='line'> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="nb">type</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="s">u&#39;&amp;lsquo;}</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The simples thing we can do is modify the interface description.</p>
 
-<p>{% codeblock lang:python %}
-new_interface.description = &lsquo;NETCONF-CONFIGURED PORT&rsquo;
-new_interface.get()[&lsquo;description&rsquo;]
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">new_interface</span><span class="o">.</span><span class="n">description</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">NETCONF</span><span class="o">-</span><span class="n">CONFIGURED</span> <span class="n">PORT</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span><span class='line'><span class="n">new_interface</span><span class="o">.</span><span class="n">get</span><span class="p">()[</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">description</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>New objects are added by calling <code>.add()</code> on the parent object and passing unique key as an argument.</p>
 
-<p>{% codeblock lang:python %}
-ipv4_addr = new_interface.ipv4.address.add(&lsquo;12.12.12.2&rsquo;)
-ipv4_addr.get()
-{&lsquo;ip&rsquo;: u'12.12.12.2', &lsquo;netmask&rsquo;: u'&lsquo;, 'prefix-length&rsquo;: 0}
-ipv4_addr.netmask = &lsquo;255.255.255.0&rsquo;
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">ipv4_addr</span> <span class="o">=</span> <span class="n">new_interface</span><span class="o">.</span><span class="n">ipv4</span><span class="o">.</span><span class="n">address</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">12.12</span><span class="o">.</span><span class="mf">12.2</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">ipv4_addr</span><span class="o">.</span><span class="n">get</span><span class="p">()</span>
+</span><span class='line'><span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">ip</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="s">u&#39;12.12.12.2&#39;</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">netmask</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="s">u&#39;&amp;lsquo;, &#39;</span><span class="n">prefix</span><span class="o">-</span><span class="n">length</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="mi">0</span><span class="p">}</span>
+</span><span class='line'><span class="n">ipv4_addr</span><span class="o">.</span><span class="n">netmask</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">255.255</span><span class="o">.</span><span class="mf">255.0</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>At the time of writing pyangbind only supported serialisation into JSON format which means we have to do a couple of extra steps to get the required XML. For now let&rsquo;s dump the contents of our interface model instance into a file.</p>
 
-<p>{% codeblock lang:python %}
-import pyangbind.lib.pybindJSON as pybindJSON
-json_data = pybindJSON.dumps(model, mode=&lsquo;ietf&rsquo;)
-write_file(&lsquo;new_interface.json&rsquo;,json_data)
-print json_data
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">pyangbind.lib.pybindJSON</span> <span class="kn">as</span> <span class="nn">pybindJSON</span>
+</span><span class='line'><span class="n">json_data</span> <span class="o">=</span> <span class="n">pybindJSON</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">ietf</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">write_file</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">new_interface</span><span class="o">.</span><span class="n">json</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span><span class="n">json_data</span><span class="p">)</span>
+</span><span class='line'><span class="k">print</span> <span class="n">json_data</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h3>4. Applying configuration changes</h3>
 
 <p>Even though pyanbind does not support XML, it is possible to use <a href="https://github.com/mbj4668/pyang/wiki/XmlJson">other pyang plugins</a> to generate XML from JSON.</p>
 
-<p>{% codeblock lang:bash %}
-pyang -f jtox -o interface.jtox ietf-ip.yang ietf-interfaces.yang ietf-inet-types.yang ietf-yang-types.yang
-json2xml -t config -o interface.xml interface.jtox interface.json
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang -f jtox -o interface.jtox ietf-ip.yang ietf-interfaces.yang ietf-inet-types.yang ietf-yang-types.yang
+</span><span class='line'>json2xml -t config -o interface.xml interface.jtox interface.json
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The resulting <code>interface.xml</code> file contains the XML document ready to be sent to the device. I&rsquo;ll use <a href="https://github.com/networkop/yang/blob/master/helpers.py">read_file</a> helper function to read its contents and save it into a variable. We should still have a NETCONF session opened from one of the previous steps and we&rsquo;ll use the <a href="https://tools.ietf.org/html/rfc6241#section-7.2">edit-config</a> RPC call to apply our changes to the running configuration of CSR1k.</p>
 
-<p>{% codeblock lang:bash %}
-xml = read_file(&lsquo;interface.xml&rsquo;)
-reply = m.edit_config(target=&lsquo;running&rsquo;, config=xml)
-print(&ldquo;Success? {}&rdquo;.format(reply.ok))
-m.close_session()
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">xml</span> <span class="o">=</span> read_file<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>interface.xml<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>
+</span><span class='line'><span class="nv">reply</span> <span class="o">=</span> m.edit_config<span class="o">(</span><span class="nv">target</span><span class="o">=</span><span class="p">&amp;</span>lsquo<span class="p">;</span>running<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="nv">config</span><span class="o">=</span>xml<span class="o">)</span>
+</span><span class='line'>print<span class="o">(</span><span class="p">&amp;</span>ldquo<span class="p">;</span>Success? <span class="o">{}</span><span class="p">&amp;</span>rdquo<span class="p">;</span>.format<span class="o">(</span>reply.ok<span class="o">))</span>
+</span><span class='line'>m.close_session<span class="o">()</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>If the change was applied successfully <code>reply.ok</code> should return <code>True</code> and we can close the session to the device.</p>
 
@@ -261,18 +333,27 @@ m.close_session()
 
 <p>Going back to the CSR1k&rsquo;s CLI we should see our changes reflected in the running configuration:</p>
 
-<p>{% codeblock lang:text %}
-Router#sh run int gi 2
-Building configuration&hellip;</p>
-
-<p>Current configuration : 126 bytes
-!
-interface GigabitEthernet2
- description NETCONF-CONFIGURED PORT
- ip address 12.12.12.2 255.255.255.0
- negotiation auto
-end
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>Router#sh run int gi 2
+</span><span class='line'>Building configuration&amp;hellip;&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;Current configuration : 126 bytes
+</span><span class='line'>!
+</span><span class='line'>interface GigabitEthernet2
+</span><span class='line'> description NETCONF-CONFIGURED PORT
+</span><span class='line'> ip address 12.12.12.2 255.255.255.0
+</span><span class='line'> negotiation auto
+</span><span class='line'>end
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h3>All-in-one scripts</h3>
 

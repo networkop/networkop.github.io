@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Syncthing | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/syncthing/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-09-19T16:17:42+01:00</updated>
+  <updated>2017-11-23T12:21:53+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -112,19 +112,29 @@ $ service syncthing restart &amp;&amp; service syncthing-inotify restart
 </code></pre>
 
 <p>Finally, Windows service can be configured similarly via Syncthing Tray. End result is that files are replicated between the two folders with a delay of just a few seconds
-``` bash Verification
-$ touch /root/tdd_ansible/testfile
-$ tail -n 3 /var/log/upstart/syncthing*
-==> /var/log/upstart/syncthing-inotify.log &lt;==
-[OK] 01:45:04 Watching ansible-blog: /root/tdd_ansible
-[OK] 01:45:04 Syncthing is indexing change in ansible-blog: [.stfolder]
-[OK] 01:46:16 Syncthing is indexing change in ansible-blog: [testfile]</p>
-
-<p>==> /var/log/upstart/syncthing.log &lt;==
-[TLARX] 01:41:25 INFO: Established secure connection to DEVICE-ID at 192.168.X.Y:22000-192.168.X.Z:53007
-[TLARX] 01:41:25 INFO: Device DEVICE-ID client is &ldquo;syncthing v0.11.10&rdquo;
-[TLARX] 01:41:25 INFO: Device DEVICE-ID name is &ldquo;NETOP-DESKTOP&rdquo;
-```</p>
+<figure class='code'><figcaption><span>Verification</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>touch /root/tdd_ansible/testfile
+</span><span class='line'><span class="nv">$ </span>tail -n <span class="m">3</span> /var/log/upstart/syncthing*
+</span><span class='line'><span class="o">==</span>&gt; /var/log/upstart/syncthing-inotify.log <span class="p">&amp;</span>lt<span class="p">;</span><span class="o">==</span>
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:45:04 Watching ansible-blog: /root/tdd_ansible
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:45:04 Syncthing is indexing change in ansible-blog: <span class="o">[</span>.stfolder<span class="o">]</span>
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:46:16 Syncthing is indexing change in ansible-blog: <span class="o">[</span>testfile<span class="o">]</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;<span class="o">==</span>&gt; /var/log/upstart/syncthing.log <span class="p">&amp;</span>lt<span class="p">;</span><span class="o">==</span>
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Established secure connection to DEVICE-ID at 192.168.X.Y:22000-192.168.X.Z:53007
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Device DEVICE-ID client is <span class="p">&amp;</span>ldquo<span class="p">;</span>syncthing v0.11.10<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Device DEVICE-ID name is <span class="p">&amp;</span>ldquo<span class="p">;</span>NETOP-DESKTOP<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <hr />
 
