@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Devops | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/devops/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-11-23T12:21:53+00:00</updated>
+  <updated>2017-11-26T10:48:55+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -27,7 +27,7 @@
 
 <p>Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</p>
 
-<p><img class="center" src="/images/network-ci-dc-before.png" title="Current network topology" ></p>
+<p>{% img center  /images/network-ci-dc-before.png Current network topology %}</p>
 
 <h2>Target network overview</h2>
 
@@ -42,13 +42,13 @@
 
 <p>We&rsquo;re not going getting rid of OSPF completely, but rather reduce its function to a simple distribution of <em>internal</em> DC prefixes. BGP will be running on top of OSPF and distribute all the DC and WAN <em>summary</em> prefixes.</p>
 
-<p><img class="center" src="/images/network-ci-dc-after.png" title="Target network topology" ></p>
+<p>{% img center  /images/network-ci-dc-after.png Target network topology %}</p>
 
 <h2>Physical topology overview</h2>
 
 <p>Now let&rsquo;s take a closer look at the network that we&rsquo;re going to emulate. All green devices on the left-hand side constitute the <strong>Active</strong> Data Centre, that is where all the traffic will flow under normal conditions. All green devices have red <strong>Standby</strong> counterparts. These devices will pick up the function of traffic forwarding in case their green peer becomes unavailable.</p>
 
-<p><img class="center" src="/images/network-ci-dc-full.png" title="Full demo topology" ></p>
+<p>{% img center  /images/network-ci-dc-full.png Full demo topology %}</p>
 
 <p>When simulating a real-life network it&rsquo;s often impossible to fit an exact replica inside a network emulator. That&rsquo;s why using <strong>mock</strong> devices is a crucial part in every simulation. The function of a mock is to approximate a set of network devices. There&rsquo;s a number of mock devices on our diagram colour-coded in purple. These devices simulate the remaining parts of the network. For example, <strong>Cloud</strong> devices may represent <abbr title=" Top-Of-the-Rack">TOR</abbr> switches, while <strong>MPLS/DMVPN</strong> devices represent remote WAN sites. Normally these devices will have some made-up configuration that best reflects real life, but not necessarily a copy-paste from an existing network device.</p>
 
@@ -122,7 +122,7 @@
 
 <p>The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.</p>
 
-<p><img class="center" src="/images/ci-acme-small.jpg" title="Small demo topology" ></p>
+<p>{% img center  /images/ci-acme-small.jpg Small demo topology %}</p>
 
 <p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small">repository</a> and reset it to work with your own Github account using <code>git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br/>
 Local development environment contains the following files describing the modelled topology:</p>
@@ -206,7 +206,7 @@ Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to 
 
 <p>Now imagine that a new requirements has come in to make sure that traffic from R1 to R3&rsquo;s Gig0/1 does not traverse R4 and goes via R2 instead, only falling back to R4 when R1-R2 link is down. In the following video I&rsquo;ll show how to use network-ci tools locally to implement and test this traffic engineering requirement.</p>
 
-<p><div class="embed-video-container"><iframe src="//www.youtube.com/embed/GLOG9KZzP90" allowfullscreen></iframe></div></p>
+<p>{% youtube GLOG9KZzP90 %}</p>
 
 <h2>Coming up</h2>
 
@@ -224,7 +224,7 @@ Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to 
 <!--more-->
 
 
-<p><img class="center" src="/images/packer-unl-jenkins.png" title="Packer-UNL-Jenkins" ></p>
+<p>{% img center /images/packer-unl-jenkins.png Packer-UNL-Jenkins %}</p>
 
 <h2>Packer intro</h2>
 
@@ -340,7 +340,7 @@ I have already explored the idea of automated network testing in my previous blo
 
 <p>All these steps can be done automatically without making a single click in a GUI or entering a single command in a CLI. This is a sneak peak of what to expect later in the series:</p>
 
-<p><div class="embed-video-container"><iframe src="//www.youtube.com/embed/jiZs0969RWI" allowfullscreen></iframe></div></p>
+<p>{% youtube jiZs0969RWI %}</p>
 
 <p>Please don&rsquo;t judge me too harshly, this is my first experience with screencasts.</p>
 
