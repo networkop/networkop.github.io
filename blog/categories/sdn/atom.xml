@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Sdn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/sdn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-11-26T10:48:55+00:00</updated>
+  <updated>2017-12-14T21:07:11+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,551 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[OpenStack SDN - OpenDaylight With BGP VPN]]></title>
+    <link href="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/"/>
+    <updated>2017-12-15T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2017/12/15/os-odl-netvirt</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll demonstrate how to build a simple OpenStack lab with OpenDaylight-managed virtual networking and integrate it with a Cisco IOS-XE data centre gateway using EVPN.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>For the last 5 years OpenStack has been the training ground for a lot of emerging DC SDN solutions. OpenStack integration use case was one of the most compelling and easiest to implement thanks to the limited and suboptimal implementation of the native networking stack. Today, in 2017, features like <a href="/blog/2016/05/06/neutron-l2pop/">L2 population</a>, local <a href="/blog/2016/05/06/neutron-l2pop/">ARP responder</a>, <a href="/blog/2016/05/21/neutron-l2gw/">L2 gateway integration</a>, <a href="/blog/2016/10/13/os-dvr/">distributed routing</a> and <a href="/blog/2017/09/15/os-sfc-skydive/">service function chaining</a> have all become available in vanilla OpenStack and don&rsquo;t require a proprietary SDN controller anymore. Admittedly, some of the features are still not (and may never be) implemented in the most optimal way (e.g. DVR). This is where new opensource SDN controllers, the likes of <a href="/blog/2016/12/10/ovn-part2/">OVN</a> and <a href="https://docs.openstack.org/developer/dragonflow/distributed_dragonflow.html">Dragonflow</a>, step in to provide scalable, elegant and efficient implementation of these advanced networking features. However one major feature still remains outside of the scope of a lot of these new opensource SDN projects, and that is data centre gateway (DC-GW) integration. Let me start by explain why you would need this feature in the first place.</p>
+
+<h2>Optimal forwarding of North-South traffic</h2>
+
+<p>OpenStack Neutron and VMware NSX, both being pure software solutions, rely on a special type of node to forward traffic between VMs and hosts outside of the data centre. This node acts as a L2/L3 gateway for all North-South traffic and is often implemented as either a VM or a network namespace. This kind of solution gives software developers greater independence from the underlying networking infrastructure which makes it easier for them to innovate and introduce new features.</p>
+
+<p><img class="center" src="/images/sdn-ns.png"></p>
+
+<p>However, from the traffic forwarding point of view, having a gateway/network node is not a good solution at all. There is no technological reason for a packet to have to go through this node when after all it ends up on a DC-GW anyway. In fact, this solution introduces additional complexity which needs to be properly managed (e.g. designed, configured and troubleshooted) and a potential bottleneck for high-throughput traffic flows.</p>
+
+<p>It&rsquo;s clear that the most optimal way to forward traffic is directly from a compute node to a DC-GW. The only question is how can this optimal forwarding be achieved? SDN controller needs to be able to exchange reachability information with DC-GW using a common protocol understood by most of the existing routing stacks. One such protocol, becoming very common in DC environments, is BGP, which has two address families we can potentially use:</p>
+
+<ol>
+<li>VPNv4/6 will allow routes to be exchanged and the dataplance to use MPLSoGRE encapsulation. This should be considered a &ldquo;legacy&rdquo; approach since for a very long time DC-GWs did not have the VXLAN ecap/decap capabilities.</li>
+<li>EVPN with VXLAN-based overlays. EVPN makes it possible to exchange both L2 and L3 information under the same AF, which means we have the flexibility of doing not only a L3 WAN integration, but also a L2 data centre interconnect with just a single protocol.</li>
+</ol>
+
+
+<p>In OpenStack specifically, BGPVPN project was created to provide a pluggable driver framework for 3rd party BGP implementations. Apart from a reference BaGPipe driver (BaGPipe is an ExaBGP fork with lightweight implementation of BGP VPNs), which relies on a default <code>openvswitch</code> ML2 mechanism driver, only Nuage, OpenDaylight and OpenContrail have contributed their drivers to this project. In this post I will focus on OpenDaylight and show how to install containerised OpenStack with OpenDaylight and integrate it with Cisco CSR using EVPN.</p>
+
+<h2>OpenDaylight integration with OpenStack</h2>
+
+<p>Historically, OpenDaylight has had multiple projects implementing custom OpenStack networking drivers:</p>
+
+<ul>
+<li><strong>VTN</strong> (Virtual Tenant Networking) - spearheaded by NEC was the first project to provide OpenStack networking implementation</li>
+<li><strong>GBP</strong> (Group Based Policy) - a project led by Cisco, one of the first (if not THE first) commercial implementation of Intent-based networking</li>
+<li><strong>NetVirt</strong> - currently a default Neutron plugin from ODL, developed jointly by Brocade (RIP), RedHat, Ericsson, Intel and many others.</li>
+</ul>
+
+
+<p>NetVirt provides several common Neutron services including L2 and L3 forwarding, ACL and NAT, as well as advanced services like L2 gateway, QoS and SFC. To do that it assumes full control over an OVS switch inside each compute node and implements the above services inside a single <code>br-int</code> OVS bridge. L2/L3 forwarding tables are built based on tenant IP/MAC addresses that have been allocated by Neutron and the current network topology. For high-level overview of NetVirt&rsquo;s forwarding pipeline you can refer to <a href="https://docs.google.com/presentation/d/15h4ZjPxblI5Pz9VWIYnzfyRcQrXYxA1uUoqJsgA53KM/edit#slide=id.g1c73ae9953_2_0">this document</a>.</p>
+
+<p>It helps to think of an ODL-managed OpenStack as a big chassis switch. NetVirt plays the role of a supervisor by managing control plane and compiling RIB based on the information received from Neutron. Each compute node running an OVS is a linecard with VMs connected to its ports. Unlike the distributed architecture of <a href="/blog/2016/12/10/ovn-part2/">OVN</a> and Dragonflow, compute nodes do not contain any control plane elements and each OVS gets its FIB programmed directly by the supervisor. DC underlay is a backplane, interconnecting all linecards and a supervisor.</p>
+
+<p><img class="center" src="/images/odl-netvirt-chassis.png"></p>
+
+<h2>OpenDaylight BGP VPN service architecture</h2>
+
+<p>In order to provide BGP VPN functionality, NetVirt employs the use of three service components:</p>
+
+<ul>
+<li><strong>FIB service</strong> - maintains L2/L3 forwarding tables and reacts to topology changes</li>
+<li><strong>BGP manager</strong> - provides a translation of information sent to and received from an external BGP stack (Quagga BGP)</li>
+<li><strong>VPN Manager</strong> - ties together the above two components, creates VRFs and keeps track of RD/RT values</li>
+</ul>
+
+
+<p>In order to exchange BGP updates with external DC-GW, NetVirt requires a BGP stack with EVPN and VPNV4/6 capabilities. Ideally, internal ODL BGP stack could have been used for that, however it didn&rsquo;t meet all the performance requirements (injecting/withdrawing thousand of prefixes at the same time). Instead, an external <a href="https://github.com/6WIND/quagga/tree/qthrift_mpbgp_evpn">Quagga fork</a> with EVPN add-ons is connected to BGP manager via a high-speed Apache Thrift interface. This interface defines the <a href="https://github.com/6WIND/quagga/blob/qthrift_mpbgp_evpn/qthriftd/vpnservice.thrift">format</a> of data to be exchanged between Quagga (a.k.a QBGP) and NetVirt&rsquo;s BGP Manager in order to do two things:</p>
+
+<ol>
+<li>Configure BGP settings like ASN and BGP neighbors</li>
+<li>Read/Write RIB entries inside QBGP</li>
+</ol>
+
+
+<p>BGP session is established between QBGP and external DC-GW, however next-hop values installed by NetVirt and advertised by QBGP have IPs of the respective compute nodes, so that traffic is sent directly via the most optimal path.</p>
+
+<p><img class="center" src="/images/odl-netvirt.png"></p>
+
+<h2>Demo</h2>
+
+<p>Enough of the theory, let&rsquo;s have a look at how to configure a L3VPN between QBGP (advertising ODL&rsquo;s distributed router subnets) and IOS-XE DC-GW using EVPN route type 5 or, more specifically, <a href="https://tools.ietf.org/html/draft-ietf-bess-evpn-prefix-advertisement-09#section-4.4.1">Interface-less IP-VRF-to-IP-VRF model</a>:</p>
+
+<p><img class="center" src="/images/odl-evpn-topo.png"></p>
+
+<h3>Installation</h3>
+
+<p>My lab environment is still based on a pair of nested VMs running containerised Kolla OpenStack I&rsquo;ve described in my <a href="/blog/2017/09/08/os-lab-docker/">earlier post</a>. A few months ago OpenDaylight role has been added to kolla-ansible so now it is possible to install OpenDaylight-intergrated OpenStack automatically. However, there is no option to install QBGP so I had to augment the default <a href="https://github.com/openstack/kolla">Kolla</a> and <a href="https://github.com/openstack/kolla-ansible">Kolla-ansible</a> repositories to include the QBGP <a href="https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_build/templates/quagga-Dockerfile.j2">Dockerfile template</a> and QBGP <a href="https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_deploy/tasks/create.yml#L90-L120">ansible role</a>. So the first step is to download my latest automated installer and make sure <code>enable_opendaylight</code> global variable is set to <code>yes</code>:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/kolla-odl-bgpvpn.git&quot;</span>&gt;https://github.com/networkop/kolla-odl-bgpvpn.git&lt;/a&gt; <span class="p">&amp;</span>amp<span class="p">;&amp;</span>amp<span class="p">;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>mkdir group_vars
+</span><span class='line'><span class="nb">echo</span> <span class="p">&amp;</span>ldquo<span class="p">;</span>enable_opendaylight: <span class="se">\&quot;</span>yes<span class="se">\&amp;</span>rdquo<span class="p">;&amp;</span>ldquo<span class="p">;</span> &gt;&gt; group_vars/all.yaml
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>At the time of writing I was relying on a couple of latest bug fixes inside OpenDaylight, so I had to modify the default ODL role to install the latest master-branch ODL build. Make sure the link below is pointing to the latest <code>zip</code> file in <code>0.8.0-SNAPSHOT</code> directory.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt;&gt; group_vars/all.yaml
+</span><span class='line'>odl_latest_enabled: <span class="nb">true</span>
+</span><span class='line'>odl_latest_url: &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://nexus.opendaylight.org/content/repositories/opendaylight.snapshot/org/opendaylight/integration/netvirt/karaf/0.8.0-SNAPSHOT/karaf-0.8.0-20171106.102232-1767.zip&quot;</span>&gt;https://nexus.opendaylight.org/content/repositories/opendaylight.snapshot/org/opendaylight/integration/netvirt/karaf/0.8.0-SNAPSHOT/karaf-0.8.0-20171106.102232-1767.zip&lt;/a&gt;
+</span><span class='line'>EOF
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The next few steps are similar to what I&rsquo;ve described in my <a href="/blog/2017/09/08/os-lab-docker/">Kolla lab post</a>, will create a pair of VMs, build all Kolla containers, push them to a local Docker repo and finally deploy OpenStack using Kolla-ansible playbooks:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-bootstrap.sh <span class="k">do</span>
+</span><span class='line'>./3-build.sh <span class="k">do</span>
+</span><span class='line'>./4-deploy.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The final <code>4-deploy.sh</code> script will also create a simple <code>init.sh</code> script inside the controller VM that can be used to setup a test topology with a single VM connected to a <code>10.0.0.0/24</code> subnet:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ssh kolla-controller
+</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'>./init.sh
+</span></code></pre></td></tr></table></div></figure></p>
+
+<blockquote><p>Of course, another option to build a lab is to follow the official <a href="https://docs.openstack.org/kolla-ansible/latest/user/quickstart.html">Kolla documentation</a> to create your own custom test environment.</p></blockquote>
+
+<h3>Configuration</h3>
+
+<p>Assuming the test topology was setup with no issues and a test VM can ping its default gateway <code>10.0.0.1</code>, we can start configuring BGP VPNs. Unfortunately, we won&rsquo;t be able to use OpenStack BGPVPN API/CLI, since ODL requires an extra parameter (L3 VNI for symmetric IRB) which is not available in OpenStack BGPVPN API, but we still can configure everything directly through ODL&rsquo;s API. My interface of choice is always REST, since it&rsquo;s easier to build it into a fully programmatic plugin, so even though all of the below steps can be accomplished through karaf console CLI, I&rsquo;ll be using cURL to send and retrieve data from ODL&rsquo;s REST API.</p>
+
+<h4>1. Source admin credentials and setup ODL&rsquo;s REST variables</h4>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'><span class="nb">export </span><span class="nv">ODL_URL</span><span class="o">=</span><span class="p">&amp;</span>lsquo<span class="p">;</span>&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://192.168.133.100:8181/restconf&quot;</span>&gt;http://192.168.133.100:8181/restconf&lt;/a&gt;<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'><span class="nb">export </span><span class="nv">CT_JSON</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/json<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h4>2. Configure local BGP settings and BGP peering with DC-GW</h4>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./bgp-full.json
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>    <span class="p">&amp;</span>ldquo<span class="p">;</span>bgp<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">{</span>
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>as-id<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">{</span>
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>announce-fbit<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="nb">false</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nb">local</span>-as<span class="p">&amp;</span>rdquo<span class="p">;</span>: 100,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>router-id<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>192.168.133.100<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>stalepath-time<span class="p">&amp;</span>rdquo<span class="p">;</span>: 0
+</span><span class='line'>        <span class="o">}</span>,
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>logging<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">{</span>
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>file<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>/var/log/bgp_debug.log<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>level<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>errors<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>        <span class="o">}</span>,
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>neighbors<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span>
+</span><span class='line'>            <span class="o">{</span>
+</span><span class='line'>                <span class="p">&amp;</span>ldquo<span class="p">;</span>address<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>192.168.133.50<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>                <span class="p">&amp;</span>ldquo<span class="p">;</span>remote-as<span class="p">&amp;</span>rdquo<span class="p">;</span>: 100,
+</span><span class='line'>                <span class="p">&amp;</span>ldquo<span class="p">;</span>address-families<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span>
+</span><span class='line'>                   <span class="o">{</span>
+</span><span class='line'>                     <span class="p">&amp;</span>ldquo<span class="p">;</span>ebgp:afi<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>3<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>                     <span class="p">&amp;</span>ldquo<span class="p">;</span>ebgp:peer-ip<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>192.168.133.50<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>                     <span class="p">&amp;</span>ldquo<span class="p">;</span>ebgp:safi<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>6<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>                   <span class="o">}</span>
+</span><span class='line'>                <span class="o">]</span>
+</span><span class='line'>            <span class="o">}</span>
+</span><span class='line'>        <span class="o">]</span>
+</span><span class='line'>    <span class="o">}</span>
+</span><span class='line'><span class="o">}</span>
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;curl -X PUT -u admin:admin -k -v -H <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nv">$CT_JSON</span><span class="p">&amp;</span>rdquo<span class="p">;</span>  <span class="se">\</span>
+</span><span class='line'>     <span class="nv">$ODL_URL</span>/config/ebgp:bgp -d @bgp-full.json
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h4>3. Define L3VPN instance and associate it with OpenStack <code>admin</code> tenant</h4>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">TENANT_UUID</span><span class="o">=</span><span class="k">$(</span>openstack project show admin -f value -c id <span class="p">|</span> <span class="se">\</span>
+</span><span class='line'>            sed <span class="p">&amp;</span>rsquo<span class="p">;</span>s/<span class="o">(</span><span class="p">&amp;</span>hellip<span class="p">;&amp;</span>hellip<span class="p">;</span>..<span class="k">)</span><span class="o">(</span><span class="p">&amp;</span>hellip<span class="p">;</span>.<span class="o">)(</span><span class="p">&amp;</span>hellip<span class="p">;</span>.<span class="o">)(</span><span class="p">&amp;</span>hellip<span class="p">;</span>.<span class="o">)(</span>.*<span class="o">)</span>/<span class="se">\1</span>-<span class="se">\2</span>-<span class="se">\3</span>-<span class="se">\4</span>-<span class="se">\5</span>/<span class="p">&amp;</span>lsquo<span class="p">;</span><span class="o">)</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./l3vpn-full.json
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>   <span class="p">&amp;</span>ldquo<span class="p">;</span>input<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">{</span>
+</span><span class='line'>      <span class="p">&amp;</span>ldquo<span class="p">;</span>l3vpn<span class="p">&amp;</span>rdquo<span class="p">;</span>:<span class="o">[</span>
+</span><span class='line'>         <span class="o">{</span>
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>id<span class="p">&amp;</span>rdquo<span class="p">;</span>:<span class="p">&amp;</span>ldquo<span class="p">;</span>f503fcb0-3fd9-4dee-8c3a-5034cf707fd9<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>name<span class="p">&amp;</span>rdquo<span class="p">;</span>:<span class="p">&amp;</span>ldquo<span class="p">;</span>L3EVPN<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>route-distinguisher<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span><span class="p">&amp;</span>ldquo<span class="p">;</span>100:100<span class="p">&amp;</span>rdquo<span class="p">;</span><span class="o">]</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nb">export</span>-RT<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span><span class="p">&amp;</span>ldquo<span class="p">;</span>100:100<span class="p">&amp;</span>rdquo<span class="p">;</span><span class="o">]</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>import-RT<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span><span class="p">&amp;</span>ldquo<span class="p">;</span>100:100<span class="p">&amp;</span>rdquo<span class="p">;</span><span class="o">]</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>l3vni<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>5000<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>tenant-id<span class="p">&amp;</span>rdquo<span class="p">;</span>:<span class="p">&amp;</span>ldquo<span class="p">;</span><span class="k">${</span><span class="nv">TENANT_UUID</span><span class="k">}</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>         <span class="o">}</span>
+</span><span class='line'>      <span class="o">]</span>
+</span><span class='line'>   <span class="o">}</span>
+</span><span class='line'><span class="o">}</span>
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;curl -X POST -u admin:admin -k -v -H <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nv">$CT_JSON</span><span class="p">&amp;</span>rdquo<span class="p">;</span>  <span class="se">\</span>
+</span><span class='line'>      <span class="nv">$ODL_URL</span>/operations/neutronvpn:createL3VPN -d @l3vpn-full.json
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h4>4. Inject prefixes into L3VPN by associating the previously created L3VPN with a <code>demo-router</code></h4>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">ROUTER_UUID</span><span class="o">=</span><span class="k">$(</span>openstack router show demo-router -f value -c id<span class="k">)</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./l3vpn-assoc.json
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>input<span class="p">&amp;</span>rdquo<span class="p">;</span>:<span class="o">{</span>
+</span><span class='line'>     <span class="p">&amp;</span>ldquo<span class="p">;</span>vpn-id<span class="p">&amp;</span>rdquo<span class="p">;</span>:<span class="p">&amp;</span>ldquo<span class="p">;</span>f503fcb0-3fd9-4dee-8c3a-5034cf707fd9<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>     <span class="p">&amp;</span>ldquo<span class="p">;</span>router-id<span class="p">&amp;</span>rdquo<span class="p">;</span>:<span class="o">[</span> <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="k">${</span><span class="nv">ROUTER_UUID</span><span class="k">}</span><span class="p">&amp;</span>rdquo<span class="p">;</span> <span class="o">]</span>
+</span><span class='line'>   <span class="o">}</span>
+</span><span class='line'><span class="o">}</span>
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;curl -X POST -u admin:admin -k -v -H <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nv">$CT_JSON</span><span class="p">&amp;</span>rdquo<span class="p">;</span>  <span class="se">\</span>
+</span><span class='line'>     <span class="nv">$ODL_URL</span>/operations/neutronvpn:associateRouter -d @l3vpn-assoc.json
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h4>5. Configure DC-GW VTEP IP</h4>
+
+<p>ODL cannot automatically extract VTEP IP from updates received from DC-GW, so we need to explicitly configure it:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./tep.json
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>input<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">{</span>
+</span><span class='line'>    <span class="p">&amp;</span>ldquo<span class="p">;</span>destination-ip<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>1.1.1.1<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>    <span class="p">&amp;</span>ldquo<span class="p">;</span>tunnel-type<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>odl-interface:tunnel-type-vxlan<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>  <span class="o">}</span>
+</span><span class='line'><span class="o">}</span>
+</span><span class='line'>EOF
+</span><span class='line'>curl -X POST -u admin:admin -k -v -H <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nv">$CT_JSON</span><span class="p">&amp;</span>rdquo<span class="p">;</span>  <span class="se">\</span>
+</span><span class='line'>     <span class="nv">$ODL_URL</span>/operations/itm-rpc:add-external-tunnel-endpoint -d @tep.json
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h4>6. DC-GW configuration</h4>
+
+<p>That is all what needs to be configured on ODL. Although I would consider this to be outside of the scope of the current post, for the sake of completeness I&rsquo;m including the relevant configuration from the DC-GW:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>!
+</span><span class='line'>vrf definition ODL
+</span><span class='line'> rd 100:100
+</span><span class='line'> route-target <span class="nb">export </span>100:100
+</span><span class='line'> route-target import 100:100
+</span><span class='line'> !      &lt;br/&gt;
+</span><span class='line'> address-family ipv4
+</span><span class='line'>  route-target <span class="nb">export </span>100:100 stitching
+</span><span class='line'>  route-target import 100:100 stitching
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'>!
+</span><span class='line'>bridge-domain 5000
+</span><span class='line'> member vni 5000
+</span><span class='line'>!
+</span><span class='line'>interface Loopback0
+</span><span class='line'> ip address 1.1.1.1 255.255.255.255
+</span><span class='line'>!
+</span><span class='line'>interface GigabitEthernet1
+</span><span class='line'> ip address 192.168.133.50 255.255.255.0
+</span><span class='line'>!
+</span><span class='line'>interface nve1
+</span><span class='line'> no ip address
+</span><span class='line'> <span class="nb">source</span>-interface Loopback0
+</span><span class='line'> host-reachability protocol bgp
+</span><span class='line'> member vni <span class="m">5000</span> vrf ODL
+</span><span class='line'>!
+</span><span class='line'>interface BDI5000
+</span><span class='line'> vrf forwarding ODL
+</span><span class='line'> ip address 8.8.8.8 255.255.255.0
+</span><span class='line'> encapsulation dot1Q 500
+</span><span class='line'>!
+</span><span class='line'>router bgp 100
+</span><span class='line'> bgp log-neighbor-changes
+</span><span class='line'> no bgp default ipv4-unicast
+</span><span class='line'> neighbor 192.168.133.100 remote-as 100
+</span><span class='line'> !
+</span><span class='line'> address-family l2vpn evpn
+</span><span class='line'>  import vpnv4 unicast
+</span><span class='line'>  neighbor 192.168.133.100 activate
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'> !
+</span><span class='line'> address-family ipv4 vrf ODL
+</span><span class='line'>  advertise l2vpn evpn
+</span><span class='line'>  redistribute connected
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'>!
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>For detailed explanation of how EVPN RT5 is configured on Cisco CSR refer to the <a href="https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/cether/configuration/xe-16/ce-xe-16-book/evpn-vxlan-l3.html">following guide</a>.</p>
+
+<h3>Verification</h3>
+
+<p>There are several things that can be checked to verify that the DC-GW integration is working. One of the first steps would be to check if BGP session with CSR is up.
+This can be done from the CSR side, however it&rsquo;s also possible to check this from the QBGP side. First we need to get into the QBGP&rsquo;s interactive shell from the controller node:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>centos@controller-1 ~<span class="o">]</span><span class="nv">$ </span>sudo docker <span class="nb">exec</span> -it quagga /opt/quagga/bin/vtysh
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>From here, we can check that the BGP session has been established:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>controller-1# sh bgp neighbors 192.168.133.50   &lt;br/&gt;
+</span><span class='line'>BGP neighbor is 192.168.133.50, remote AS 100, <span class="nb">local </span>AS 100, internal link
+</span><span class='line'>  BGP version 4, remote router ID 1.1.1.1
+</span><span class='line'>  BGP <span class="nv">state</span> <span class="o">=</span> Established, up <span class="k">for</span> 00:03:05
+</span><span class='line'>&lt;snip&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>We can also check the contents of EVPN RIB compiled by QBGP</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>controller-1# sh bgp evpn rd 100:100
+</span><span class='line'>BGP table version is 0, <span class="nb">local </span>router ID is 192.168.133.100
+</span><span class='line'>Status codes: s suppressed, d damped, h <span class="nb">history</span>, * valid, &gt; best, i - internal
+</span><span class='line'>Origin codes: i - IGP, e - EGP, ? - incomplete&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;   Network          Next Hop            Metric LocPrf Weight Path
+</span><span class='line'>Route Distinguisher: as2 100:100
+</span><span class='line'>&lt;em&gt;&gt; <span class="o">[</span>0<span class="o">][</span>fa:16:3e:37:42:d8/48<span class="o">][</span>10.0.0.2/32<span class="o">]</span>
+</span><span class='line'>                    192.168.133.100         <span class="m">0</span>          <span class="m">32768</span> i
+</span><span class='line'>&lt;/em&gt;&gt; <span class="o">[</span>0<span class="o">][</span>fa:16:3e:dc:77:65/48<span class="o">][</span>10.0.0.3/32<span class="o">]</span>
+</span><span class='line'>                    192.168.133.101         <span class="m">0</span>          <span class="m">32768</span> i
+</span><span class='line'>&lt;em&gt;&gt;i8.8.8.0/24       1.1.1.1         <span class="m">0</span>     <span class="m">100</span>       <span class="m">0</span> ?
+</span><span class='line'>&lt;/em&gt;&gt; 10.0.0.0/24      192.168.133.100         <span class="m">0</span>          <span class="m">32768</span> i
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Finally, we can verify that the prefix <code>8.8.8.0/24</code> advertised from DC-GW is being passed by QBGP and accepted by NetVirt&rsquo;s FIB Manager:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>curl -u admin:admin -k -v  <span class="nv">$ODL_URL</span>/config/odl-fib:fibEntries/<span class="se">\</span>
+</span><span class='line'>  vrfTables/100%3A100/vrfEntry/8.8.8.0%2F24 <span class="p">|</span> python -m json.tool
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>    <span class="p">&amp;</span>ldquo<span class="p">;</span>vrfEntry<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span>
+</span><span class='line'>        <span class="o">{</span>
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>destPrefix<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>8.8.8.0/24<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>encap-type<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>vxlan<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>gateway_mac_address<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>00:1e:49:69:24:bf<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>l3vni<span class="p">&amp;</span>rdquo<span class="p">;</span>: 5000,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>origin<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>b<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>route-paths<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span>
+</span><span class='line'>                <span class="o">{</span>
+</span><span class='line'>                    <span class="p">&amp;</span>ldquo<span class="p">;</span>nexthop-address<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>1.1.1.1<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>                <span class="o">}</span>
+</span><span class='line'>            <span class="o">]</span>
+</span><span class='line'>        <span class="o">}</span>
+</span><span class='line'>    <span class="o">]</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The last output confirms that the prefix is being received and accepted by ODL. To do a similar check on CSR side we can run the following command:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>CSR1k#show bgp l2vpn evpn
+</span><span class='line'>&lt;snip&gt;
+</span><span class='line'>     Network          Next Hop            Metric LocPrf Weight Path
+</span><span class='line'>Route Distinguisher: 100:100 <span class="o">(</span>default <span class="k">for</span> vrf ODL<span class="o">)</span>
+</span><span class='line'> &lt;em&gt;&gt;i  <span class="o">[</span>2<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>48<span class="o">][</span>FA163E3742D8<span class="o">][</span>32<span class="o">][</span>10.0.0.2<span class="o">]</span>/24
+</span><span class='line'>                      192.168.133.100          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
+</span><span class='line'> &lt;/em&gt;&gt;i  <span class="o">[</span>2<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>48<span class="o">][</span>FA163EDC7765<span class="o">][</span>32<span class="o">][</span>10.0.0.3<span class="o">]</span>/24
+</span><span class='line'>                      192.168.133.101          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
+</span><span class='line'> &lt;em&gt;&gt;   <span class="o">[</span>5<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>24<span class="o">][</span>8.8.8.0<span class="o">]</span>/17
+</span><span class='line'>                      0.0.0.0                  <span class="m">0</span>         <span class="m">32768</span> ?
+</span><span class='line'> &lt;/em&gt;&gt;i  <span class="o">[</span>5<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>24<span class="o">][</span>10.0.0.0<span class="o">]</span>/17
+</span><span class='line'>                      192.168.133.100          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>This confirms that the control plane information has been successfully exchanged between NetVirt and Cisco CSR.</p>
+
+<blockquote><p>At the time of writing, there was an <a href="https://git.opendaylight.org/gerrit/#/c/63324/">open bug</a> in ODL master branch that prevented the forwarding entries from being installed in OVS datapath. Once the bug is fixed I will update this post with the dataplance verification, a.k.a ping</p></blockquote>
+
+<h2>Conclusion</h2>
+
+<p>OpenDaylight is a pretty advanced OpenStack SDN platform. Its functionality includes clustering, site-to-site federation (without EVPN) and L2/L3 EVPN DC-GW integration for both IPv4 and IPv6. It is yet another example of how an open-source platform can match even the most advanced proprietary SDN solutions from incumbent vendors. This is all thanks to the companies involved in OpenDaylight development. I also want to say special thanks to Vyshakh Krishnan, Kiran N Upadhyaya and Dayavanti Gopal Kamath from Ericsson for helping me clear up some of the questions I posted on netvirt-dev mailing list.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack SDN - NFV Management and Orchestration]]></title>
@@ -41,7 +586,7 @@
 
 <p>On the below diagram I have shown an adbridged version of the original ETSI MANO <a href="https://www.ietf.org/proceedings/88/slides/slides-88-opsawg-6.pdf">reference architecture diagram</a> adapted to the use case I&rsquo;ll be demonstrating in this post.</p>
 
-<p>{% img center /images/etsi-mano.png %}</p>
+<p><img class="center" src="/images/etsi-mano.png"></p>
 
 <p>This architecture consists of the following building blocks:</p>
 
@@ -55,7 +600,7 @@
 
 <p>All these elements are working together towards a single goal - managing and orchestrating a Network Service (NS), which itself is comprised of multiple VNFs, Virtual Links (VLs), VNF Forwarding Graphs (VNFFGs) and Physical Network Functions (PNFs). In this post I create a NS for a simple virtual IDS use case, described in my previous <a href="/blog/2017/09/15/os-sfc-skydive/">SFC post</a>. The goal is to steer all ICMP traffic coming from VM1 through a vIDS VNF which will forward the traffic to its original destination.</p>
 
-<p>{% img center /images/vids-created.png %}</p>
+<p><img class="center" src="/images/vids-created.png"></p>
 
 <p>Before I get to the implementation, let me give a quick overview of how a Network Service is build from its constituent parts, in the context of our vIDS use case.</p>
 
@@ -63,7 +608,7 @@
 
 <p>According to ETSI MANO, a <strong>Network Service</strong> (NS) is a subset of end-to-end service implemented by VNFs and instantiated on the NFVI. As I&rsquo;ve mentioned before, some examples of a NS would be vEPC, vIMS or vCPE. NS can be described in either a YANG or a Tosca template called NS Descriptor (NSD). The main goal of a NSD is to tie together VNFs, VLs, VNFFGs and PNFs by defining relationship between various templates describing those objects (VNFDs, VLDs, VNFFGDs). Once NSD is onboarded (uploaded), it can be instantiated by NFVO, which communicates with VIM and VNFM to create the constituent components and stitch them together as described in a template. NSD normally does not contain VNFD or VNFFGD templates, but imports them through their names, which means that in order to instantiate a NSD, the corresponding VNFDs and VNFFGDs should already be onboarded.</p>
 
-<p>{% img center /images/vids-nsd.png %}</p>
+<p><img class="center" src="/images/vids-nsd.png"></p>
 
 <p><strong>VNF Descriptor</strong> is a template describing the compute and network parameters of a single VNF. Each VNF consists of one or more VNF components (VNFCs), represented in Tosca as Virtual Deployment Units (VDUs). A VDU is the smallest part of a VNF and can be implemented as either a container or, as it is in our case, a VM. Apart from the usual set of parameters like CPU, RAM and disk, VNFD also describes all the virtual networks required for internal communication between VNFCs, called internal VLs. VNFM can ask VIM to create those networks when the VNF is being instantiated. VNFD also contains a reference to external networks, which are supposed to be created by NFVO. Those networks are used to connect different VNFs together or to connect VNFs to PNFs and other elements outside of NFVI platform. If external VLs are defined in a VNFD, VNFM will need to source them externally, either as input parameters to VNFM or from NFVO. In fact, VNF instantiation by VNFM, as described in Tacker <a href="https://docs.openstack.org/tacker/latest/user/vnfm_usage_guide.html">documentation</a>, is only used for testing purposes and since a VNF only makes sense as a part of a Network Service, the intended way is to use a NSD to instantiate all VNFs in production environment.</p>
 
@@ -73,7 +618,7 @@
 
 <p>Tacker is an OpenStack project implementing a generic VNFM and NFVO. At the input it consumes Tosca-based templates, converts them to Heat templates which are then used to spin up VMs on OpenStack. This diagram from Brocade, the biggest Tacker contributor (at least until its acquisition), is the best overview of internal Tacker architecture.</p>
 
-<p>{% img center /images/brocade-tacker.jpg %}</p>
+<p><img class="center" src="/images/brocade-tacker.jpg"></p>
 
 <p>For this demo environment I&rsquo;ll keep using my OpenStack Kolla lab environment described in my <a href="/blog/2017/09/08/os-lab-docker/">previous post</a>.</p>
 
@@ -81,18 +626,27 @@
 
 <p>Before we can start using Tacker, it needs to know how to reach the OpenStack environment, so the first step in the workflow is OpenStack or VIM registration. We need to provide the address of the keystone endpoint along with the admin credentials to give Tacker enough rights to create and delete VMs and SFC objects:</p>
 
-<p>{% codeblock lang:bash %}
-cat &lt;&lt; EOF > ./vim.yaml
-auth_url: &lsquo;<a href="http://192.168.133.254:35357/v3">http://192.168.133.254:35357/v3</a>&rsquo;
-username: &lsquo;admin&rsquo;
-password: &lsquo;admin&rsquo;
-project_name: &lsquo;admin&rsquo;
-project_domain_name: &lsquo;Default&rsquo;
-user_domain_name: &lsquo;Default&rsquo;
-EOF</p>
-
-<p>tacker vim-register &ndash;is-default &ndash;config-file vim.yaml &ndash;description MYVIM KOLLA-OPENSTACK
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./vim.yaml
+</span><span class='line'>auth_url: <span class="p">&amp;</span>lsquo<span class="p">;</span>&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://192.168.133.254:35357/v3&quot;</span>&gt;http://192.168.133.254:35357/v3&lt;/a&gt;<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>username: <span class="p">&amp;</span>lsquo<span class="p">;</span>admin<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>password: <span class="p">&amp;</span>lsquo<span class="p">;</span>admin<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>project_name: <span class="p">&amp;</span>lsquo<span class="p">;</span>admin<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>project_domain_name: <span class="p">&amp;</span>lsquo<span class="p">;</span>Default<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>user_domain_name: <span class="p">&amp;</span>lsquo<span class="p">;</span>Default<span class="p">&amp;</span>rsquo<span class="p">;</span>
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;tacker vim-register <span class="p">&amp;</span>ndash<span class="p">;</span>is-default <span class="p">&amp;</span>ndash<span class="p">;</span>config-file vim.yaml <span class="p">&amp;</span>ndash<span class="p">;</span>description MYVIM KOLLA-OPENSTACK
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The successful result can be checked with <code>tacker vim-list</code> which should report that registered VIM is now reachable.</p>
 
@@ -100,100 +654,175 @@ EOF</p>
 
 <p>VNFD defines a set of VMs (VNFCs), network ports (CPs) and networks (VLs) and their relationship. In our case we have a single cirros-based VM with a pair of ingress/egress ports. In this template we also define a special node type <code>tosca.nodes.nfv.vIDS</code> which will be used by NSD to pass the required parameters for ingress and egress VLs. These parameters are going to be used by VNFD to attach network ports (CPs) to virtual networks (VLs) as defined in the <code>substitution_mappings</code> section.</p>
 
-<p>{% codeblock lang:bash %}
-cat &lt;&lt; EOF > ./vnfd.yaml
-tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
-description: Cirros vIDS example</p>
-
-<p>node_types:
-  tosca.nodes.nfv.vIDS:
-    requirements:
-      - INGRESS_VL:
-          type: tosca.nodes.nfv.VL
-          required: true
-      - EGRESS_VL:
-          type: tosca.nodes.nfv.VL
-          required: true</p>
-
-<p>topology_template:
-  substitution_mappings:
-    node_type: tosca.nodes.nfv.vIDS
-    requirements:
-      INGRESS_VL: [CP1, virtualLink]
-      EGRESS_VL:  [CP2, virtualLink]</p>
-
-<p>  node_templates:
-    VDU1:
-      type: tosca.nodes.nfv.VDU.Tacker
-      properties:
-        availability_zone: nova
-        flavor: m1.nano
-        image: cirros
-        mgmt_driver: noop
-        user_data_format: RAW
-        user_data: |
-          #!/bin/sh
-          sudo cirros-dhcpc up eth1
-          sudo ip rule add iif eth0 table default
-          sudo ip route add default via 10.0.0.1 dev eth1 table default
-          sudo sysctl -w net.ipv4.ip_forward=1</p>
-
-<pre><code>CP1:
-  type: tosca.nodes.nfv.CP.Tacker
-  properties:
-    anti_spoofing_protection: false
-  requirements:
-    - virtualBinding:
-        node: VDU1
-
-CP2:
-  type: tosca.nodes.nfv.CP.Tacker
-  properties:
-    anti_spoofing_protection: false
-  requirements:
-    - virtualBinding:
-        node: VDU1
-</code></pre>
-
-<p>EOF</p>
-
-<p>tacker vnfd-create &ndash;vnfd-file vnfd.yaml vIDS-TEMPLATE
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+<span class='line-number'>47</span>
+<span class='line-number'>48</span>
+<span class='line-number'>49</span>
+<span class='line-number'>50</span>
+<span class='line-number'>51</span>
+<span class='line-number'>52</span>
+<span class='line-number'>53</span>
+<span class='line-number'>54</span>
+<span class='line-number'>55</span>
+<span class='line-number'>56</span>
+<span class='line-number'>57</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./vnfd.yaml
+</span><span class='line'>tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
+</span><span class='line'>description: Cirros vIDS example&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;node_types:
+</span><span class='line'>  tosca.nodes.nfv.vIDS:
+</span><span class='line'>    requirements:
+</span><span class='line'>      - INGRESS_VL:
+</span><span class='line'>          <span class="nb">type</span>: tosca.nodes.nfv.VL
+</span><span class='line'>          required: <span class="nb">true</span>
+</span><span class='line'>      - EGRESS_VL:
+</span><span class='line'>          <span class="nb">type</span>: tosca.nodes.nfv.VL
+</span><span class='line'>          required: <span class="nb">true</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;topology_template:
+</span><span class='line'>  substitution_mappings:
+</span><span class='line'>    node_type: tosca.nodes.nfv.vIDS
+</span><span class='line'>    requirements:
+</span><span class='line'>      INGRESS_VL: <span class="o">[</span>CP1, virtualLink<span class="o">]</span>
+</span><span class='line'>      EGRESS_VL:  <span class="o">[</span>CP2, virtualLink<span class="o">]</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;  node_templates:
+</span><span class='line'>    VDU1:
+</span><span class='line'>      <span class="nb">type</span>: tosca.nodes.nfv.VDU.Tacker
+</span><span class='line'>      properties:
+</span><span class='line'>        availability_zone: nova
+</span><span class='line'>        flavor: m1.nano
+</span><span class='line'>        image: cirros
+</span><span class='line'>        mgmt_driver: noop
+</span><span class='line'>        user_data_format: RAW
+</span><span class='line'>        user_data: <span class="p">|</span>
+</span><span class='line'>          <span class="c">#!/bin/sh</span>
+</span><span class='line'>          sudo cirros-dhcpc up eth1
+</span><span class='line'>          sudo ip rule add iif eth0 table default
+</span><span class='line'>          sudo ip route add default via 10.0.0.1 dev eth1 table default
+</span><span class='line'>          sudo sysctl -w net.ipv4.ip_forward<span class="o">=</span>1&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;pre&gt;&lt;code&gt;CP1:
+</span><span class='line'>  <span class="nb">type</span>: tosca.nodes.nfv.CP.Tacker
+</span><span class='line'>  properties:
+</span><span class='line'>    anti_spoofing_protection: <span class="nb">false</span>
+</span><span class='line'><span class="nb">  </span>requirements:
+</span><span class='line'>    - virtualBinding:
+</span><span class='line'>        node: VDU1
+</span><span class='line'>
+</span><span class='line'>CP2:
+</span><span class='line'>  <span class="nb">type</span>: tosca.nodes.nfv.CP.Tacker
+</span><span class='line'>  properties:
+</span><span class='line'>    anti_spoofing_protection: <span class="nb">false</span>
+</span><span class='line'><span class="nb">  </span>requirements:
+</span><span class='line'>    - virtualBinding:
+</span><span class='line'>        node: VDU1
+</span><span class='line'>&lt;/code&gt;&lt;/pre&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;tacker vnfd-create <span class="p">&amp;</span>ndash<span class="p">;</span>vnfd-file vnfd.yaml vIDS-TEMPLATE
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h3>Step 4 - Onboarding a NSD</h3>
 
 <p>In our use case the NSD template is going to really small. All what we need to define is a single VNF of the <code>tosca.nodes.nfv.vIDS</code> type that was defined previously in the VNFD. We also define a VL node which points to the pre-existing <code>demo-net</code> virtual network and pass this VL to both INGRESS_VL and EGRESS_VL parameters of the VNFD.</p>
 
-<p>{% codeblock lang:bash %}
-cat &lt;&lt; EOF > ./nsd.yaml
-tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
-imports:
-  - vIDS-TEMPLATE</p>
-
-<p>topology_template:
-  node_templates:
-    vIDS:
-      type: tosca.nodes.nfv.vIDS
-      requirements:
-        - INGRESS_VL: VL1
-        - EGRESS_VL: VL1
-    VL1:
-      type: tosca.nodes.nfv.VL
-      properties:
-          network_name: demo-net
-          vendor: tacker
-EOF</p>
-
-<p>tacker nsd-create &ndash;nsd-file nsd.yaml NSD-vIDS-TEMPLATE
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./nsd.yaml
+</span><span class='line'>tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
+</span><span class='line'>imports:
+</span><span class='line'>  - vIDS-TEMPLATE&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;topology_template:
+</span><span class='line'>  node_templates:
+</span><span class='line'>    vIDS:
+</span><span class='line'>      <span class="nb">type</span>: tosca.nodes.nfv.vIDS
+</span><span class='line'>      requirements:
+</span><span class='line'>        - INGRESS_VL: VL1
+</span><span class='line'>        - EGRESS_VL: VL1
+</span><span class='line'>    VL1:
+</span><span class='line'>      <span class="nb">type</span>: tosca.nodes.nfv.VL
+</span><span class='line'>      properties:
+</span><span class='line'>          network_name: demo-net
+</span><span class='line'>          vendor: tacker
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;tacker nsd-create <span class="p">&amp;</span>ndash<span class="p">;</span>nsd-file nsd.yaml NSD-vIDS-TEMPLATE
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h3>Step 5 - Instantiating a NSD</h3>
 
 <p>As I&rsquo;ve mentioned before, VNFFG is not integrated with NSD yet, so we&rsquo;ll add it later. For now, we have provided enough information to instantiate our NSD.</p>
 
-<p>{% codeblock lang:bash %}
-tacker ns-create &ndash;nsd-name NSD-vIDS-TEMPLATE NS-vIDS-1
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>tacker ns-create <span class="p">&amp;</span>ndash<span class="p">;</span>nsd-name NSD-vIDS-TEMPLATE NS-vIDS-1
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>This last command creates a cirros-based VM with two interfaces and connects them to <code>demo-net</code> virtual network. All ICMP traffic from VM1 still goes directly to its default gateway so the last thing we need to do is create a VNFFG.</p>
 
@@ -203,53 +832,97 @@ tacker ns-create &ndash;nsd-name NSD-vIDS-TEMPLATE NS-vIDS-1
 
 <p>The following template demonstrates another important feature - template parametrization. Instead of defining all parameters statically in a template, they can be provided as inputs during instantiation, which allows to keep templates generic. In this case I&rsquo;ve replaced the network port id parameter with <code>PORT_ID</code> variable which will be provided during VNFFGD instantiation.</p>
 
-<p>{% codeblock lang:bash %}
-cat &lt;&lt; EOF > ./vnffg.yaml
-tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0</p>
-
-<p>description: vIDS VNFFG tosca</p>
-
-<p>topology_template:
-  inputs:
-    PORT_ID:
-      type: string
-      description: Port ID of the target VM</p>
-
-<p>  node_templates:</p>
-
-<pre><code>Forwarding_Path-1:
-  type: tosca.nodes.nfv.FP.Tacker
-  description: creates path (CP1-&gt;CP2)
-  properties:
-    id: 51
-    policy:
-      type: ACL
-      criteria:
-        - network_src_port_id: { get_input: PORT_ID }
-        - ip_proto: 1
-    path:
-      - forwarder: vIDS-TEMPLATE
-        capability: CP1
-      - forwarder: vIDS-TEMPLATE
-        capability: CP2
-</code></pre>
-
-<p>  groups:
-    VNFFG1:
-      type: tosca.groups.nfv.VNFFG
-      description: Set of Forwarding Paths
-      properties:
-        vendor: tacker
-        version: 1.0
-        number_of_endpoints: 1
-        dependent_virtual_link: [VL1]
-        connection_point: [CP1]
-        constituent_vnfs: [vIDS-TEMPLATE]
-      members: [Forwarding_Path-1]
-EOF</p>
-
-<p>tacker vnffgd-create &ndash;vnffgd-file vnffgd.yaml VNFFG-TEMPLATE
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./vnffg.yaml
+</span><span class='line'>tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;description: vIDS VNFFG tosca&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;topology_template:
+</span><span class='line'>  inputs:
+</span><span class='line'>    PORT_ID:
+</span><span class='line'>      <span class="nb">type</span>: string
+</span><span class='line'>      description: Port ID of the target VM&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;  node_templates:&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;pre&gt;&lt;code&gt;Forwarding_Path-1:
+</span><span class='line'>  <span class="nb">type</span>: tosca.nodes.nfv.FP.Tacker
+</span><span class='line'>  description: creates path <span class="o">(</span>CP1-<span class="p">&amp;</span>gt<span class="p">;</span>CP2<span class="o">)</span>
+</span><span class='line'>  properties:
+</span><span class='line'>    id: 51
+</span><span class='line'>    policy:
+</span><span class='line'>      <span class="nb">type</span>: ACL
+</span><span class='line'>      criteria:
+</span><span class='line'>        - network_src_port_id: <span class="o">{</span> get_input: PORT_ID <span class="o">}</span>
+</span><span class='line'>        - ip_proto: 1
+</span><span class='line'>    path:
+</span><span class='line'>      - forwarder: vIDS-TEMPLATE
+</span><span class='line'>        capability: CP1
+</span><span class='line'>      - forwarder: vIDS-TEMPLATE
+</span><span class='line'>        capability: CP2
+</span><span class='line'>&lt;/code&gt;&lt;/pre&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;  groups:
+</span><span class='line'>    VNFFG1:
+</span><span class='line'>      <span class="nb">type</span>: tosca.groups.nfv.VNFFG
+</span><span class='line'>      description: Set of Forwarding Paths
+</span><span class='line'>      properties:
+</span><span class='line'>        vendor: tacker
+</span><span class='line'>        version: 1.0
+</span><span class='line'>        number_of_endpoints: 1
+</span><span class='line'>        dependent_virtual_link: <span class="o">[</span>VL1<span class="o">]</span>
+</span><span class='line'>        connection_point: <span class="o">[</span>CP1<span class="o">]</span>
+</span><span class='line'>        constituent_vnfs: <span class="o">[</span>vIDS-TEMPLATE<span class="o">]</span>
+</span><span class='line'>      members: <span class="o">[</span>Forwarding_Path-1<span class="o">]</span>
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;tacker vnffgd-create <span class="p">&amp;</span>ndash<span class="p">;</span>vnffgd-file vnffgd.yaml VNFFG-TEMPLATE
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>In order to instantiate a VNFFGD we need to provide two runtime parameters:</p>
 
@@ -261,20 +934,25 @@ EOF</p>
 
 <p>All these parameters can be obtained using the CLI commands as shown below:</p>
 
-<p>{% codeblock lang:bash %}
-CLIENT_IP=$(openstack server list | grep VM1 | grep -Eo &lsquo;[0-9]+.[0-9]+.[0-9]+.[0-9]+&rsquo;)
-PORT_ID=$(openstack port list | grep $CLIENT_IP | awk &lsquo;{print $2}&rsquo;)
-echo &ldquo;PORT_ID: $PORT_ID&rdquo; > params-vnffg.yaml
-vIDS_ID=$(tacker ns-show NS-vIDS-1 -f value -c vnf_ids | sed &ldquo;s/&lsquo;/\&rdquo;/g" | jq &rsquo;.vIDS' | sed &ldquo;s/\&rdquo;//g")
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">CLIENT_IP</span><span class="o">=</span><span class="k">$(</span>openstack server list <span class="p">|</span> grep VM1 <span class="p">|</span> grep -Eo <span class="p">&amp;</span>lsquo<span class="p">;</span><span class="o">[</span>0-9<span class="o">]</span>+.<span class="o">[</span>0-9<span class="o">]</span>+.<span class="o">[</span>0-9<span class="o">]</span>+.<span class="o">[</span>0-9<span class="o">]</span>+<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="k">)</span>
+</span><span class='line'><span class="nv">PORT_ID</span><span class="o">=</span><span class="k">$(</span>openstack port list <span class="p">|</span> grep <span class="nv">$CLIENT_IP</span> <span class="p">|</span> awk <span class="p">&amp;</span>lsquo<span class="p">;</span><span class="o">{</span>print <span class="nv">$2</span><span class="o">}</span><span class="p">&amp;</span>rsquo<span class="p">;</span><span class="k">)</span>
+</span><span class='line'><span class="nb">echo</span> <span class="p">&amp;</span>ldquo<span class="p">;</span>PORT_ID: <span class="nv">$PORT_ID</span><span class="p">&amp;</span>rdquo<span class="p">;</span> &gt; params-vnffg.yaml
+</span><span class='line'><span class="nv">vIDS_ID</span><span class="o">=</span><span class="k">$(</span>tacker ns-show NS-vIDS-1 -f value -c vnf_ids <span class="p">|</span> sed <span class="p">&amp;</span>ldquo<span class="p">;</span>s/<span class="p">&amp;</span>lsquo<span class="p">;</span>/<span class="se">\&amp;</span>rdquo<span class="p">;</span>/g<span class="s2">&quot; | jq &amp;rsquo;.vIDS&#39; | sed &amp;ldquo;s/\&amp;rdquo;//g&quot;</span><span class="k">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The following command creates a VNFFG and an equivalent SFC to steer all ICMP traffic from VM1 through vIDS VNF. The result can be verified using Skydive following the procedure described in my <a href="/blog/2017/09/15/os-sfc-skydive/">previous post</a>.</p>
 
-<p>{% codeblock lang:bash %}
-tacker vnffg-create &ndash;vnffgd-name VNFFG-TEMPLATE \
-                    &ndash;vnf-mapping vIDS-TEMPLATE:$vIDS_ID \
-                    &ndash;param-file params-vnffg.yaml VNFFG-1
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>tacker vnffg-create <span class="p">&amp;</span>ndash<span class="p">;</span>vnffgd-name VNFFG-TEMPLATE <span class="se">\</span>
+</span><span class='line'>                    <span class="p">&amp;</span>ndash<span class="p">;</span>vnf-mapping vIDS-TEMPLATE:<span class="nv">$vIDS_ID</span> <span class="se">\</span>
+</span><span class='line'>                    <span class="p">&amp;</span>ndash<span class="p">;</span>param-file params-vnffg.yaml VNFFG-1
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>Other Tacker features</h2>
 
@@ -321,7 +999,7 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 </ul>
 
 
-<p>{% img center /images/sfc-overview.png %}</p>
+<p><img class="center" src="/images/sfc-overview.png"></p>
 
 <p>One important property of a SF is elasticity. More instances of the same type can be added to a pool of SF and SFF will load-balance the traffic between them. This is the reason why, as we&rsquo;ll see in the next section, SFF treats connections to a SF as a group of ports rather than just a single port.</p>
 
@@ -353,53 +1031,59 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 
 <p> First, let&rsquo;s generate OpenStack credentials using a post-deployment script. We later can use a default bootstrap script to downloads the cirros image and set up some basic networking and security rules.</p>
 
-<p>{% codeblock lang:bash %}
-kolla-ansible post-deploy
-source /etc/kolla/admin-openrc.sh
-/usr/share/kolla-ansible/init-runonce
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>kolla-ansible post-deploy
+</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'>/usr/share/kolla-ansible/init-runonce
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The goal for this post is to create a simple uni-directional SFC to steer the ICMP requests from VM1 to its default gateway through another VM that will be playing the role of a firewall.</p>
 
-<p>{% img center /images/sfc-example.png %}</p>
+<p><img class="center" src="/images/sfc-example.png"></p>
 
 <p>The network was already created by the bootstrap script so all what we have to do is create a test VM. I&rsquo;m creating a port in a separate step simply so that I can refer to it by name instead of UUID.</p>
 
-<p>{% codeblock lang:bash %}
-openstack port create &ndash;network demo-net P0
-openstack server create &ndash;image cirros &ndash;flavor m1.tiny &ndash;port P0 VM1
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P0
+</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>port P0 VM1
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>I&rsquo;ll go over all the necessary steps to setup SFC, but will only provide a brief explanation. Refer to the official OpenStack <a href="https://docs.openstack.org/newton/networking-guide/config-sfc.html">Networking Guide</a> for a complete SFC configuration guide.</p>
 
 <p>First, let&rsquo;s create a FW VM with two ports - P1 and P2.</p>
 
-<p>{% codeblock lang:bash %}
-openstack port create &ndash;network demo-net P1
-openstack port create &ndash;network demo-net P2
-openstack server create &ndash;image cirros &ndash;flavor m1.tiny &ndash;port P1 &ndash;port P2 FW
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P1
+</span><span class='line'>openstack port create <span class="p">&amp;</span>ndash<span class="p">;</span>network demo-net P2
+</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>port P1 <span class="p">&amp;</span>ndash<span class="p">;</span>port P2 FW
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Next, we need create an ingress/egress port pair and assign it to a port pair group. The default setting for <strong>correlation</strong> in a port pair (not shown) is <code>none</code>. That means that SFC encapsulation header (MPLS) will get stripped before the packet is sent to P1.</p>
 
-<p>{% codeblock lang:bash %}
-openstack sfc port pair create &ndash;ingress P1 &ndash;egress P2 PPAIR
-openstack sfc port pair group create &ndash;port-pair PPAIR PPGROUP
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port pair create <span class="p">&amp;</span>ndash<span class="p">;</span>ingress P1 <span class="p">&amp;</span>ndash<span class="p">;</span>egress P2 PPAIR
+</span><span class='line'>openstack sfc port pair group create <span class="p">&amp;</span>ndash<span class="p">;</span>port-pair PPAIR PPGROUP
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Port pair group also allows to specify the L2-L4 headers which to use for load-balancing in OpenFlow groups, overriding the default behaviour described in the next section.</p>
 
 <p>Another required element is a flow classifier. We will be redirecting ICMP traffic coming from VM1&rsquo;s port P0</p>
 
-<p>{% codeblock lang:bash %}
-openstack sfc flow classifier create &ndash;protocol icmp &ndash;logical-source-port P0 FLOW-ICMP
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc flow classifier create <span class="p">&amp;</span>ndash<span class="p">;</span>protocol icmp <span class="p">&amp;</span>ndash<span class="p">;</span>logical-source-port P0 FLOW-ICMP
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Finally, we can tie together flow classifier with a previously created port pair group. The default setting for <strong>correlation</strong> (not shown again) in this case is <code>mpls</code>. That means that each chain will have its own unique MPLS label to be used as an SFC encapsulation.</p>
 
-<p>{% codeblock lang:bash %}
-openstack sfc port chain create &ndash;port-pair-group PPGROUP &ndash;flow-classifier FLOW-ICMP PCHAIN
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack sfc port chain create <span class="p">&amp;</span>ndash<span class="p">;</span>port-pair-group PPGROUP <span class="p">&amp;</span>ndash<span class="p">;</span>flow-classifier FLOW-ICMP PCHAIN
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>That&rsquo;s all the configuration needed to setup SFC. However if you login VM1&rsquo;s console and try pinging default gateway, it will fail. Next, I&rsquo;m going to give a quick demo of how to use a real-time network analyzer tool called Skydive to troubleshoot this issue.</p>
 
@@ -411,84 +1095,111 @@ openstack sfc port chain create &ndash;port-pair-group PPGROUP &ndash;flow-class
 
 <p>Skydive CLI client is available inside the <code>skydive_analyzer</code> container. We need to start an interactive bash session inside this container and set some environment variables:</p>
 
-<p>{% codeblock lang:bash %}
-docker exec -it skydive_analyzer bash
-export SKYDIVE_ANALYZERS=192.168.133.100:8085
-export SKYDIVE_USERNAME=admin
-export SKYDIVE_PASSWORD=admin
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>docker <span class="nb">exec</span> -it skydive_analyzer bash
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_ANALYZERS</span><span class="o">=</span>192.168.133.100:8085
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_USERNAME</span><span class="o">=</span>admin
+</span><span class='line'><span class="nb">export </span><span class="nv">SKYDIVE_PASSWORD</span><span class="o">=</span>admin
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The first thing we can do to troubleshoot is see if ICMP traffic is entering the <code>ingress</code> port of the FW VM. Based on the output of <code>openstack port list</code> command I know that P1 has got an IP of <code>10.0.0.8</code>. Let&rsquo;s if we can identify a tap port corresponding to P1:</p>
 
-<p>{% codeblock lang:bash %}
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Values(&lsquo;Neutron&rsquo;)&rdquo;
-{
-  &ldquo;IPs&rdquo;: &ldquo;10.0.0.8&rdquo;,
-  &ldquo;NetworkID&rdquo;: &ldquo;8eabb451-b026-417c-b54b-8e79ee6e71c3&rdquo;,
-  &ldquo;NetworkName&rdquo;: &ldquo;demo-net&rdquo;,
-  &ldquo;PortID&rdquo;: &ldquo;e6334df9-a5c4-4e86-a5f3-671760c2bbbe&rdquo;,
-  &ldquo;TenantID&rdquo;: &ldquo;bd5829e0cb5b40b68ab4f8e7dc68b14d&rdquo;
-}
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>IPs<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>NetworkID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>8eabb451-b026-417c-b54b-8e79ee6e71c3<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>NetworkName<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>demo-net<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>PortID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>e6334df9-a5c4-4e86-a5f3-671760c2bbbe<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>  <span class="p">&amp;</span>ldquo<span class="p">;</span>TenantID<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>bd5829e0cb5b40b68ab4f8e7dc68b14d<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The output above proves that skydive agent has successfully read the configuration of the port and we can start a capture on that object to see any packets arriving on P1.</p>
 
-<p>{% codeblock lang:bash %}
-skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;)&rdquo;
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.8&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
-[
-  7
-]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.8<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>If you <code>watch</code> the last command for several seconds you should see that the number in brackets is increasing. That means that packets are hitting the ingress port of the FW VM. Now let&rsquo;s repeat the same test on <code>egress</code> port P2.</p>
 
-<p>{% codeblock lang:bash %}
-skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;)&rdquo;
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows()&rdquo;
-[]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The output above tells us that there are no packets coming out of the FW VM. This is expected since we haven&rsquo;t done any changes to the blank cirros image to make it forward the packets between the two interfaces. If we examine the IP configuration of the FW VM, we would see that it doesn&rsquo;t have an IP address configured on the second interface. We would also need to create a source-based routing policy to force all traffic from VM1 (<code>10.0.0.6</code>) to egress via interface <code>eth2</code> and make sure IP forwarding is turned on. The following commands would need to be executed on FW VM:</p>
 
-<p>{% codeblock lang:bash %}
-sudo cirros-dhcpc up eth1
-sudo ip rule add from 10.0.0.6 table default
-sudo ip route add default via 10.0.0.1 dev eth1 table default
-sudo sysctl -w net.ipv4.ip_forward=1
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo cirros-dhcpc up eth1
+</span><span class='line'>sudo ip rule add from 10.0.0.6 table default
+</span><span class='line'>sudo ip route add default via 10.0.0.1 dev eth1 table default
+</span><span class='line'>sudo sysctl -w net.ipv4.ip_forward<span class="o">=</span>1
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Having done that, we should see some packets coming out of <code>egress</code> port P2.</p>
 
-<p>{% codeblock lang:bash %}
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;tun&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
-[
-  7
-]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>tun<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  7
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>However form the VM1&rsquo;s perspective the ping is still failing. Next step would be to see if the packets are hitting the integration bridge that port P2 is attached to:</p>
 
-<p>{% codeblock lang:bash %}
-skydive client capture create &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;)&rdquo;
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;).Flows()&rdquo;
-[]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client capture create <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>No packets means they are getting dropped somewhere between the P2 and the integration bridge. This can only be done by security groups. In fact, source MAC/IP anti-spoofing is enabled by default which would only allow packets matching the source MAC/IP addresses assigned to P2 and would drop any packets coming from VM1&rsquo;s IP address. The easiest fix would be to disable security groups for P2 completely:</p>
 
-<p>{% codeblock lang:bash %}
-openstack port set &ndash;no-security-group &ndash;disable-port-security P2
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>openstack port <span class="nb">set</span> <span class="p">&amp;</span>ndash<span class="p">;</span>no-security-group <span class="p">&amp;</span>ndash<span class="p">;</span>disable-port-security P2
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>After this step the counters should start incrementing and the ping from VM1 to its default gateway is resumed.</p>
 
-<p>{% codeblock lang:bash %}
-skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs&rsquo;, &lsquo;10.0.0.4&rsquo;, &lsquo;Type&rsquo;, &lsquo;veth&rsquo;).Flows().Has(&lsquo;Application&rsquo;,&lsquo;ICMPv4&rsquo;).Values(&lsquo;Metric.ABPackets&rsquo;)&rdquo;
-[
-  79
-]
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>skydive client topology query <span class="p">&amp;</span>ndash<span class="p">;</span>gremlin <span class="p">&amp;</span>ldquo<span class="p">;</span>G.V<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Neutron.IPs<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>10.0.0.4<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>Type<span class="p">&amp;</span>rsquo<span class="p">;</span>, <span class="p">&amp;</span>lsquo<span class="p">;</span>veth<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Flows<span class="o">()</span>.Has<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Application<span class="p">&amp;</span>rsquo<span class="p">;</span>,<span class="p">&amp;</span>lsquo<span class="p">;</span>ICMPv4<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span>.Values<span class="o">(</span><span class="p">&amp;</span>lsquo<span class="p">;</span>Metric.ABPackets<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="o">)</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>
+</span><span class='line'>  79
+</span><span class='line'><span class="o">]</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>SFC implementation in OVS forwarding pipeline</h2>
 
@@ -496,28 +1207,29 @@ skydive client topology query &ndash;gremlin &ldquo;G.V().Has(&lsquo;Neutron.IPs
 
 <p>Normally, I would start by collecting all port and flow details from the integration bridge with the following commands:</p>
 
-<p>{% codeblock lang:bash %}
-ovs-ofctl dump-ports-desc br-int  | grep addr
-ovs-ofctl dump-flows br-int | cut -d &lsquo;,&rsquo; -f3-
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl dump-ports-desc br-int  <span class="p">|</span> grep addr
+</span><span class='line'>ovs-ofctl dump-flows br-int <span class="p">|</span> cut -d <span class="p">&amp;</span>lsquo<span class="p">;</span>,<span class="p">&amp;</span>rsquo<span class="p">;</span> -f3-
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>However, for the sake of brevity, I will omit the actual outputs and only show graphical representation of forwarding tables and packet flows. The tables below have two columns - first showing what is being matched and second showing the resulting action. Let&rsquo;s start with the OpenFlow rules in an integration bridge before SFC is configured:</p>
 
-<p>{% img center /images/sfc-before-tables.png %}</p>
+<p><img class="center" src="/images/sfc-before-tables.png"></p>
 
 <p>As we can see, the table structure is quite simple, since integration bridge mostly relies on data-plane MAC learning. A couple of MAC and ARP anti-spoofing tables will check the validity of a packet and send it to table 60 where <code>NORMAL</code> action will trigger the &ldquo;flood-and-learn&rdquo; behaviour. Therefore, an ICMP packet coming from VM1 will take the following path:</p>
 
-<p>{% img center /images/sfc-before-packet.png %}</p>
+<p><img class="center" src="/images/sfc-before-packet.png"></p>
 
 <p>After we&rsquo;ve configured SFC, the forwarding pipeline is changed and now looks like this:</p>
 
-<p>{% img center /images/sfc-after-tables.png %}</p>
+<p><img class="center" src="/images/sfc-after-tables.png"></p>
 
 <p>First, we can see that table 0 acts as a classifier, by redirecting the &ldquo;interesting&rdquo; packets towards <code>group 1</code>. This groups is an <a href="https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups">OpenFlow Group</a> of type <code>select</code>, which load-balances traffic between multiple destinations. By default OVS will use a combination of L2-L4 header as described <a href="http://docs.openvswitch.org/en/latest/faq/openflow/">here</a> to calculate a hash which determines the output bucket, similar to how per-flow load-balancing works in traditional routers and switches. This behaviour can be overridden with a specific set of headers in <code>lb_fields</code> setting of a port pair group.</p>
 
 <p>In our case we&rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&rsquo;s ingress port and is forwarded to a new table 5. Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the service function path. The packet is then forwarded to table 10, which I&rsquo;ve called <code>SFC Ingress</code>. This is where the packets are distributed to SF&rsquo;s ingress ports based on the assigned MPLS label.</p>
 
-<p>{% img center /images/sfc-after-packet.png %}</p>
+<p><img class="center" src="/images/sfc-after-packet.png"></p>
 
 <p>After being processed by a SF, the packet leaves the <code>egress</code> port and re-enters the integration bridge. This time table 0 knows that the packet has already been processed by a SF and, since the anti-spoofing rules have been disabled, simply floods the packet out of all ports in the same VLAN. The packet gets flooded to the tunnel bridge where it gets replicated and delivered to the <code>qrouter</code> sitting on the controller node as per the <a href="http://networkop.co.uk/blog/2016/04/22/neutron-native/">default behaviour</a>.</p>
 
@@ -566,15 +1278,17 @@ ovs-ofctl dump-flows br-int | cut -d &lsquo;,&rsquo; -f3-
 
 <p>My lab consists of a single controller and a single compute VM. The goal was to make them as small as possible so they could run on a laptop with limited resources. Both VMs are connected to three VM bridged networks - provisioning, management and external VM access.</p>
 
-<p>{% img center /images/kolla-lab.png %}</p>
+<p><img class="center" src="/images/kolla-lab.png"></p>
 
 <p>I&rsquo;ve written some bash and Ansible scripts to automate the deployment of VMs on top of any Fedora derivative (e.g. Centos7). These scripts should be run directly from the hypervisor:</p>
 
-<p>{% codeblock lang:bash %}
-git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://github.com/networkop/kolla-odl-bgpvpn.git</a> &amp;&amp; cd kolla-odl-bgpvpn
-./1-create.sh do
-./2-bootstrap.sh do
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/kolla-odl-bgpvpn.git&quot;</span>&gt;https://github.com/networkop/kolla-odl-bgpvpn.git&lt;/a&gt; <span class="p">&amp;</span>amp<span class="p">;&amp;</span>amp<span class="p">;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-bootstrap.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The first bash script downloads the VM OS (Centos7), creates two blank VMs and sets up a local Docker registry. The second script installs all the dependencies, including Docker and Ansible.</p>
 
@@ -584,9 +1298,9 @@ git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://gi
 
 <p>In my case I needed to build the latest version of OpenStack packages, not just the latest major release. I also wanted to build a few additional, non-Openstack images (Opendaylight and Quagga). Because of that I had to build all Docker images locally and push them into a local docker registry. The procedure to build container images is very well documented in the official <a href="https://docs.openstack.org/kolla/latest/image-building.html">Kolla image building guide</a>. I&rsquo;ve modified it slightly to include the Quagga Dockerfile and automated it so that the whole process can be run with a single command:</p>
 
-<p>{% codeblock lang:bash %}
-./3-build.sh do
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./3-build.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>This step can take quite a long time (anything from 1 to 4 hours depending on the network and disk I/O speed), however, once it&rsquo;s been done these container images can be used to deploy as many OpenStack instances as necessary.</p>
 
@@ -602,9 +1316,9 @@ git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://gi
 
 <p>To get started with Kolla-Ansible all what it takes is a few modifications to the global configuration file to make sure that network settings match the underlying OS interface configuration and an update to the inventory file to point it to the correct deployment hosts. In my case I&rsquo;m making additional changes to enable SFC, Skydive and Tacker and adding files for Quagga container, all of which can be done with the following command:</p>
 
-<p>{% codeblock lang:bash %}
-./4-deploy.sh do
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./4-deploy.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The best thing about this method of deployment is that it takes (in my case) under 5 minutes to get the full OpenStack cloud from scratch. That means if I break something or want to redeploy with some major changes (add/remove Opendaylight), all what I have to do is destroy the existing deployment (approx. 1 minute), modify global configuration file and re-deploy OpenStack. This makes Kolla-Ansible an ideal choice for my lab environment.</p>
 
@@ -612,30 +1326,45 @@ git clone <a href="https://github.com/networkop/kolla-odl-bgpvpn.git">https://gi
 
 <p>Once the deployment has been completed, we should be able to see a number of running Docker containers - one for each OpenStack process.</p>
 
-<p>{% codeblock lang:bash %}
-root@compute-1# docker ps
-CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
-0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               skydive_agent
-63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               neutron_openvswitch_agent
-f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               openvswitch_vswitchd
-3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               openvswitch_db
-9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_compute
-8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_libvirt
-220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               nova_ssh
-743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               cron
-8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               kolla_toolbox
-f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     &ldquo;kolla_start&rdquo;       3 days ago          Up 3 days                               fluentd
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker ps
+</span><span class='line'>CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
+</span><span class='line'>0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               skydive_agent
+</span><span class='line'>63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               neutron_openvswitch_agent
+</span><span class='line'>f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_vswitchd
+</span><span class='line'>3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               openvswitch_db
+</span><span class='line'>9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_compute
+</span><span class='line'>8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_libvirt
+</span><span class='line'>220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               nova_ssh
+</span><span class='line'>743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               cron
+</span><span class='line'>8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               kolla_toolbox
+</span><span class='line'>f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     <span class="p">&amp;</span>ldquo<span class="p">;</span>kolla_start<span class="p">&amp;</span>rdquo<span class="p">;</span>       <span class="m">3</span> days ago          Up <span class="m">3</span> days                               fluentd
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>All the standard docker tools are available to interact with those containers. For example, this is how we can see what processes are running inside a container:</p>
 
-<p>{% codeblock lang:bash %}
-root@compute-1# docker exec nova_compute ps -www aux
-USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-nova         1  0.0  0.0    188     4 pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
-nova         7  0.7  1.3 2292560 134896 ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
-root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper &ndash;config-file /etc/nova/nova.conf &ndash;privsep_context vif_plug_ovs.privsep.vif_plug &ndash;privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>root@compute-1# docker <span class="nb">exec </span>nova_compute ps -www aux
+</span><span class='line'>USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
+</span><span class='line'>nova         <span class="m">1</span>  0.0  0.0    <span class="m">188</span>     <span class="m">4</span> pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
+</span><span class='line'>nova         <span class="m">7</span>  0.7  1.3 <span class="m">2292560</span> <span class="m">134896</span> ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
+</span><span class='line'>root        <span class="m">86</span>  0.0  0.3 <span class="m">179816</span> <span class="m">32900</span> ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper <span class="p">&amp;</span>ndash<span class="p">;</span>config-file /etc/nova/nova.conf <span class="p">&amp;</span>ndash<span class="p">;</span>privsep_context vif_plug_ovs.privsep.vif_plug <span class="p">&amp;</span>ndash<span class="p">;</span>privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Some of you may have noticed that none of the containers expose any ports. So how do they communicate? The answer is very simple - all containers run in a <strong>host</strong> networking mode, effectively disabling any network isolation and giving all contaners access to TCP/IP stacks of their Docker hosts. This is a simple way to avoid having to deal with Docker networking complexities, while at the same time preserving the immutability and portability of Docker containers.</p>
 
@@ -665,7 +1394,7 @@ root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/
 
 <p>OpenDaylight is a swiss army knife of SDN controllers. At the moment it is comprised of dozens of projects implementing all possible sorts of SDN functionality starting from Openflow controller all the way up to L3VPN orchestrator. ODL speaks most of the modern Southbound protocols like Openflow, SNMP, NETCONF and BGP. The brain of the controller is in the Service Abstraction Layer, a framework to model all network-related characteristics and properties. All logic inside SAL is modelled in YANG which is why I called it the godfather of YANG models. Towards the end users ODL exposes Java function calls for applications running on the same host and REST API for application running remotely.</p>
 
-<p>{% img center /images/odl-sal.jpg %}</p>
+<p><img class="center" src="/images/odl-sal.jpg"></p>
 
 <p>OpenDaylight has several commercial offerings from companies involved in its development. Most notable ones are from Brocade and Cisco. Here I will allow myself a bit of a rant, feel free to skip it to go straight to the technical stuff.</p>
 
@@ -677,47 +1406,61 @@ root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/
 
 <p>On the same Linux VM, I&rsquo;ve downloaded and launched the latest version of ODL (Boron-SR2), and enabled NETCONF and RESTCONF plugins.</p>
 
-<p>{% codeblock lang:bash %}
-unzip distribution-karaf-0.5.2-Boron-SR2.zip
-mv distribution-karaf-0.5.2-Boron-SR2 odl-0.5.2
-cd odl-0.5.2/
-./bin/karaf
-opendaylight-user@root>feature:install odl-netconf-connector-all
-opendaylight-user@root>feature:install odl-restconf-all
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>unzip distribution-karaf-0.5.2-Boron-SR2.zip
+</span><span class='line'>mv distribution-karaf-0.5.2-Boron-SR2 odl-0.5.2
+</span><span class='line'><span class="nb">cd </span>odl-0.5.2/
+</span><span class='line'>./bin/karaf
+</span><span class='line'>opendaylight-user@root&gt;feature:install odl-netconf-connector-all
+</span><span class='line'>opendaylight-user@root&gt;feature:install odl-restconf-all
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>We&rsquo;ll use NETCONF to connect to Cisco IOS XE device and RESTCONF to interact with ODL from a Linux shell.</p>
 
-<p>{% img center /images/odl-ydk.png %}</p>
+<p><img class="center" src="/images/odl-ydk.png"></p>
 
 <p>It might be useful to turn on logging in karaf console to catch any errors we might encounter later:</p>
 
-<p>{% codeblock lang:bash %}
-opendaylight-user@root>log:tail
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>opendaylight-user@root&gt;log:tail
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>Connecting IOS XE to ODL</h2>
 
 <p>According to ODL <a href="http://docs.opendaylight.org/en/stable-boron/user-guide/netconf-user-guide.html">NETCONF</a> user guide, in order to connect a new device to the controller, we need to create an XML document which will include the IP, port and user credentials of the IOS XE device. Here&rsquo;s the excerpt from the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1">full XML document</a>:</p>
 
-<p>{% codeblock lang:xml %}
-<module xmlns="urn:opendaylight:params:xml:ns:yang:controller:config">
-  <type xmlns:prefix="urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf">prefix:sal-netconf-connector</type>
-  <name>CSR1K</name>
-  <address xmlns="urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf">192.168.145.51</address>
-  <port xmlns="urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf">830</port>
-  <username xmlns="urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf">admin</username>
-  <password xmlns="urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf">admin</password>
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='xml'><span class='line'><span class="nt">&lt;module</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:config&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;type</span> <span class="na">xmlns:prefix=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>prefix:sal-netconf-connector<span class="nt">&lt;/type&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;name&gt;</span>CSR1K<span class="nt">&lt;/name&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;address</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>192.168.145.51<span class="nt">&lt;/address&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;port</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>830<span class="nt">&lt;/port&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;username</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>admin<span class="nt">&lt;/username&gt;</span>
+</span><span class='line'>  <span class="nt">&lt;password</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>admin<span class="nt">&lt;/password&gt;</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Assuming this XML is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1">new_device.xml.1</a>, we can use <code>curl</code> to send it to ODL&rsquo;s netconf-connector plugin:</p>
 
-<p>{% codeblock lang:bash %}
-curl -v -k -u admin:admin -H &ldquo;Content-Type: application/xml&rdquo; -X POST \
- <a href="http://localhost:8181/restconf/config/network-topology:network-topology%0A">http://localhost:8181/restconf/config/network-topology:network-topology
-</a> /topology/topology-netconf/node/controller-config/yang-ext:mount/config:modules\
-  -d @new_device.xml.1
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/xml<span class="p">&amp;</span>rdquo<span class="p">;</span> -X POST <span class="se">\</span>
+</span><span class='line'> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
+</span><span class='line'>&lt;/a&gt; /topology/topology-netconf/node/controller-config/yang-ext:mount/config:modules<span class="se">\</span>
+</span><span class='line'>  -d @new_device.xml.1
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>When the controller gets this information it will try to connect to the device via NETCONF and do the following three things:</p>
 
@@ -730,60 +1473,81 @@ curl -v -k -u admin:admin -H &ldquo;Content-Type: application/xml&rdquo; -X POST
 
 <p>After ODL downloads all of the 260 available models (can take up to 20 minutes) we will see the following errors in the karaf console:</p>
 
-<p>{% codeblock lang:bash %}
-Netconf device does not provide all yang models reported in hello message capabilities
-Unable to build schema context, unsatisfied imports
-Initialization in sal failed, disconnecting from device
-No more sources for schema context
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>Netconf device does not provide all yang models reported in hello message capabilities
+</span><span class='line'>Unable to build schema context, unsatisfied imports
+</span><span class='line'>Initialization in sal failed, disconnecting from device
+</span><span class='line'>No more sources <span class="k">for</span> schema context
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Due to inconsistencies between the advertised and the available models, ODL fails to build the full device YANG schema context, which ultimately results in inability to connect the device to the controller. However, we won&rsquo;t need all of the 260 models advertised by the device. In fact, most of the configuration can be done through a single Cisco native YANG model, <code>ned</code>. With ODL it is possible to override the default capabilities advertised in the Hello message and &ldquo;pin&rdquo; only the ones that are going to be used. Assuming that ODL has downloaded most of the models at the previous step, we can simply tell it use the selected few with the following additions to the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2">XML document</a>:</p>
 
-<p>{% codeblock lang:xml %}
-<yang-module-capabilities xmlns="urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf">
-    <override>true</override>
-    <capability xmlns="urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf">
-      urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types&amp;revision=2013-07-15
-    </capability>
-    <capability xmlns="urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf">
-      <a href="http://cisco.com/ns/yang/ned/ios?module=ned&amp;amp;revision=2016-10-24">http://cisco.com/ns/yang/ned/ios?module=ned&amp;amp;revision=2016-10-24</a>
-    </capability>
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='xml'><span class='line'><span class="nt">&lt;yang-module-capabilities</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;override&gt;</span>true<span class="nt">&lt;/override&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;capability</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>      urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types<span class="ni">&amp;amp;</span>revision=2013-07-15
+</span><span class='line'>    <span class="nt">&lt;/capability&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;capability</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
+</span><span class='line'>      <span class="nt">&lt;a</span> <span class="na">href=</span><span class="s">&quot;http://cisco.com/ns/yang/ned/ios?module=ned&amp;amp;amp;revision=2016-10-24&quot;</span><span class="nt">&gt;</span>http://cisco.com/ns/yang/ned/ios?module=ned<span class="ni">&amp;amp;</span>amp;revision=2016-10-24<span class="nt">&lt;/a&gt;</span>
+</span><span class='line'>    <span class="nt">&lt;/capability&gt;</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Assuming the updated XML is saved in <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2">new_device.xml.2</a> file, the following command will update the current configuration of <strong>CSR1K</strong> device:</p>
 
-<p>{% codeblock lang:bash %}
-curl -v -k -u admin:admin -H &ldquo;Content-Type: application/xml&rdquo; -X PUT \
-<a href="http://localhost:8181/restconf/config/network-topology:network-topology%0A/topology/topology-netconf/node/controller-config%0A/yang-ext:mount/config:modules/module%0A/odl-sal-netconf-connector-cfg:sal-netconf-connector%0A/CSR1K">http://localhost:8181/restconf/config/network-topology:network-topology
-/topology/topology-netconf/node/controller-config
-/yang-ext:mount/config:modules/module
-/odl-sal-netconf-connector-cfg:sal-netconf-connector
-/CSR1K</a> -d @new_device.xml.2
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/xml<span class="p">&amp;</span>rdquo<span class="p">;</span> -X PUT <span class="se">\</span>
+</span><span class='line'>&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A/topology/topology-netconf/node/controller-config%0A/yang-ext:mount/config:modules/module%0A/odl-sal-netconf-connector-cfg:sal-netconf-connector%0A/CSR1K&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
+</span><span class='line'>/topology/topology-netconf/node/controller-config
+</span><span class='line'>/yang-ext:mount/config:modules/module
+</span><span class='line'>/odl-sal-netconf-connector-cfg:sal-netconf-connector
+</span><span class='line'>/CSR1K&lt;/a&gt; -d @new_device.xml.2
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>We can then verify that the device has been successfully mounted to the controller:</p>
 
-<p>{% codeblock lang:bash %}
-curl -v -k -u admin:admin <a href="http://localhost:8181/restconf/operational%0A/network-topology:network-topology/">http://localhost:8181/restconf/operational
-/network-topology:network-topology/</a> | python -m json.tool
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/operational%0A/network-topology:network-topology/&quot;</span>&gt;http://localhost:8181/restconf/operational
+</span><span class='line'>/network-topology:network-topology/&lt;/a&gt; <span class="p">|</span> python -m json.tool
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The output should look similar to the following with the connection-status set to <code>connected</code> and no detected <code>unavailable-capabilities</code>:</p>
 
-<p>{% codeblock lang:json %}
-&ldquo;netconf-node-topology:connection-status&rdquo;: &ldquo;connected&rdquo;,
-&ldquo;netconf-node-topology:host&rdquo;: &ldquo;192.168.145.51&rdquo;,
-&ldquo;netconf-node-topology:port&rdquo;: 830,
-&ldquo;netconf-node-topology:unavailable-capabilities&rdquo;: {},
-&ldquo;node-id&rdquo;: &ldquo;CSR1K&rdquo;
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:connection-status&amp;rdquo;:</span> <span class="err">&amp;ldquo;connected&amp;rdquo;,</span>
+</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:host&amp;rdquo;:</span> <span class="err">&amp;ldquo;</span><span class="mf">192.168</span><span class="err">.</span><span class="mf">145.51</span><span class="err">&amp;rdquo;,</span>
+</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:port&amp;rdquo;:</span> <span class="mi">830</span><span class="err">,</span>
+</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:unavailable-capabilities&amp;rdquo;:</span> <span class="p">{}</span><span class="err">,</span>
+</span><span class='line'><span class="err">&amp;ldquo;node-id&amp;rdquo;:</span> <span class="err">&amp;ldquo;CSR</span><span class="mi">1</span><span class="err">K&amp;rdquo;</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>At this point we should be able to interact with IOS XE&rsquo;s native YANG model through ODL&rsquo;s RESTCONF interface using the following URL</p>
 
-<p>{% codeblock lang:bash %}
- <a href="http://localhost:8181/restconf/config/network-topology:network-topology%0A">http://localhost:8181/restconf/config/network-topology:network-topology
-</a> /topology/topology-netconf/node/CSR1K/yang-ext:mount/ned:native
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
+</span><span class='line'>&lt;/a&gt; /topology/topology-netconf/node/CSR1K/yang-ext:mount/ned:native
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The only thing that&rsquo;s missing is the actual configuration data. To generate it, I&rsquo;ll use a new open-source tool called YDK.</p>
 
@@ -838,80 +1602,111 @@ curl -v -k -u admin:admin <a href="http://localhost:8181/restconf/operational%0A
 
 <p>One of the first things we need to do is install YDK-GEN, the tools responsible for API bindings generation, and it&rsquo;s core Python packages on the local machine. The following few commands are my version of the official <a href="https://github.com/CiscoDevNet/ydk-gen">installation procedure</a>:</p>
 
-<p>{% codeblock lang:bash %}
-git clone <a href="https://github.com/CiscoDevNet/ydk-gen.git">https://github.com/CiscoDevNet/ydk-gen.git</a> ~/ydk-gen
-pip install -r ~/ydk-gen/requirements.txt
-export YDKGEN_HOME=~/ydk-gen/
-~/ydk-gen/generate.py &ndash;python &ndash;core
-pip install ~/ydk-gen/gen-api/python/ydk/dist/ydk*.tar.gz
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/CiscoDevNet/ydk-gen.git&quot;</span>&gt;https://github.com/CiscoDevNet/ydk-gen.git&lt;/a&gt; ~/ydk-gen
+</span><span class='line'>pip install -r ~/ydk-gen/requirements.txt
+</span><span class='line'><span class="nb">export </span><span class="nv">YDKGEN_HOME</span><span class="o">=</span>~/ydk-gen/
+</span><span class='line'>~/ydk-gen/generate.py <span class="p">&amp;</span>ndash<span class="p">;</span>python <span class="p">&amp;</span>ndash<span class="p">;</span>core
+</span><span class='line'>pip install ~/ydk-gen/gen-api/python/ydk/dist/ydk*.tar.gz
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>YDK-GEN generates Python bindings based on the so-called <strong>bundle profile</strong>. This is a simple JSON document which lists all YANG models to include in the output package. In our case we&rsquo;d need to include a <code>ned</code> model along with all its imports. The sample below shows only the model specification. Refer to my <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json">Github repo</a> for a complete bundle profile for Cisco IOS XE native YANG model.</p>
 
-<p>{% codeblock lang:json %}
-{&ldquo;models&rdquo;:{&ldquo;git&rdquo;:[{&ldquo;url&rdquo;:&ldquo;<a href="https://github.com/YangModels/yang.git">https://github.com/YangModels/yang.git</a>&rdquo;,
-  &ldquo;commits&rdquo;:[{&ldquo;commitid&rdquo;:&ldquo;6f4a025431103f8cbbf3405ce01bdc61d0811b1d&rdquo;,
-    &ldquo;file&rdquo;:[&ldquo;vendor/cisco/xe/1641/ned.yang&rdquo;,
-      &ldquo;vendor/cisco/xe/1641/tailf-common.yang&rdquo;,
-      &ldquo;vendor/cisco/xe/1641/tailf-meta-extensions.yang&rdquo;,
-      &ldquo;vendor/cisco/xe/1641/tailf-cli-extensions.yang&rdquo;,
-      &ldquo;standard/ietf/RFC/ietf-inet-types.yang&rdquo;,
-      &ldquo;standard/ietf/RFC/ietf-yang-types.yang&rdquo;]
-      }]}]}}
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="p">{</span><span class="err">&amp;ldquo;models&amp;rdquo;:{&amp;ldquo;git&amp;rdquo;:[{&amp;ldquo;url&amp;rdquo;:&amp;ldquo;&lt;a</span> <span class="err">href=</span><span class="nt">&quot;https://github.com/YangModels/yang.git&quot;</span><span class="err">&gt;https</span><span class="p">:</span><span class="err">//github.com/YangModels/yang.git&lt;/a&gt;&amp;rdquo;</span><span class="p">,</span>
+</span><span class='line'>  <span class="err">&amp;ldquo;commits&amp;rdquo;:[{&amp;ldquo;commitid&amp;rdquo;:&amp;ldquo;6f4a025431103f8cbbf3405ce01bdc61d0811b1d&amp;rdquo;,</span>
+</span><span class='line'>    <span class="err">&amp;ldquo;file&amp;rdquo;:[&amp;ldquo;vendor/cisco/xe/1641/ned.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-common.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-meta-extensions.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-cli-extensions.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;standard/ietf/RFC/ietf-inet-types.yang&amp;rdquo;,</span>
+</span><span class='line'>      <span class="err">&amp;ldquo;standard/ietf/RFC/ietf-yang-types.yang&amp;rdquo;]</span>
+</span><span class='line'>      <span class="p">}</span><span class="err">]}]}}</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Assuming that the IOS XE bundle profile is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json">cisco-ios-xe_0_1_0.json</a>, we can use YDK to generate and install the Python binding package:</p>
 
-<p>{% codeblock lang:bash %}
-~/ydk-gen/generate.py &ndash;python &ndash;bundle cisco-ios-xe_0_1_0.json -v
-pip install ~/ydk-gen/gen-api/python/cisco_ios_xe-bundle/dist/ydk*.tar.gz
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>~/ydk-gen/generate.py <span class="p">&amp;</span>ndash<span class="p">;</span>python <span class="p">&amp;</span>ndash<span class="p">;</span>bundle cisco-ios-xe_0_1_0.json -v
+</span><span class='line'>pip install ~/ydk-gen/gen-api/python/cisco_ios_xe-bundle/dist/ydk*.tar.gz
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>Configuring BGP with YDK</h2>
 
 <p>Now we can start configuring BGP using our newly generated Python package. First, we need to create an instance of BGP configuration data:</p>
 
-<p>{% codeblock lang:python %}
-from ydk.models.cisco_ios_xe.ned import Native
-bgp = Native().router.Bgp()
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ydk.models.cisco_ios_xe.ned</span> <span class="kn">import</span> <span class="n">Native</span>
+</span><span class='line'><span class="n">bgp</span> <span class="o">=</span> <span class="n">Native</span><span class="p">()</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">Bgp</span><span class="p">()</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The configuration will follow the pattern defined in the original model, which is why it&rsquo;s important to understand <a href="/blog/2017/02/15/restconf-yang/">the internal structure</a> of a YANG model. YANG leafs are represented as simple instance attributes. All YANG containers need to be explicitly instantiated, just like the <code>Native</code> and <code>Bgp</code> classes in the example above. Presence containers (<code>router</code> in the above example) will be instantiated at the same time as its parent container, inside the <code>__init__</code> function of the <code>Native</code> class. Don&rsquo;t worry if this doesn&rsquo;t make sense, use <strong>iPython</strong> or any IDE with autocompletion and after a few tries, you&rsquo;ll get the hang of it.</p>
 
 <p>Let&rsquo;s see how we can set the local BGP AS number and add a new BGP peer to the neighbor list.</p>
 
-<p>{% codeblock lang:python %}
-bgp.id = 100
-new_neighbor = bgp.Neighbor()
-new_neighbor.id = &lsquo;2.2.2.2&rsquo;
-new_neighbor.remote_as = 65100
-bgp.neighbor.append(new_neighbor)
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="mi">100</span>
+</span><span class='line'><span class="n">new_neighbor</span> <span class="o">=</span> <span class="n">bgp</span><span class="o">.</span><span class="n">Neighbor</span><span class="p">()</span>
+</span><span class='line'><span class="n">new_neighbor</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">2.2</span><span class="o">.</span><span class="mf">2.2</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span><span class='line'><span class="n">new_neighbor</span><span class="o">.</span><span class="n">remote_as</span> <span class="o">=</span> <span class="mi">65100</span>
+</span><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">neighbor</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_neighbor</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>At this point of time all data is stored inside the instance of a <code>Bgp</code> class. In order to get an XML representation of it, we need to use YDK&rsquo;s XML provider and encoding service:</p>
 
-<p>{% codeblock lang:python %}
-from ydk.providers import CodecServiceProvider
-from ydk.services import CodecService
-provider = CodecServiceProvider(type=&ldquo;xml&rdquo;)
-codec = CodecService()
-xml_string = codec.encode(provider, bgp)
-print xml_string
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ydk.providers</span> <span class="kn">import</span> <span class="n">CodecServiceProvider</span>
+</span><span class='line'><span class="kn">from</span> <span class="nn">ydk.services</span> <span class="kn">import</span> <span class="n">CodecService</span>
+</span><span class='line'><span class="n">provider</span> <span class="o">=</span> <span class="n">CodecServiceProvider</span><span class="p">(</span><span class="nb">type</span><span class="o">=&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="n">xml</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">codec</span> <span class="o">=</span> <span class="n">CodecService</span><span class="p">()</span>
+</span><span class='line'><span class="n">xml_string</span> <span class="o">=</span> <span class="n">codec</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">provider</span><span class="p">,</span> <span class="n">bgp</span><span class="p">)</span>
+</span><span class='line'><span class="k">print</span> <span class="n">xml_string</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>All what we&rsquo;ve got left now is to send the data to ODL:</p>
 
-<p>{% codeblock lang:python %}
-import requests
-url = (&ldquo;<a href="http://localhost:8181/restconf">http://localhost:8181/restconf</a>&rdquo;
-       &ldquo;/config/network-topology:network-topology&rdquo;
-       &ldquo;/topology/topology-netconf/node&rdquo;
-       &ldquo;/CSR1K/yang-ext:mount/ned:native&rdquo;
-       &ldquo;/router&rdquo;)
-headers = {&lsquo;Content-Type&rsquo;: &lsquo;application/xml&rsquo;}
-result = requests.post(url, auth=(&lsquo;admin&rsquo;, &lsquo;admin&rsquo;), headers=headers, data=xml_string)
-print result.status_code
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">requests</span>
+</span><span class='line'><span class="n">url</span> <span class="o">=</span> <span class="p">(</span><span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">&lt;</span><span class="n">a</span> <span class="n">href</span><span class="o">=</span><span class="s">&quot;http://localhost:8181/restconf&quot;</span><span class="o">&gt;</span><span class="n">http</span><span class="p">:</span><span class="o">//</span><span class="n">localhost</span><span class="p">:</span><span class="mi">8181</span><span class="o">/</span><span class="n">restconf</span><span class="o">&lt;/</span><span class="n">a</span><span class="o">&gt;&amp;</span><span class="n">rdquo</span><span class="p">;</span>
+</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">config</span><span class="o">/</span><span class="n">network</span><span class="o">-</span><span class="n">topology</span><span class="p">:</span><span class="n">network</span><span class="o">-</span><span class="n">topology</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
+</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">topology</span><span class="o">/</span><span class="n">topology</span><span class="o">-</span><span class="n">netconf</span><span class="o">/</span><span class="n">node</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
+</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">CSR1K</span><span class="o">/</span><span class="n">yang</span><span class="o">-</span><span class="n">ext</span><span class="p">:</span><span class="n">mount</span><span class="o">/</span><span class="n">ned</span><span class="p">:</span><span class="n">native</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
+</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">router</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
+</span><span class='line'><span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">Content</span><span class="o">-</span><span class="n">Type</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">application</span><span class="o">/</span><span class="n">xml</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;}</span>
+</span><span class='line'><span class="n">result</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;),</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">xml_string</span><span class="p">)</span>
+</span><span class='line'><span class="k">print</span> <span class="n">result</span><span class="o">.</span><span class="n">status_code</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>The controller should have returned the status code <code>204 No Content</code>, meaning that configuration has been changed successfully.</p>
 
@@ -919,438 +1714,19 @@ print result.status_code
 
 <p>Back at the IOS XE CLI we can see the new BGP configuration that has been pushed down from the controller.</p>
 
-<p>{% codeblock lang:text %}
-TEST#sh run | i router
-router bgp 100
- bgp log-neighbor-changes
- neighbor 2.2.2.2 remote-as 65100
-{% endcodeblock  %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='text'><span class='line'>TEST#sh run | i router
+</span><span class='line'>router bgp 100
+</span><span class='line'> bgp log-neighbor-changes
+</span><span class='line'> neighbor 2.2.2.2 remote-as 65100
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>More examples</h2>
 
 <p>You can find a shorter version of the above procedure in my <a href="https://github.com/networkop/yang/tree/master/odl-101">ODL 101 repo</a>.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[OpenStack SDN With OVN (Part 2) - Network Engineering Analysis]]></title>
-    <link href="http://networkop.github.io/blog/2016/12/10/ovn-part2/"/>
-    <updated>2016-12-10T00:00:00+00:00</updated>
-    <id>http://networkop.github.io/blog/2016/12/10/ovn-part2</id>
-    <content type="html"><![CDATA[<p>In this post we will see how OVN implements virtual networks for OpenStack. The structure of this post is such that starting from the highest level of networking abstraction we will delve deeper into implementation details with each subsequent section. The biggest emphasis will be on how networking data model gets transformed into a set of logical flows, which eventually become OpenFlow flows. The final section will introduce a new overlay protocol GENEVE and explain why VXLAN no longer satisfies the needs of an overlay protocol.</p>
-
-<!--more-->
-
-
-<h2>OpenStack - virtual network topology</h2>
-
-<p>In the <a href="/blog/2016/11/27/ovn-part1/">previous post</a> we have installed OpenStack and created a simple virtual topology as shown below. In OpenStack&rsquo;s data model this topology consists of the following elements:</p>
-
-<ul>
-<li><strong>Network</strong> defines a virtual L2 broadcast domain</li>
-<li><strong>Subnet</strong> attached to the network, defines an IP subnet within the network</li>
-<li><strong>Router</strong> provides connectivity between all directly connected subnets</li>
-<li><strong>Port</strong> VM&rsquo;s point of attachment to the subnet</li>
-</ul>
-
-
-<p>{% img center /images/ovn-zoom1.png %}</p>
-
-<p>So far nothing unusual, this is a simple Neutron data model, all that information is stored in Neutron&rsquo;s database and can be queried with <code>neutron</code> CLI commands.</p>
-
-<h2>OVN Northbound DB - logical network topology</h2>
-
-<p>Every call to implement an element for the above data model is forwarded to OVN ML2 driver as defined by the <code>mechanism driver</code> setting of the ML2 plugin. This driver is responsible for the creation of an appropriate data model inside the OVN Northbound DB. The main elements of this data model are:</p>
-
-<ul>
-<li><strong>Switch</strong> equivalent of a Neutron&rsquo;s Subnet, enables L2 forwarding for all attached ports</li>
-<li><strong>Distributed Router</strong> provides distributed routing between directly connected subnets</li>
-<li><strong>Gateway Router</strong> provides connectivity between external networks and distributed routers, implements NAT and Load Balancing</li>
-<li><strong>Port</strong> of a logical switch, attaches VM to the switch</li>
-</ul>
-
-
-<p>This is a visual representation of our network topology inside OVN&rsquo;s Northbound DB, built based on the output of <code>ovn-nbctl show</code> command:</p>
-
-<p>{% img center /images/ovn-zoom2.png %}</p>
-
-<p>This topology is pretty similar to Neutron&rsquo;s native data model with the exception of a gateway router. In OVN, a gateway router is a special non-distributed router which performs functions that are very hard or impossible to distribute amongst all nodes, like NAT and Load Balancing. This router only exists on a single compute node which is selected by the scheduler based on the <code>ovn_l3_scheduler</code> setting of the ML2 plugin. It is attached to a distributed router via a point-to-point /30 subnet defined in the <code>ovn_l3_admin_net_cidr</code> setting of the ML2 plugin.</p>
-
-<p>Apart from the logical network topology, Northbound database keeps track of all QoS, NAT and ACL settings and their parent objects. The detailed description of all tables and properties of this database can be found in the official <a href="http://openvswitch.org/support/dist-docs/ovn-nb.5.html">Northbound DB documentation</a>.</p>
-
-<h2>OVN Southbound DB - logical flows</h2>
-
-<p>OVN <a href="http://openvswitch.org/support/dist-docs/ovn-northd.8.html">northd</a> process running on the controller node translates the above logical topology into a set of tables stored in Southbound DB. Each row in those tables is a logical flow and together they form a <strong>forwarding pipeline</strong> by stringing together multiple actions to be performed on a packet. These actions range from packet drop through packet header modification to packet output. The stringing is implemented with a special <code>next</code> action which moves the packet one step down the pipeline starting from table 0. Let&rsquo;s have a look at the <strong>simplified</strong> versions of L2 and L3 forwarding pipelines using examples from our virtual topology.</p>
-
-<h3>L2 datapath</h3>
-
-<p>In the first example we&rsquo;ll explore the L2 datapath between VM1 and VM3. Both VMs are attached to the ports of the same logical switch. The full datapath of a logical switch consists of two parts - ingress and egress datapath (the direction is from the perspective of a logical switch). The ultimate goal of an ingress datapath is to determine the output port or ports (in case of multicast) and pass the packet to the egress datapath. The egress datapath does a few security checks before sending the packet out to its destination. Two things are worth noting at this stage:</p>
-
-<ol>
-<li>The two datapaths can be located either on the same or on two different hypervisor nodes. In the latter case, the packet is passed between the two nodes in an overlay tunnel.</li>
-<li>The egress datapath does not have a destination lookup step which means that all information about the output port MUST be supplied by the ingress datapath. This means that destination lookup does not have to be done twice and it also has some interesting implications on the choice of encapsulation protocol as we&rsquo;ll see in the next section.</li>
-</ol>
-
-
-<p>{% img center /images/ovn-zoom3-l2.png %}</p>
-
-<p>Let&rsquo;s have a closer look at each of the stages of the forwarding pipeline. I&rsquo;ll include snippets of logical flows demonstrating the most interesting behaviour at each stage. Full logical datapath is quite long and can be viewed with <code>ovn-sbctl lflow-list [DATAPATH]</code> command. Here is some useful information, collected from the Northbound database, that will be used in the examples below:</p>
-
-<hr />
-
-<table>
-<thead>
-<tr>
-<th> VM# </th>
-<th> IP </th>
-<th> MAC </th>
-<th> Port UUID </th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td> VM1 </td>
-<td> 10.0.0.2 </td>
-<td> fa:16:3e:4f:2f:b8 </td>
-<td> 26c23a54-6a91-48fd-a019-3bd8a7e118de </td>
-</tr>
-<tr>
-<td> VM3 </td>
-<td> 10.0.0.5 </td>
-<td> fa:16:3e:2a:60:32 </td>
-<td> 5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879 </td>
-</tr>
-</tbody>
-</table>
-
-
-<hr />
-
-<ul>
-<li><strong>Port security</strong> - makes sure that incoming packet has the correct source MAC and IP addresses.</li>
-</ul>
-
-
-<pre><code>table=0 (ls_in_port_sec_l2), priority=50, match=(inport == "26c23a54-6a91-48fd-a019-3bd8a7e118de"
-  &amp;&amp; eth.src == {fa:16:3e:4f:2f:b8}), action=(next;)
-table=1 (ls_in_port_sec_ip), priority=90, match=(inport == "26c23a54-6a91-48fd-a019-3bd8a7e118de"
-  &amp;&amp; eth.src == fa:16:3e:4f:2f:b8 &amp;&amp; ip4.src == {10.0.0.2}), action=(next;)
-</code></pre>
-
-<ul>
-<li><strong>Egress ACL</strong> - set of tables that implement Neutron&rsquo;s Egress Port Security functionality. Default rules allow all egress traffic from a VM. The first flow below matches all new connections coming from VM1 and marks them for connection tracking with <code>reg0[1] = 1</code>. The next table catches these marked packets and commits them to the connection tracker. Special <code>ct_label=0/1</code> action ensures return traffic is allowed which is a standard behaviour of all stateful firewalls.</li>
-</ul>
-
-
-<pre><code>table=6 (ls_in_acl), priority=2002 , match=(((ct.new &amp;&amp; !ct.est) ||
-  (!ct.new &amp;&amp; ct.est &amp;&amp; !ct.rpl &amp;&amp; ct_label.blocked == 1)) &amp;&amp;
-  (inport == "26c23a54-6a91-48fd-a019-3bd8a7e118de" &amp;&amp; ip4)),
-  action=(reg0[1] = 1; next;)
-table=9 (ls_in_stateful), priority=100  , match=(reg0[1] == 1),
-  action=(ct_commit(ct_label=0/1); next;)
-</code></pre>
-
-<ul>
-<li><strong>ARP Responder</strong> - matches an incoming ARP/ND request and generates an appropriate ARP/ND response. The way it is accomplished is similar to Neutron&rsquo;s native <a href="/blog/2016/05/06/neutron-l2pop/">ARP responder</a> feature. Effectively an ARP request gets transformed into an ARP response by swapping source and destination fields.</li>
-</ul>
-
-
-<pre><code>table=10(ls_in_arp_rsp), priority=50, match=(arp.tpa == 10.0.0.5 &amp;&amp; arp.op == 1),
-  action=(eth.dst = eth.src; eth.src = fa:16:3e:2a:60:32; arp.op = 2; /* ARP reply */
-  arp.tha = arp.sha; arp.sha = fa:16:3e:2a:60:32; arp.tpa = arp.spa; arp.spa = 10.0.0.5;
-  outport = inport; flags.loopback = 1; output;)
-</code></pre>
-
-<ul>
-<li><strong>DHCP Processing</strong> - set of tables that implement the DHCP server functionality using the approach similar to the ARP responder described above.</li>
-</ul>
-
-
-<pre><code>table=12(ls_in_dhcp_response), priority=100, match=(inport == "26c23a54-6a91-48fd-a019-3bd8a7e118de"
-  &amp;&amp; eth.src == fa:16:3e:4f:2f:b8 &amp;&amp; ip4.src == 0.0.0.0 &amp;&amp; ip4.dst == 255.255.255.255
-  &amp;&amp; udp.src == 68 &amp;&amp; udp.dst == 67 &amp;&amp; reg0[3]),
-  action=(eth.dst = eth.src; eth.src = fa:16:3e:94:b6:bc; ip4.dst = 10.0.0.2;
-  ip4.src = 10.0.0.1; udp.src = 67; udp.dst = 68; outport = inport; flags.loopback = 1; output;)
-</code></pre>
-
-<ul>
-<li><strong>Destination Lookup</strong> - implements L2 forwarding based on the destination MAC address of a frame. At this stage the <strong>outport</strong> variable is set to the VM3&rsquo;s port UUID.</li>
-</ul>
-
-
-<pre><code>table=13(ls_in_l2_lkup), priority=50, match=(eth.dst == fa:16:3e:2a:60:32),
-  action=(outport = "5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879"; output;)
-</code></pre>
-
-<ul>
-<li><strong>Ingress ACL</strong> - set of tables that implement Neutron&rsquo;s Ingress Port security. For the sake of argument let&rsquo;s assume that we have enabled inbound SSH connections. The principle is same as before - the packet gets matched in one table and submitted to connection tracking in another table.</li>
-</ul>
-
-
-<pre><code>table=4 (ls_out_acl), priority=2002 , match=(((ct.new &amp;&amp; !ct.est)
-  || (!ct.new &amp;&amp; ct.est &amp;&amp; !ct.rpl &amp;&amp; ct_label.blocked == 1))
-  &amp;&amp; (outport == "26c23a54-6a91-48fd-a019-3bd8a7e118de" &amp;&amp; ip4
-  &amp;&amp; ip4.src == 0.0.0.0/0 &amp;&amp; tcp &amp;&amp; tcp.dst == 22)),
-  action=(reg0[1] = 1; next;
-table=6 (ls_out_stateful), priority=100  , match=(reg0[1] == 1),
-  action=(ct_commit(ct_label=0/1); next;)
-</code></pre>
-
-<ul>
-<li><strong>Port Security</strong> - implements inbound port security for destination VM by checking the sanity of destination MAC and IP addresses.</li>
-</ul>
-
-
-<pre><code>table=7 (ls_out_port_sec_ip), priority=90, match=(outport == "5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879"
-  &amp;&amp; eth.dst == fa:16:3e:2a:60:32 &amp;&amp; ip4.dst == {255.255.255.255, 224.0.0.0/4, 10.0.0.5}),
-  action=(next;)
-table=8 (ls_out_port_sec_l2), priority=50, match=(outport == "5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879"
-  &amp;&amp; eth.dst == {fa:16:3e:2a:60:32}),
-  action=(output;)
-</code></pre>
-
-<h3>L3 datapath</h3>
-
-<p>Similar to a logical switch pipeline, L3 datapath is split into ingress and egress parts. In this example we&rsquo;ll concentrate on  the Gateway router datapath. This router is connected to a distributed logical router via a transit subnet (SWtr) and to an external network via an external bridge (SWex) and performs NAT translation for all VM traffic.</p>
-
-<p>{% img center /images/ovn-zoom3-l3.png %}</p>
-
-<p>Here is some useful information about router interfaces and ports that will be used in the examples below.</p>
-
-<hr />
-
-<table>
-<thead>
-<tr>
-<th> SW function </th>
-<th> IP </th>
-<th> MAC </th>
-<th> Port UUID </th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td> External </td>
-<td> 169.254.0.54/24 </td>
-<td> fa:16:3e:39:c8:d8 </td>
-<td> lrp-dc1ae9e3-d8fd-4451-aed8-3d6ddc5d095b </td>
-</tr>
-<tr>
-<td> DVR-GW transit </td>
-<td> 169.254.128.2/30 </td>
-<td> fa:16:3e:7e:96:e7 </td>
-<td> lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd </td>
-</tr>
-</tbody>
-</table>
-
-
-<hr />
-
-<ul>
-<li><strong>Port security</strong> - implements sanity check for all incoming packets.</li>
-</ul>
-
-
-<pre><code>table=0 (lr_in_admission), priority=50, match=((eth.mcast || eth.dst == fa:16:3e:7e:96:e7)
- &amp;&amp; inport == "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"), action=(next;)
-</code></pre>
-
-<ul>
-<li><p><strong>IP Input</strong> - performs additional L3 sanity checks and implements typical IP services of a router (e.g. ICMP/ARP reply)
-<code>
-table=1 (lr_in_ip_input), priority=100, match=(ip4.src == {169.254.128.2, 169.254.128.3}),
-action=(drop;)
-table=1 (lr_in_ip_input), priority=90, match=(inport == "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"
-&amp;&amp; arp.tpa == 169.254.128.2 &amp;&amp; arp.op == 1),
-action=(eth.dst = eth.src; eth.src = fa:16:3e:7e:96:e7; arp.op = 2;
-/* ARP reply */ arp.tha = arp.sha; arp.sha = fa:16:3e:7e:96:e7;
-arp.tpa = arp.spa; arp.spa = 169.254.128.2;
-outport = "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"; flags.loopback = 1; output;)
-table=1 (lr_in_ip_input), priority=90, match=(ip4.dst == 169.254.128.2
-&amp;&amp; icmp4.type == 8 &amp;&amp; icmp4.code == 0),
-action=(ip4.dst &lt;-&gt; ip4.src; ip.ttl = 255; icmp4.type = 0; flags.loopback = 1; next; )
-</code></p></li>
-<li><p><strong>UNSNAT</strong> - translates the destination IP to the real address for packets coming from <strong>external</strong> networks
-<code>
-table=3 (lr_in_unsnat), priority=100, match=(ip &amp;&amp; ip4.dst == 169.254.0.54),
-action=(ct_snat; next;)
-</code></p></li>
-<li><p><strong>DNAT</strong> - implements what is commonly known as static NAT, i.e. performs one-to-one destination IP translation for every configured floating IP.
-<code>
-table=4 (lr_in_dnat), priority=100, match=(ip &amp;&amp; ip4.dst == 169.254.0.52),
-action=(flags.loopback = 1; ct_dnat(10.0.0.5);)
-</code></p></li>
-<li><p><strong>IP routing</strong> - implements L3 forwarding based on the destination IP address. At this stage the <code>outport</code> is decided, IP TTL is decremented and the new next-hop IP is set in register0.</p></li>
-</ul>
-
-
-<pre><code>table=5 (lr_in_ip_routing), priority=1, match=(ip4.dst == 0.0.0.0/0),
-  action=(ip.ttl--; reg0 = 169.254.0.1; reg1 = 169.254.0.54; eth.src = fa:16:3e:39:c8:d8;
-  outport = "lrp-dc1ae9e3-d8fd-4451-aed8-3d6ddc5d095b"; flags.loopback = 1; next;)
-</code></pre>
-
-<ul>
-<li><p><strong>Next Hop Resolver</strong> - discovers the next-hop MAC address for a packet. This could either be a statically configured value when the next-hop is an OVN-managed router or a dynamic binding learned through ARP and stored in a special <code>MAC_Binding</code> table of Southbound DB.
-<code>
-table=6 (lr_in_arp_resolve), priority=100, match=(outport == "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"
-&amp;&amp; reg0 == 169.254.128.1), action=(eth.dst = fa:16:3e:2a:7f:25; next;)
-table=6 (lr_in_arp_resolve), priority=0, match=(ip4),
-action=(get_arp(outport, reg0); next;)
-</code></p></li>
-<li><p><strong>SNAT</strong> - implements what is commonly known as overload NAT. Translates source IP, source UDP/TCP port number and ICMP Query ID to hide them behind a single IP address</p></li>
-</ul>
-
-
-<pre><code>table=0 (lr_out_snat), priority=25, match=(ip &amp;&amp; ip4.src == 10.0.0.0/24),
-  action=(ct_snat(169.254.0.54);)
-</code></pre>
-
-<ul>
-<li><strong>Output</strong> - send the packet out the port determined during the IP routing stage.</li>
-</ul>
-
-
-<pre><code>table=1 (lr_out_delivery), priority=100, match=(outport == "lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd"),
-  action=(output;)
-</code></pre>
-
-<p>This was a very high-level, abridged and simplified version of how logical datapaths are built in OVN. Hopefully this lays enough groundwork to move on to the official <a href="http://openvswitch.org/support/dist-docs/ovn-northd.8.html">northd documentation</a> which describes both L2 and L3 datapaths in much greater detail.</p>
-
-<p>Apart from the logical flows, Southbound DB also contains a number of tables that establish the logical-to-physical bindings. For example, the <code>Port_Binding</code> table establishes binding between logical switch, logical port, logical port overlay ID (a.k.a. tunnel key) and the unique hypervisor ID. In the next section we&rsquo;ll see how this information is used to translate logical flows into OpenFlow flows at each compute node. For full description of Southbound DB, its tables and their properties refer to the official SB <a href="http://openvswitch.org/support/dist-docs/ovn-sb.5.html">schema documentation</a>.</p>
-
-<h2>OVN Controller - OpenFlow flows</h2>
-
-<p><a href="http://openvswitch.org/support/dist-docs/ovn-controller.8.html">OVN Controller</a> process is the distributed part of OVN SDN controller. This process, running on each compute node, connects to Southbound DB via OVSDB and configures local OVS according to information received from it. It also uses Southbound DB to exchange the physical location information with other hypervisors. The two most important bits of information that OVN controller contributes to Southbound DB are physical location of logical ports and overlay tunnel IP address. These are the last two missing pieces to map logical flows to physical nodes and networks.</p>
-
-<p>The whole flat space of OpenFlow tables is split into multiple areas. Tables 16 to 47 implement an ingress logical pipeline and tables 48 to 63 implement an egress logical pipeline. These tables have no notion of physical ports and are functionally equivalent to logical flows in Southbound DB. Tables 0 and 65 are responsible for mapping between the physical and logical realms. In table 0 packets are matched on the physical incoming port and assigned to a correct logical datapath as was defined by the <code>Port_Binding</code> table. In table 65 the information about the outport, that was determined during the ingress pipeline processing, is mapped to a local physical interface and the packet is sent out.</p>
-
-<p>To demonstrate the details of OpenFlow implementation, I&rsquo;ll use the traffic flow between VM1 and external destination (8.8.8.8). For the sake of brevity I will only cover the major steps of packet processing inside OVS, omitting security checks and ARP/DHCP processing.</p>
-
-<p>{% img center /images/ovn-zoom4-openflow.png %}</p>
-
-<p>When packets traverse OpenFlow tables they get labelled or annotated with special values to simplify matching in subsequent tables. For example, when table 0 matches the incoming port, it annotates the packet with the datapath ID. Since it would have been impractical to label packets with globally unique UUIDs from Soutbound DB, these UUIDs get mapped to smaller values called <strong>tunnel keys</strong>. To make things even more confusing, each port will have a local kernel ID, unique within each hypervisor. We&rsquo;ll need both tunnel keys and local port IDs to be able to track the packets inside the OVS. The figure below depicts all port and datapath IDs that have been collected from the Soutbound DB and local OVSDB on each hypervisor. Local port numbers are attached with a dotted line to their respective tunnel keys.</p>
-
-<p>{% img center /images/ovn-zoom4-tunnelkey.png %}</p>
-
-<p>When VM1 sends the first packet to 8.8.8.8, it reaches OVS on local port 13. OVN Controller knows that this port belongs to VM1 and installs an OpenFlow rule to match all packets from this port and annotate them with datapath ID (OXM_OF_METADATA), incoming port ID (NXM_NX_REG14), conntrack zone (NXM_NX_REG13). It then moves these annotated packets to the first table of the ingress pipeline.
-<code>
-table=0, priority=100,in_port=13 actions=load:0x2-&gt;NXM_NX_REG13[],
-  load:0x2-&gt;OXM_OF_METADATA[],load:0x2-&gt;NXM_NX_REG14[],
-  resubmit(,16)
-</code></p>
-
-<p>Skipping to the L2 MAC address lookup stage, the output port (0x1) is decided based on the destination MAC address and saved in register 15.
-<code>
-table=29, priority=50,metadata=0x2,dl_dst=fa:16:3e:0d:df:ea
-  actions=load:0x1-&gt;NXM_NX_REG15[],resubmit(,32)
-</code></p>
-
-<p>Finally, the packet reaches the last table where it is sent out the physical patch port interface towards R1.
-<code>
-table=65, priority=100,reg15=0x1,metadata=0x2 actions=output:1
-</code></p>
-
-<p>The other end of this patch port is connected to a local instance of distributed router R1. That means our packet, unmodified, re-enters OpenFlow table 0, only this time on a different port. Local port 2 is associated with a logical pipeline of a router, hence <code>metadata</code> for this packet is set to 4.
-<code>
-table=0, priority=100,in_port=2 actions=load:0x4-&gt;OXM_OF_METADATA[],
-  load:0x1-&gt;NXM_NX_REG14[],resubmit(,16)
-</code></p>
-
-<p>The packet progresses through logical router datapath and finally gets to table 21 where destination IP lookup take place. It matches the catch-all <strong>default route</strong> rule and the values for its next-hop IP (0xa9fe8002), MAC address (fa:16:3e:2a:7f:25) and logical output port (0x03) are set.
-<code>
-table=21, priority=1,ip,metadata=0x4 actions=dec_ttl(),load:0xa9fe8002-&gt;NXM_NX_XXREG0[96..127],
-  load:0xa9fe8001-&gt;NXM_NX_XXREG0[64..95],mod_dl_src:fa:16:3e:2a:7f:25,
-  load:0x3-&gt;NXM_NX_REG15[],load:0x1-&gt;NXM_NX_REG10[0],resubmit(,22)
-</code></p>
-
-<p>Table 65 converts the logical output port 3 to physical port 6, which is yet another patch port connected to a transit switch.
-<code>
-table=65, priority=100,reg15=0x3,metadata=0x4 actions=output:6
-</code></p>
-
-<p>The packet once again re-enters OpenFlow pipeline from table 0, this time from port 5. Table 0 maps incoming port 5 to the logical datapath of a transit switch with Tunnel key 7.</p>
-
-<pre><code>table=0, priority=100,in_port=5 actions=load:0x7-&gt;OXM_OF_METADATA[],
-  load:0x1-&gt;NXM_NX_REG14[],resubmit(,16)
-</code></pre>
-
-<p>Destination lookup determines the output port (2) but this time, instead of entering the egress pipeline locally, the packet gets sent out the physical tunnel port (7) which points to the IP address of a compute node hosting the GW router. The headers of an overlay packet are populated with logical datapath ID (0x7), logical input port (copied from register 14) and logical output port (0x2).
-<code>
-table=29, priority=50,metadata=0x7,dl_dst=fa:16:3e:7e:96:e7
-  actions=load:0x2-&gt;NXM_NX_REG15[],resubmit(,32)
-table=32, priority=100,reg15=0x2,metadata=0x7 actions=load:0x7-&gt;NXM_NX_TUN_ID[0..23],
-  set_field:0x2/0xffffffff-&gt;tun_metadata0,move:NXM_NX_REG14[0..14]-&gt;NXM_NX_TUN_METADATA0[16..30],
-  output:7
-</code></p>
-
-<p>When packet reaches the destination node, it once again enters the OpenFlow table 0, but this time all information is extracted from the tunnel keys.</p>
-
-<pre><code>table=0, priority=100,in_port=17 actions=move:NXM_NX_TUN_ID[0..23]-&gt;OXM_OF_METADATA[0..23],
-  move:NXM_NX_TUN_METADATA0[16..30]-&gt;NXM_NX_REG14[0..14],
-  move:NXM_NX_TUN_METADATA0[0..15]-&gt;NXM_NX_REG15[0..15],
-  resubmit(,33)
-</code></pre>
-
-<p>At the end of the transit switch datapath the packet gets sent out port 12, whose peer is patch port 16.
-<code>
-table=65, priority=100,reg15=0x2,metadata=0x7 actions=output:12
-</code></p>
-
-<p>The packet re-enters OpenFlow table 0 from port 16, where it gets mapped to the logical datapath of a gateway router.
-<code>
-table=0, priority=100,in_port=16 actions=load:0x2-&gt;NXM_NX_REG11[],
-  load:0x6-&gt;NXM_NX_REG12[],load:0x6-&gt;OXM_OF_METADATA[],
-  load:0x2-&gt;NXM_NX_REG14[],resubmit(,16)
-</code></p>
-
-<p>Similar to a distributed router R1, table 21 determines the next-hop MAC address for a packet and saves the output port in register 15.
-<code>
-table=21, priority=1,ip,metadata=0x6 actions=dec_ttl(),load:0xa9fe0001-&gt;NXM_NX_XXREG0[96..127],
-  load:0xa9fe0036-&gt;NXM_NX_XXREG0[64..95],mod_dl_src:fa:16:3e:39:c8:d8,
-  load:0x1-&gt;NXM_NX_REG15[],load:0x1-&gt;NXM_NX_REG10[0],resubmit(,22)
-</code></p>
-
-<p>The first table of an egress pipeline source-NATs packets to external IP address of the GW router.
-<code>
-table=48, priority=33,ip,metadata=0x6,nw_src=10.0.0.2
-  actions=ct(commit,table=49,zone=NXM_NX_REG12[0..15],nat(src=169.254.0.56))
-</code></p>
-
-<p>The modified packet is sent out the physical port 14 towards the external switch.
-<code>
-table=65, priority=100,reg15=0x1,metadata=0x6 actions=output:14
-</code></p>
-
-<p>External switch determines the output port connected to the <code>br-ex</code> on a local hypervisor and send the packet out.
-<code>
-table=0, priority=100,in_port=13 actions=load:0x5-&gt;NXM_NX_REG11[],
-  load:0x3-&gt;NXM_NX_REG12[],load:0x3-&gt;OXM_OF_METADATA[],
-  load:0x2-&gt;NXM_NX_REG14[],resubmit(,16)
-table=29, priority=0,metadata=0x3 actions=load:0xfffe-&gt;NXM_NX_REG15[],resubmit(,32)
-table=33, priority=100,reg15=0xfffe,metadata=0x3
-  actions=load:0x1-&gt;NXM_NX_REG13[],load:0x1-&gt;NXM_NX_REG15[],
-  resubmit(,34),load:0xfffe-&gt;NXM_NX_REG15[]
-table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
-</code></p>
-
-<p>As we&rsquo;ve just seen, OpenFlow repeats the logical topology by interconnecting logical datapaths of switches and routers with virtual point-to-point patch cables. This may seem like an unnecessary modelling element with a potential for a performance impact. However, when flows get installed in kernel datapath, these patch ports <a href="http://galsagie.github.io/2015/11/23/ovn-l3-deepdive">do not exist</a>, which means that there isn&rsquo;t any performance impact on packets in fastpath.</p>
-
-<h2>Physical network - GENEVE overlay</h2>
-
-<p>Before we wrap up, let us have a quick look at the new overlay protocol GENEVE. The goal of any overlay protocol is to transport all the necessary tunnel keys. With VXLAN the only tunnel key that could be transported is the Virtual Network Identifier (VNI). In OVN&rsquo;s case these tunnel keys include not only the logical datapath ID (commonly known as VNI) but also both input and output port IDs. You could have carved up the 24 bits of VXLAN tunnel ID to encode all this information but this would only have given you 256 unique values per key. Some other overlay protocols, like STT have even bigger tunnel ID header size but they, too, have a strict upper limit.</p>
-
-<p>GENEVE was designed to have a variable-length header. The first few bytes are well-defined fixed size fields followed by variable-length Options. This kind of structure allows software developers to innovate at their own pace while still getting the benefits of hardware offload for the fixed-size portion of the header. OVN developers <a href="http://openvswitch.org/support/dist-docs/ovn-architecture.7.html">decided</a> to use Options header type 0x80 to store the 15-bit logical ingress port ID and a 16-bit egress port ID (an extra bit is for logical multicast groups).</p>
-
-<p>{% img center /images/ovn-zoom5-geneve.png %}</p>
-
-<p>The figure above shows the ICMP ping coming from VM1(10.0.0.2) to Google&rsquo;s DNS. As I&rsquo;ve showed in the previous section, GENEVE is used between the ingress and egress pipelines of a transit switch (SWtr), whose datapath ID is encoded in the VNI field (0x7). Packets enter the transit switch on port 1 and leave it on port 2. These two values are encoded in the <code>00010002</code> value of the <code>Options Data</code> field.</p>
-
-<p>So now that GENEVE has taken over as the inter-hypervisor overlay protocol, does that mean that VXLAN is dead? OVN still supports VXLAN but only for interconnects with 3rd party devices like VXLAN-VLAN gateways or VXLAN TOR switches. Rephrasing the official OVN <a href="http://openvswitch.org/support/dist-docs/ovn-architecture.7.html">documentation</a>, VXLAN gateways will continue to be supported but they will have a reduced feature set due to lack of extensibility.</p>
-
-<h2>Conclusion</h2>
-
-<p>OpenStack networking has always been one of the first use cases of any new SDN controller. All the major SDN platforms like ACI, NSX, Contrail, VSP or ODL have some form of OpenStack integration. And it made sense, since native Neutron networking has always been one of the biggest pain points in OpenStack deployments. As I&rsquo;ve just demonstrated, OVN can now do all of the common networking functionality natively, without having to rely on 3rd party agents. In addition to that it has a fantastic <a href="http://openvswitch.org/support/dist-docs/">documentation</a>, implements all forwarding inside a single OVS bridge and it is an open-source project. As an OpenStack networking solution it is still, perhaps, a few months away from being production ready - active/active HA is not supported with OVSDB, GW router scheduling options are limited, lack of native support for DNS and Metadata proxy. However I anticipate that starting from the next OpenStack release (Ocata, Feb 2017) OVN will be ready for mass deployment even by companies without an army of OVS/OpenStack developers. And when that happens there will even less need for proprietary OpenStack SDN platforms.</p>
 ]]></content>
   </entry>
   

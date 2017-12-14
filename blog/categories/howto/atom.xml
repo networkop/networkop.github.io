@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Howto | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/howto/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-11-26T10:48:55+00:00</updated>
+  <updated>2017-12-14T21:07:11+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -40,18 +40,21 @@
 
 <p>I&rsquo;ve written a little <a href="https://github.com/networkop/ssh-copy-net">tool</a> that uses <a href="https://github.com/ktbyers/netmiko">Netmiko</a> to install (and remove) public SSH keys onto network devices. Assuming <code>python-pip</code> is already installed here&rsquo;s what&rsquo;s required to download and install <code>ssh-copy-net</code>:</p>
 
-<p>{% codeblock lang:bash %}
-$ pip install git+<a href="https://github.com/networkop/ssh-copy-net.git">https://github.com/networkop/ssh-copy-net.git</a>
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>pip install git+&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/ssh-copy-net.git&quot;</span>&gt;https://github.com/networkop/ssh-copy-net.git&lt;/a&gt;
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Its functionality mimics the one of <code>ssh-copy-id</code>, so the next step is always to upload the public key to the device:</p>
 
-<p>{% codeblock lang:bash %}
-$ ssh-copy-net 10.6.142.1 juniper
-Username: admin
-Password:
-All Done!
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ssh-copy-net 10.6.142.1 juniper
+</span><span class='line'>Username: admin
+</span><span class='line'>Password:
+</span><span class='line'>All Done!
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>2. Define SSH config for network devices</h2>
 
@@ -66,11 +69,13 @@ Host arista
 
 <p>Now I am able to login the device by simply typing its name:</p>
 
-<p>{% codeblock lang:bash %}
-$ ssh arista
-Last login: Sun May  7 10:57:30 2017 from 10.1.2.3
-arista-1>
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ssh arista
+</span><span class='line'>Last login: Sun May  <span class="m">7</span> 10:57:30 <span class="m">2017</span> from 10.1.2.3
+</span><span class='line'>arista-1&gt;
+</span></code></pre></td></tr></table></div></figure></p>
 
 <h2>3. Define zsh aliases</h2>
 
@@ -84,7 +89,7 @@ alias customer-a-site-51-arista='ssh arista'
 
 <p>As a network engineer, I often find myself troubleshooting issues spanning multiple devices, which is why I need multiple tabs inside a single terminal window. Simply pressing Ctrl+T in GNOME terminal opens a new tab and I can switch between tabs using Alt+[1-9]. However what would be really nice is to have a couple of tabs opened side by side so that I can see the logs and compare output on a number of devices at the same time. This is where tmux comes in. It can do much more than this, but I simply use it to have multiple panes inside the same terminal tab:</p>
 
-<p>{% img center /images/tmux.png %}</p>
+<p><img class="center" src="/images/tmux.png"></p>
 
 <p>Here&rsquo;s an example of my tmux configuration file:</p>
 
@@ -122,32 +127,45 @@ set -sg escape-time 0
 
 <p>Now having all the above defined and with the help of zsh command autocompletion, I can login the device with just a few keypresses (shown in square brackets below):</p>
 
-<p>{% codeblock lang:bash %}
-$ lab  [TAB]
-$ lab-  [TAB]
-lab-srx
-$ lab-  [s][TAB]
-$ lab-srx  [ENTER]
-&mdash; JUNOS 12.3X48-D30.7 built 2016-04-28 22:37:34 UTC
-{primary:node0}
-null@srx>
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>lab  <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>lab-  <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'>lab-srx
+</span><span class='line'><span class="nv">$ </span>lab-  <span class="o">[</span>s<span class="o">][</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>lab-srx  <span class="o">[</span>ENTER<span class="o">]</span>
+</span><span class='line'><span class="p">&amp;</span>mdash<span class="p">;</span> JUNOS 12.3X48-D30.7 built 2016-04-28 22:37:34 UTC
+</span><span class='line'><span class="o">{</span>primary:node0<span class="o">}</span>
+</span><span class='line'>null@srx&gt;
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>Press Ctrl+B v to split the terminal window vertically:</p>
 
-<p>{% codeblock lang:bash %}
-$ customer [TAB]
-$ customer- [TAB]
-customer-a-site-51-arista
-$ customer- [a][TAB]
-$ customer-a-arista [ENTER]
-Last login: Thu May 11 15:28:03 2017 from 10.1.2.3
-arista-1>
-{% endcodeblock %}</p>
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>customer <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>customer- <span class="o">[</span>TAB<span class="o">]</span>
+</span><span class='line'>customer-a-site-51-arista
+</span><span class='line'><span class="nv">$ </span>customer- <span class="o">[</span>a<span class="o">][</span>TAB<span class="o">]</span>
+</span><span class='line'><span class="nv">$ </span>customer-a-arista <span class="o">[</span>ENTER<span class="o">]</span>
+</span><span class='line'>Last login: Thu May <span class="m">11</span> 15:28:03 <span class="m">2017</span> from 10.1.2.3
+</span><span class='line'>arista-1&gt;
+</span></code></pre></td></tr></table></div></figure></p>
 
 <p>An so on and so forth&hellip;</p>
 
-<p>{% img center /images/tmux.gif %}</p>
+<p><img class="center" src="/images/tmux.gif"></p>
 ]]></content>
   </entry>
   
@@ -250,19 +268,29 @@ $ service syncthing restart &amp;&amp; service syncthing-inotify restart
 </code></pre>
 
 <p>Finally, Windows service can be configured similarly via Syncthing Tray. End result is that files are replicated between the two folders with a delay of just a few seconds
-``` bash Verification
-$ touch /root/tdd_ansible/testfile
-$ tail -n 3 /var/log/upstart/syncthing*
-==> /var/log/upstart/syncthing-inotify.log &lt;==
-[OK] 01:45:04 Watching ansible-blog: /root/tdd_ansible
-[OK] 01:45:04 Syncthing is indexing change in ansible-blog: [.stfolder]
-[OK] 01:46:16 Syncthing is indexing change in ansible-blog: [testfile]</p>
-
-<p>==> /var/log/upstart/syncthing.log &lt;==
-[TLARX] 01:41:25 INFO: Established secure connection to DEVICE-ID at 192.168.X.Y:22000-192.168.X.Z:53007
-[TLARX] 01:41:25 INFO: Device DEVICE-ID client is &ldquo;syncthing v0.11.10&rdquo;
-[TLARX] 01:41:25 INFO: Device DEVICE-ID name is &ldquo;NETOP-DESKTOP&rdquo;
-```</p>
+<figure class='code'><figcaption><span>Verification</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>touch /root/tdd_ansible/testfile
+</span><span class='line'><span class="nv">$ </span>tail -n <span class="m">3</span> /var/log/upstart/syncthing*
+</span><span class='line'><span class="o">==</span>&gt; /var/log/upstart/syncthing-inotify.log <span class="p">&amp;</span>lt<span class="p">;</span><span class="o">==</span>
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:45:04 Watching ansible-blog: /root/tdd_ansible
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:45:04 Syncthing is indexing change in ansible-blog: <span class="o">[</span>.stfolder<span class="o">]</span>
+</span><span class='line'><span class="o">[</span>OK<span class="o">]</span> 01:46:16 Syncthing is indexing change in ansible-blog: <span class="o">[</span>testfile<span class="o">]</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;<span class="o">==</span>&gt; /var/log/upstart/syncthing.log <span class="p">&amp;</span>lt<span class="p">;</span><span class="o">==</span>
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Established secure connection to DEVICE-ID at 192.168.X.Y:22000-192.168.X.Z:53007
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Device DEVICE-ID client is <span class="p">&amp;</span>ldquo<span class="p">;</span>syncthing v0.11.10<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="o">[</span>TLARX<span class="o">]</span> 01:41:25 INFO: Device DEVICE-ID name is <span class="p">&amp;</span>ldquo<span class="p">;</span>NETOP-DESKTOP<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span></code></pre></td></tr></table></div></figure></p>
 
 <hr />
 

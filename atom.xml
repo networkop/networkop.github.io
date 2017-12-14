@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-11-23T12:21:53+00:00</updated>
+  <updated>2017-12-14T21:07:11+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,566 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[OpenStack SDN - OpenDaylight With BGP VPN]]></title>
+    <link href="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/"/>
+    <updated>2017-12-15T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2017/12/15/os-odl-netvirt</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll demonstrate how to build a simple OpenStack lab with OpenDaylight-managed virtual networking and integrate it with a Cisco IOS-XE data centre gateway using EVPN.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>For the last 5 years OpenStack has been the training ground for a lot of emerging DC SDN solutions. OpenStack integration use case was one of the most compelling and easiest to implement thanks to the limited and suboptimal implementation of the native networking stack. Today, in 2017, features like <a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">L2 population</a>, local <a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">ARP responder</a>, <a href="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/">L2 gateway integration</a>, <a href="http://networkop.github.io/blog/2016/10/13/os-dvr/">distributed routing</a> and <a href="http://networkop.github.io/blog/2017/09/15/os-sfc-skydive/">service function chaining</a> have all become available in vanilla OpenStack and don&rsquo;t require a proprietary SDN controller anymore. Admittedly, some of the features are still not (and may never be) implemented in the most optimal way (e.g. DVR). This is where new opensource SDN controllers, the likes of <a href="http://networkop.github.io/blog/2016/12/10/ovn-part2/">OVN</a> and <a href="https://docs.openstack.org/developer/dragonflow/distributed_dragonflow.html">Dragonflow</a>, step in to provide scalable, elegant and efficient implementation of these advanced networking features. However one major feature still remains outside of the scope of a lot of these new opensource SDN projects, and that is data centre gateway (DC-GW) integration. Let me start by explain why you would need this feature in the first place.</p>
+
+<h2>Optimal forwarding of North-South traffic</h2>
+
+<p>OpenStack Neutron and VMware NSX, both being pure software solutions, rely on a special type of node to forward traffic between VMs and hosts outside of the data centre. This node acts as a L2/L3 gateway for all North-South traffic and is often implemented as either a VM or a network namespace. This kind of solution gives software developers greater independence from the underlying networking infrastructure which makes it easier for them to innovate and introduce new features.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/sdn-ns.png"></p>
+
+<p>However, from the traffic forwarding point of view, having a gateway/network node is not a good solution at all. There is no technological reason for a packet to have to go through this node when after all it ends up on a DC-GW anyway. In fact, this solution introduces additional complexity which needs to be properly managed (e.g. designed, configured and troubleshooted) and a potential bottleneck for high-throughput traffic flows.</p>
+
+<p>It&rsquo;s clear that the most optimal way to forward traffic is directly from a compute node to a DC-GW. The only question is how can this optimal forwarding be achieved? SDN controller needs to be able to exchange reachability information with DC-GW using a common protocol understood by most of the existing routing stacks. One such protocol, becoming very common in DC environments, is BGP, which has two address families we can potentially use:</p>
+
+<ol>
+<li>VPNv4/6 will allow routes to be exchanged and the dataplance to use MPLSoGRE encapsulation. This should be considered a &ldquo;legacy&rdquo; approach since for a very long time DC-GWs did not have the VXLAN ecap/decap capabilities.</li>
+<li>EVPN with VXLAN-based overlays. EVPN makes it possible to exchange both L2 and L3 information under the same AF, which means we have the flexibility of doing not only a L3 WAN integration, but also a L2 data centre interconnect with just a single protocol.</li>
+</ol>
+
+
+<p>In OpenStack specifically, BGPVPN project was created to provide a pluggable driver framework for 3rd party BGP implementations. Apart from a reference BaGPipe driver (BaGPipe is an ExaBGP fork with lightweight implementation of BGP VPNs), which relies on a default <code>openvswitch</code> ML2 mechanism driver, only Nuage, OpenDaylight and OpenContrail have contributed their drivers to this project. In this post I will focus on OpenDaylight and show how to install containerised OpenStack with OpenDaylight and integrate it with Cisco CSR using EVPN.</p>
+
+<h2>OpenDaylight integration with OpenStack</h2>
+
+<p>Historically, OpenDaylight has had multiple projects implementing custom OpenStack networking drivers:</p>
+
+<ul>
+<li><strong>VTN</strong> (Virtual Tenant Networking) - spearheaded by NEC was the first project to provide OpenStack networking implementation</li>
+<li><strong>GBP</strong> (Group Based Policy) - a project led by Cisco, one of the first (if not THE first) commercial implementation of Intent-based networking</li>
+<li><strong>NetVirt</strong> - currently a default Neutron plugin from ODL, developed jointly by Brocade (RIP), RedHat, Ericsson, Intel and many others.</li>
+</ul>
+
+
+<p>NetVirt provides several common Neutron services including L2 and L3 forwarding, ACL and NAT, as well as advanced services like L2 gateway, QoS and SFC. To do that it assumes full control over an OVS switch inside each compute node and implements the above services inside a single <code>br-int</code> OVS bridge. L2/L3 forwarding tables are built based on tenant IP/MAC addresses that have been allocated by Neutron and the current network topology. For high-level overview of NetVirt&rsquo;s forwarding pipeline you can refer to <a href="https://docs.google.com/presentation/d/15h4ZjPxblI5Pz9VWIYnzfyRcQrXYxA1uUoqJsgA53KM/edit#slide=id.g1c73ae9953_2_0">this document</a>.</p>
+
+<p>It helps to think of an ODL-managed OpenStack as a big chassis switch. NetVirt plays the role of a supervisor by managing control plane and compiling RIB based on the information received from Neutron. Each compute node running an OVS is a linecard with VMs connected to its ports. Unlike the distributed architecture of <a href="http://networkop.github.io/blog/2016/12/10/ovn-part2/">OVN</a> and Dragonflow, compute nodes do not contain any control plane elements and each OVS gets its FIB programmed directly by the supervisor. DC underlay is a backplane, interconnecting all linecards and a supervisor.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/odl-netvirt-chassis.png"></p>
+
+<h2>OpenDaylight BGP VPN service architecture</h2>
+
+<p>In order to provide BGP VPN functionality, NetVirt employs the use of three service components:</p>
+
+<ul>
+<li><strong>FIB service</strong> - maintains L2/L3 forwarding tables and reacts to topology changes</li>
+<li><strong>BGP manager</strong> - provides a translation of information sent to and received from an external BGP stack (Quagga BGP)</li>
+<li><strong>VPN Manager</strong> - ties together the above two components, creates VRFs and keeps track of RD/RT values</li>
+</ul>
+
+
+<p>In order to exchange BGP updates with external DC-GW, NetVirt requires a BGP stack with EVPN and VPNV4/6 capabilities. Ideally, internal ODL BGP stack could have been used for that, however it didn&rsquo;t meet all the performance requirements (injecting/withdrawing thousand of prefixes at the same time). Instead, an external <a href="https://github.com/6WIND/quagga/tree/qthrift_mpbgp_evpn">Quagga fork</a> with EVPN add-ons is connected to BGP manager via a high-speed Apache Thrift interface. This interface defines the <a href="https://github.com/6WIND/quagga/blob/qthrift_mpbgp_evpn/qthriftd/vpnservice.thrift">format</a> of data to be exchanged between Quagga (a.k.a QBGP) and NetVirt&rsquo;s BGP Manager in order to do two things:</p>
+
+<ol>
+<li>Configure BGP settings like ASN and BGP neighbors</li>
+<li>Read/Write RIB entries inside QBGP</li>
+</ol>
+
+
+<p>BGP session is established between QBGP and external DC-GW, however next-hop values installed by NetVirt and advertised by QBGP have IPs of the respective compute nodes, so that traffic is sent directly via the most optimal path.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/odl-netvirt.png"></p>
+
+<h2>Demo</h2>
+
+<p>Enough of the theory, let&rsquo;s have a look at how to configure a L3VPN between QBGP (advertising ODL&rsquo;s distributed router subnets) and IOS-XE DC-GW using EVPN route type 5 or, more specifically, <a href="https://tools.ietf.org/html/draft-ietf-bess-evpn-prefix-advertisement-09#section-4.4.1">Interface-less IP-VRF-to-IP-VRF model</a>:</p>
+
+<p><img class="center" src="http://networkop.github.io/images/odl-evpn-topo.png"></p>
+
+<h3>Installation</h3>
+
+<p>My lab environment is still based on a pair of nested VMs running containerised Kolla OpenStack I&rsquo;ve described in my <a href="http://networkop.github.io/blog/2017/09/08/os-lab-docker/">earlier post</a>. A few months ago OpenDaylight role has been added to kolla-ansible so now it is possible to install OpenDaylight-intergrated OpenStack automatically. However, there is no option to install QBGP so I had to augment the default <a href="https://github.com/openstack/kolla">Kolla</a> and <a href="https://github.com/openstack/kolla-ansible">Kolla-ansible</a> repositories to include the QBGP <a href="https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_build/templates/quagga-Dockerfile.j2">Dockerfile template</a> and QBGP <a href="https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_deploy/tasks/create.yml#L90-L120">ansible role</a>. So the first step is to download my latest automated installer and make sure <code>enable_opendaylight</code> global variable is set to <code>yes</code>:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/kolla-odl-bgpvpn.git <span class="o">&amp;&amp;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>mkdir group_vars
+</span><span class='line'><span class="nb">echo</span> <span class="s2">&quot;enable_opendaylight: \&quot;yes\&quot;&quot;</span> &gt;&gt; group_vars/all.yaml
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>At the time of writing I was relying on a couple of latest bug fixes inside OpenDaylight, so I had to modify the default ODL role to install the latest master-branch ODL build. Make sure the link below is pointing to the latest <code>zip</code> file in <code>0.8.0-SNAPSHOT</code> directory.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt;&gt; group_vars/all.yaml</span>
+</span><span class='line'><span class="s">odl_latest_enabled: true</span>
+</span><span class='line'><span class="s">odl_latest_url: https://nexus.opendaylight.org/content/repositories/opendaylight.snapshot/org/opendaylight/integration/netvirt/karaf/0.8.0-SNAPSHOT/karaf-0.8.0-20171106.102232-1767.zip</span>
+</span><span class='line'><span class="s">EOF</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The next few steps are similar to what I&rsquo;ve described in my <a href="http://networkop.github.io/blog/2017/09/08/os-lab-docker/">Kolla lab post</a>, will create a pair of VMs, build all Kolla containers, push them to a local Docker repo and finally deploy OpenStack using Kolla-ansible playbooks:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-bootstrap.sh <span class="k">do</span>
+</span><span class='line'>./3-build.sh <span class="k">do</span>
+</span><span class='line'>./4-deploy.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The final <code>4-deploy.sh</code> script will also create a simple <code>init.sh</code> script inside the controller VM that can be used to setup a test topology with a single VM connected to a <code>10.0.0.0/24</code> subnet:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>ssh kolla-controller
+</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'>./init.sh
+</span></code></pre></td></tr></table></div></figure>
+
+
+<blockquote><p>Of course, another option to build a lab is to follow the official <a href="https://docs.openstack.org/kolla-ansible/latest/user/quickstart.html">Kolla documentation</a> to create your own custom test environment.</p></blockquote>
+
+<h3>Configuration</h3>
+
+<p>Assuming the test topology was setup with no issues and a test VM can ping its default gateway <code>10.0.0.1</code>, we can start configuring BGP VPNs. Unfortunately, we won&rsquo;t be able to use OpenStack BGPVPN API/CLI, since ODL requires an extra parameter (L3 VNI for symmetric IRB) which is not available in OpenStack BGPVPN API, but we still can configure everything directly through ODL&rsquo;s API. My interface of choice is always REST, since it&rsquo;s easier to build it into a fully programmatic plugin, so even though all of the below steps can be accomplished through karaf console CLI, I&rsquo;ll be using cURL to send and retrieve data from ODL&rsquo;s REST API.</p>
+
+<h4>1. Source admin credentials and setup ODL&rsquo;s REST variables</h4>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'><span class="nb">export </span><span class="nv">ODL_URL</span><span class="o">=</span><span class="s1">&#39;http://192.168.133.100:8181/restconf&#39;</span>
+</span><span class='line'><span class="nb">export </span><span class="nv">CT_JSON</span><span class="o">=</span><span class="s2">&quot;Content-Type: application/json&quot;</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h4>2. Configure local BGP settings and BGP peering with DC-GW</h4>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./bgp-full.json</span>
+</span><span class='line'><span class="s">{</span>
+</span><span class='line'><span class="s">    &quot;bgp&quot;: {</span>
+</span><span class='line'><span class="s">        &quot;as-id&quot;: {</span>
+</span><span class='line'><span class="s">            &quot;announce-fbit&quot;: false,</span>
+</span><span class='line'><span class="s">            &quot;local-as&quot;: 100,</span>
+</span><span class='line'><span class="s">            &quot;router-id&quot;: &quot;192.168.133.100&quot;,</span>
+</span><span class='line'><span class="s">            &quot;stalepath-time&quot;: 0</span>
+</span><span class='line'><span class="s">        },</span>
+</span><span class='line'><span class="s">        &quot;logging&quot;: {</span>
+</span><span class='line'><span class="s">            &quot;file&quot;: &quot;/var/log/bgp_debug.log&quot;,</span>
+</span><span class='line'><span class="s">            &quot;level&quot;: &quot;errors&quot;</span>
+</span><span class='line'><span class="s">        },</span>
+</span><span class='line'><span class="s">        &quot;neighbors&quot;: [</span>
+</span><span class='line'><span class="s">            {</span>
+</span><span class='line'><span class="s">                &quot;address&quot;: &quot;192.168.133.50&quot;,</span>
+</span><span class='line'><span class="s">                &quot;remote-as&quot;: 100,</span>
+</span><span class='line'><span class="s">                &quot;address-families&quot;: [</span>
+</span><span class='line'><span class="s">                   {</span>
+</span><span class='line'><span class="s">                     &quot;ebgp:afi&quot;: &quot;3&quot;,</span>
+</span><span class='line'><span class="s">                     &quot;ebgp:peer-ip&quot;: &quot;192.168.133.50&quot;,</span>
+</span><span class='line'><span class="s">                     &quot;ebgp:safi&quot;: &quot;6&quot;</span>
+</span><span class='line'><span class="s">                   }</span>
+</span><span class='line'><span class="s">                ]</span>
+</span><span class='line'><span class="s">            }</span>
+</span><span class='line'><span class="s">        ]</span>
+</span><span class='line'><span class="s">    }</span>
+</span><span class='line'><span class="s">}</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>curl -X PUT -u admin:admin -k -v -H <span class="s2">&quot;$CT_JSON&quot;</span>  <span class="se">\</span>
+</span><span class='line'>     <span class="nv">$ODL_URL</span>/config/ebgp:bgp -d @bgp-full.json
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h4>3. Define L3VPN instance and associate it with OpenStack <code>admin</code> tenant</h4>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">TENANT_UUID</span><span class="o">=</span><span class="k">$(</span>openstack project show admin -f value -c id <span class="p">|</span> <span class="se">\</span>
+</span><span class='line'>            sed <span class="s1">&#39;s/\(........\)\(....\)\(....\)\(....\)\(.*\)/\1-\2-\3-\4-\5/&#39;</span><span class="k">)</span>
+</span><span class='line'>
+</span><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./l3vpn-full.json</span>
+</span><span class='line'><span class="s">{</span>
+</span><span class='line'><span class="s">   &quot;input&quot;: {</span>
+</span><span class='line'><span class="s">      &quot;l3vpn&quot;:[</span>
+</span><span class='line'><span class="s">         {</span>
+</span><span class='line'><span class="s">            &quot;id&quot;:&quot;f503fcb0-3fd9-4dee-8c3a-5034cf707fd9&quot;,</span>
+</span><span class='line'><span class="s">            &quot;name&quot;:&quot;L3EVPN&quot;,</span>
+</span><span class='line'><span class="s">            &quot;route-distinguisher&quot;: [&quot;100:100&quot;],</span>
+</span><span class='line'><span class="s">            &quot;export-RT&quot;: [&quot;100:100&quot;],</span>
+</span><span class='line'><span class="s">            &quot;import-RT&quot;: [&quot;100:100&quot;],</span>
+</span><span class='line'><span class="s">            &quot;l3vni&quot;: &quot;5000&quot;,</span>
+</span><span class='line'><span class="s">            &quot;tenant-id&quot;:&quot;${TENANT_UUID}&quot;</span>
+</span><span class='line'><span class="s">         }</span>
+</span><span class='line'><span class="s">      ]</span>
+</span><span class='line'><span class="s">   }</span>
+</span><span class='line'><span class="s">}</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>curl -X POST -u admin:admin -k -v -H <span class="s2">&quot;$CT_JSON&quot;</span>  <span class="se">\</span>
+</span><span class='line'>      <span class="nv">$ODL_URL</span>/operations/neutronvpn:createL3VPN -d @l3vpn-full.json
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h4>4. Inject prefixes into L3VPN by associating the previously created L3VPN with a <code>demo-router</code></h4>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">ROUTER_UUID</span><span class="o">=</span><span class="k">$(</span>openstack router show demo-router -f value -c id<span class="k">)</span>
+</span><span class='line'>
+</span><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./l3vpn-assoc.json</span>
+</span><span class='line'><span class="s">{</span>
+</span><span class='line'><span class="s">  &quot;input&quot;:{</span>
+</span><span class='line'><span class="s">     &quot;vpn-id&quot;:&quot;f503fcb0-3fd9-4dee-8c3a-5034cf707fd9&quot;,</span>
+</span><span class='line'><span class="s">     &quot;router-id&quot;:[ &quot;${ROUTER_UUID}&quot; ]</span>
+</span><span class='line'><span class="s">   }</span>
+</span><span class='line'><span class="s">}</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>curl -X POST -u admin:admin -k -v -H <span class="s2">&quot;$CT_JSON&quot;</span>  <span class="se">\</span>
+</span><span class='line'>     <span class="nv">$ODL_URL</span>/operations/neutronvpn:associateRouter -d @l3vpn-assoc.json
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h4>5. Configure DC-GW VTEP IP</h4>
+
+<p>ODL cannot automatically extract VTEP IP from updates received from DC-GW, so we need to explicitly configure it:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./tep.json</span>
+</span><span class='line'><span class="s">{</span>
+</span><span class='line'><span class="s">  &quot;input&quot;: {</span>
+</span><span class='line'><span class="s">    &quot;destination-ip&quot;: &quot;1.1.1.1&quot;,</span>
+</span><span class='line'><span class="s">    &quot;tunnel-type&quot;: &quot;odl-interface:tunnel-type-vxlan&quot;</span>
+</span><span class='line'><span class="s">  }</span>
+</span><span class='line'><span class="s">}</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>curl -X POST -u admin:admin -k -v -H <span class="s2">&quot;$CT_JSON&quot;</span>  <span class="se">\</span>
+</span><span class='line'>     <span class="nv">$ODL_URL</span>/operations/itm-rpc:add-external-tunnel-endpoint -d @tep.json
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h4>6. DC-GW configuration</h4>
+
+<p>That is all what needs to be configured on ODL. Although I would consider this to be outside of the scope of the current post, for the sake of completeness I&rsquo;m including the relevant configuration from the DC-GW:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+<span class='line-number'>46</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>!
+</span><span class='line'>vrf definition ODL
+</span><span class='line'> rd 100:100
+</span><span class='line'> route-target <span class="nb">export </span>100:100
+</span><span class='line'> route-target import 100:100
+</span><span class='line'> !
+</span><span class='line'> address-family ipv4
+</span><span class='line'>  route-target <span class="nb">export </span>100:100 stitching
+</span><span class='line'>  route-target import 100:100 stitching
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'>!
+</span><span class='line'>bridge-domain <span class="m">5000</span>
+</span><span class='line'> member vni 5000
+</span><span class='line'>!
+</span><span class='line'>interface Loopback0
+</span><span class='line'> ip address 1.1.1.1 255.255.255.255
+</span><span class='line'>!
+</span><span class='line'>interface GigabitEthernet1
+</span><span class='line'> ip address 192.168.133.50 255.255.255.0
+</span><span class='line'>!
+</span><span class='line'>interface nve1
+</span><span class='line'> no ip address
+</span><span class='line'> <span class="nb">source</span>-interface Loopback0
+</span><span class='line'> host-reachability protocol bgp
+</span><span class='line'> member vni <span class="m">5000</span> vrf ODL
+</span><span class='line'>!
+</span><span class='line'>interface BDI5000
+</span><span class='line'> vrf forwarding ODL
+</span><span class='line'> ip address 8.8.8.8 255.255.255.0
+</span><span class='line'> encapsulation dot1Q 500
+</span><span class='line'>!
+</span><span class='line'>router bgp 100
+</span><span class='line'> bgp log-neighbor-changes
+</span><span class='line'> no bgp default ipv4-unicast
+</span><span class='line'> neighbor 192.168.133.100 remote-as 100
+</span><span class='line'> !
+</span><span class='line'> address-family l2vpn evpn
+</span><span class='line'>  import vpnv4 unicast
+</span><span class='line'>  neighbor 192.168.133.100 activate
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'> !
+</span><span class='line'> address-family ipv4 vrf ODL
+</span><span class='line'>  advertise l2vpn evpn
+</span><span class='line'>  redistribute connected
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'>!
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>For detailed explanation of how EVPN RT5 is configured on Cisco CSR refer to the <a href="https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/cether/configuration/xe-16/ce-xe-16-book/evpn-vxlan-l3.html">following guide</a>.</p>
+
+<h3>Verification</h3>
+
+<p>There are several things that can be checked to verify that the DC-GW integration is working. One of the first steps would be to check if BGP session with CSR is up.
+This can be done from the CSR side, however it&rsquo;s also possible to check this from the QBGP side. First we need to get into the QBGP&rsquo;s interactive shell from the controller node:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>centos@controller-1 ~<span class="o">]</span><span class="nv">$ </span>sudo docker <span class="nb">exec</span> -it quagga /opt/quagga/bin/vtysh
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>From here, we can check that the BGP session has been established:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>controller-1# sh bgp neighbors 192.168.133.50
+</span><span class='line'>BGP neighbor is 192.168.133.50, remote AS 100, <span class="nb">local </span>AS 100, internal link
+</span><span class='line'>  BGP version 4, remote router ID 1.1.1.1
+</span><span class='line'>  BGP <span class="nv">state</span> <span class="o">=</span> Established, up <span class="k">for</span> 00:03:05
+</span><span class='line'>&lt;snip&gt;
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>We can also check the contents of EVPN RIB compiled by QBGP</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>controller-1# sh bgp evpn rd 100:100
+</span><span class='line'>BGP table version is 0, <span class="nb">local </span>router ID is 192.168.133.100
+</span><span class='line'>Status codes: s suppressed, d damped, h <span class="nb">history</span>, * valid, &gt; best, i - internal
+</span><span class='line'>Origin codes: i - IGP, e - EGP, ? - incomplete
+</span><span class='line'>
+</span><span class='line'>   Network          Next Hop            Metric LocPrf Weight Path
+</span><span class='line'>Route Distinguisher: as2 100:100
+</span><span class='line'>*&gt; <span class="o">[</span>0<span class="o">][</span>fa:16:3e:37:42:d8/48<span class="o">][</span>10.0.0.2/32<span class="o">]</span>
+</span><span class='line'>                    192.168.133.100         <span class="m">0</span>          <span class="m">32768</span> i
+</span><span class='line'>*&gt; <span class="o">[</span>0<span class="o">][</span>fa:16:3e:dc:77:65/48<span class="o">][</span>10.0.0.3/32<span class="o">]</span>
+</span><span class='line'>                    192.168.133.101         <span class="m">0</span>          <span class="m">32768</span> i
+</span><span class='line'>*&gt;i8.8.8.0/24       1.1.1.1         <span class="m">0</span>     <span class="m">100</span>       <span class="m">0</span> ?
+</span><span class='line'>*&gt; 10.0.0.0/24      192.168.133.100         <span class="m">0</span>          <span class="m">32768</span> i
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Finally, we can verify that the prefix <code>8.8.8.0/24</code> advertised from DC-GW is being passed by QBGP and accepted by NetVirt&rsquo;s FIB Manager:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>curl -u admin:admin -k -v  <span class="nv">$ODL_URL</span>/config/odl-fib:fibEntries/<span class="se">\</span>
+</span><span class='line'>  vrfTables/100%3A100/vrfEntry/8.8.8.0%2F24 <span class="p">|</span> python -m json.tool
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>    <span class="s2">&quot;vrfEntry&quot;</span>: <span class="o">[</span>
+</span><span class='line'>        <span class="o">{</span>
+</span><span class='line'>            <span class="s2">&quot;destPrefix&quot;</span>: <span class="s2">&quot;8.8.8.0/24&quot;</span>,
+</span><span class='line'>            <span class="s2">&quot;encap-type&quot;</span>: <span class="s2">&quot;vxlan&quot;</span>,
+</span><span class='line'>            <span class="s2">&quot;gateway_mac_address&quot;</span>: <span class="s2">&quot;00:1e:49:69:24:bf&quot;</span>,
+</span><span class='line'>            <span class="s2">&quot;l3vni&quot;</span>: 5000,
+</span><span class='line'>            <span class="s2">&quot;origin&quot;</span>: <span class="s2">&quot;b&quot;</span>,
+</span><span class='line'>            <span class="s2">&quot;route-paths&quot;</span>: <span class="o">[</span>
+</span><span class='line'>                <span class="o">{</span>
+</span><span class='line'>                    <span class="s2">&quot;nexthop-address&quot;</span>: <span class="s2">&quot;1.1.1.1&quot;</span>
+</span><span class='line'>                <span class="o">}</span>
+</span><span class='line'>            <span class="o">]</span>
+</span><span class='line'>        <span class="o">}</span>
+</span><span class='line'>    <span class="o">]</span>
+</span><span class='line'><span class="o">}</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The last output confirms that the prefix is being received and accepted by ODL. To do a similar check on CSR side we can run the following command:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>CSR1k#show bgp l2vpn evpn
+</span><span class='line'>&lt;snip&gt;
+</span><span class='line'>     Network          Next Hop            Metric LocPrf Weight Path
+</span><span class='line'>Route Distinguisher: 100:100 <span class="o">(</span>default <span class="k">for</span> vrf ODL<span class="o">)</span>
+</span><span class='line'> *&gt;i  <span class="o">[</span>2<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>48<span class="o">][</span>FA163E3742D8<span class="o">][</span>32<span class="o">][</span>10.0.0.2<span class="o">]</span>/24
+</span><span class='line'>                      192.168.133.100          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
+</span><span class='line'> *&gt;i  <span class="o">[</span>2<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>48<span class="o">][</span>FA163EDC7765<span class="o">][</span>32<span class="o">][</span>10.0.0.3<span class="o">]</span>/24
+</span><span class='line'>                      192.168.133.101          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
+</span><span class='line'> *&gt;   <span class="o">[</span>5<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>24<span class="o">][</span>8.8.8.0<span class="o">]</span>/17
+</span><span class='line'>                      0.0.0.0                  <span class="m">0</span>         <span class="m">32768</span> ?
+</span><span class='line'> *&gt;i  <span class="o">[</span>5<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>24<span class="o">][</span>10.0.0.0<span class="o">]</span>/17
+</span><span class='line'>                      192.168.133.100          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>This confirms that the control plane information has been successfully exchanged between NetVirt and Cisco CSR.</p>
+
+<blockquote><p>At the time of writing, there was an <a href="https://git.opendaylight.org/gerrit/#/c/63324/">open bug</a> in ODL master branch that prevented the forwarding entries from being installed in OVS datapath. Once the bug is fixed I will update this post with the dataplance verification, a.k.a ping</p></blockquote>
+
+<h2>Conclusion</h2>
+
+<p>OpenDaylight is a pretty advanced OpenStack SDN platform. Its functionality includes clustering, site-to-site federation (without EVPN) and L2/L3 EVPN DC-GW integration for both IPv4 and IPv6. It is yet another example of how an open-source platform can match even the most advanced proprietary SDN solutions from incumbent vendors. This is all thanks to the companies involved in OpenDaylight development. I also want to say special thanks to Vyshakh Krishnan, Kiran N Upadhyaya and Dayavanti Gopal Kamath from Ericsson for helping me clear up some of the questions I posted on netvirt-dev mailing list.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[Openstack SDN - NFV Management and Orchestration]]></title>
@@ -6079,273 +6639,6 @@ The final table swaps the dot1q and VXLAN identifiers and does the source replic
 <li><a href="http://therandomsecurityguy.com/openvswitch-cheat-sheet/">OVS commands cheat sheet</a></li>
 </ul>
 
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Building a Multi-node OpenStack Lab in UNetLab]]></title>
-    <link href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/"/>
-    <updated>2016-04-18T00:00:00+01:00</updated>
-    <id>http://networkop.github.io/blog/2016/04/18/os-unl-lab</id>
-    <content type="html"><![CDATA[<p>In the <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a> I&rsquo;ve demonstrated how to get a working instance of a single-node OpenStack inside <a href="http://www.unetlab.com/">UNetLab</a>. In this post we&rsquo;ll continue building on that by adding two new compute nodes and redesigning our network to resemble something you might actually see in a real life.</p>
-
-<!--more-->
-
-
-<h2>OpenStack network requirements</h2>
-
-<p>Depending on the number of deployed <a href="https://www.openstack.org/software/project-navigator/">components</a>, OpenStack physical network requirements could be different. In our case we&rsquo;re not going to deploy any storage solution and simply use the <strong>ephemeral</strong> storage, i.e. hard disk that&rsquo;s a part of a virtual machine. However, even in minimal installations, there are a number of networks that should be considered individually due to different connectivity requirements:</p>
-
-<ul>
-<li><p>Server <abbr title=" Out-Of-Band">OOB</abbr> <strong>management</strong> network - this is usually a dedicated physical network used mainly for server bootstrapping and OS deployment. It is a Layer 3 network with DHCP relays configured at each edge L3 interface and access to Internet package repositories.</p></li>
-<li><p><strong>API</strong> network - used for internal communication between various OpenStack services. This can be a routed network without Internet access. The only requirement is any-to-any reachability within a single OpenStack environment.</p></li>
-<li><p><strong>External</strong> network - used for public access to internal OpenStack virtual machines. This is the <em>outside</em> of OpenStack, with a pool of IP addresses used to NAT the internal IPs of public-facing virtual machines. This network <strong>must</strong> be Layer 2 adjacent <strong>only</strong> with a network control node.</p></li>
-<li><p><strong>Tenant</strong> network - used for communication between virtual machines within OpenStack environment. Thanks to the use of VXLAN overlay, this can be a simple routed network that has any-to-any reachability between all Compute and Network nodes.</p></li>
-</ul>
-
-
-<h2>Building a lab network</h2>
-
-<p>For labbing purposes it&rsquo;s possible to relax some of the above network requirements without seriously affecting the outcomes of our simulation. For example, it&rsquo;s possible to combine some of the networks and still satisfy the requirements stated above. These are the networks that will be configured inside UNetLab:</p>
-
-<ul>
-<li><p><strong>Management</strong> - this network will combine the functions of OOB and API networks. To isolate it from our data centre underlay I&rsquo;ll be using separate interfaces on virtual machines and connect them directly to Workstation&rsquo;s NAT interface (192.168.91.0/24 in my case)  to give them direct access to Internet.</p></li>
-<li><p><strong>External</strong> - this network will be connected to Workstation&rsquo;s host-only NIC (192.168.247.0/24) through Vlan300 configured on one of the leaf switches. Since it must be L2 adjacent with the network control node our leaf switch will not perform any routing for this subnet.</p></li>
-<li><p><strong>Tenant</strong> - this will be a routed leaf/spine <a href="https://en.wikipedia.org/wiki/Clos_network">Clos</a> fabric comprised of 3 leaf and 2 spine switches running a single-area OSPF process on all their links. Each server will have its own unique tenant subnet (Vlan100) terminated on the leaf switch and subnet injected into OSPF. The subnet used for this Vlan is going to be <code>10.0.X.0/24</code>, where X is the number of the leaf switch terminating the vlan.</p>
-
-<p>  The links between switches are all L3 point-to-point with addresses borrowed from 169.254.0.0/16 range specifically to emphasize the fact that the internal addressing does not need to be known or routed outside of the fabric. The <strong>sole function of the fabric</strong> is to provide multiple equal cost paths between any pair of leafs, thereby achieving maximum link utilisation. Here&rsquo;s an example of a traceroute between Vlan100&rsquo;s of Leaf #1 and Leaf #3.</p></li>
-</ul>
-
-
-<figure class='code'><figcaption><span>Traceroute inside an ECMP routed Clos fabric</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>L3#traceroute 10.0.1.1 source 10.0.3.1
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.1.1
-</span><span class='line'>VRF info: (vrf in name/id, vrf out name/id)
-</span><span class='line'>  1 169.254.31.111 1 msec
-</span><span class='line'>    169.254.32.222 0 msec
-</span><span class='line'>    169.254.31.111 0 msec
-</span><span class='line'>  2 169.254.12.1 1 msec
-</span><span class='line'>    169.254.11.1 1 msec *
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<h2>Building lab servers</h2>
-
-<p>Based on my experience a standard server would have at least 3 physical interfaces - one for OOB management and a pair of interfaces for application traffic. The two application interfaces will normally be combined in a single <abbr title=" Link Aggregation Group">LAG</abbr> and connected to a pair of MLAG-capable TOR switches. Multi-chassis LAG or <a href="http://blog.ipspace.net/2010/10/multi-chassis-link-aggregation-basics.html">MLAG</a> is a pretty old and well-understood technology so I&rsquo;m not going to try and simulate it in the lab. Instead I&rsquo;ll simply assume that a server will be connected to a TOR switch via a single physical link. That link will be setup as a dot1q trunk to allow for multiple subnets to share it.</p>
-
-<h2>Physical lab topology</h2>
-
-<p>All the above requirements and assumptions result in the following topology that we need to build inside UNetLab:</p>
-
-<p><img class="center" src="http://networkop.github.io/images/neutron-native.png"></p>
-
-<p>For servers I&rsquo;ll be using OpenStack node type that I&rsquo;ve described in my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a>. The two compute nodes do not need as much RAM as the control node, so I&rsquo;ll reduce it to just 2GB.</p>
-
-<p>For switches I&rsquo;ll be using a Cisco&rsquo;s <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">L2 IOU</a> image for now, mainly due to the low resource requirements. In the future I&rsquo;ll try and swap it for something else. As you can see from the sample config below, fabric configuration is very basic and can be easily replaced by any other solution:</p>
-
-<figure class='code'><figcaption><span>Leaf 1 configuration</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>interface Ethernet0/0
-</span><span class='line'> no switchport
-</span><span class='line'> ip address 169.254.11.1 255.255.255.0
-</span><span class='line'> ip ospf network point-to-point
-</span><span class='line'> duplex auto
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/1
-</span><span class='line'> no switchport
-</span><span class='line'> ip address 169.254.12.1 255.255.255.0
-</span><span class='line'> ip ospf network point-to-point
-</span><span class='line'> duplex auto
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/2
-</span><span class='line'> switchport trunk allowed vlan 100
-</span><span class='line'> switchport trunk encapsulation dot1q
-</span><span class='line'> switchport mode trunk
-</span><span class='line'>!
-</span><span class='line'>interface Vlan100
-</span><span class='line'> ip address 10.0.1.1 255.255.255.0
-</span><span class='line'>!
-</span><span class='line'>router ospf 1
-</span><span class='line'> network 0.0.0.0 255.255.255.255 area 0
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Server configuration and OpenStack installation</h2>
-
-<p>Refer to my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a> for instructions on how to install OpenStack and follow the first 5 steps from &ldquo;Installing CentOS and Openstack&rdquo; section. Before doing the final step, we need to configure our VMs' new interfaces:</p>
-
-<ul>
-<li>Remove any IP configuration from <strong>eth1</strong> interface to make it look like this:</li>
-</ul>
-
-
-<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/ifcfg-eth1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='ini'><span class='line'><span class="na">TYPE</span><span class="o">=</span><span class="s">Ethernet</span>
-</span><span class='line'><span class="na">BOOTPROTO</span><span class="o">=</span><span class="s">none</span>
-</span><span class='line'><span class="na">DEVICE</span><span class="o">=</span><span class="s">eth1</span>
-</span><span class='line'><span class="na">ONBOOT</span><span class="o">=</span><span class="s">yes</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<ul>
-<li>Configure <strong>Tenant network</strong>:</li>
-</ul>
-
-
-<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/ifcfg-eth1.100</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='ini'><span class='line'><span class="na">VLAN</span><span class="o">=</span><span class="s">yes</span>
-</span><span class='line'><span class="na">DEVICE</span><span class="o">=</span><span class="s">eth1.100</span>
-</span><span class='line'><span class="na">BOOTPROTO</span><span class="o">=</span><span class="s">none</span>
-</span><span class='line'><span class="na">IPADDR</span><span class="o">=</span><span class="s">10.0.X.10</span>
-</span><span class='line'><span class="na">PREFIX</span><span class="o">=</span><span class="s">24</span>
-</span><span class='line'><span class="na">ONBOOT</span><span class="o">=</span><span class="s">yes</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<ul>
-<li>Setup a <strong>static route</strong> to all other leaf nodes:</li>
-</ul>
-
-
-<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/route-eth1.100</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='ini'><span class='line'><span class="err">10.0.0.0/8</span> <span class="err">via</span> <span class="err">10.0.X.1</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<ul>
-<li>On Control node setup <strong>External network</strong> interface</li>
-</ul>
-
-
-<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/route-eth1.300</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='ini'><span class='line'><span class="na">DEVICE</span><span class="o">=</span><span class="s">eth1.300</span>
-</span><span class='line'><span class="na">IPADDR</span><span class="o">=</span><span class="s">192.168.247.100</span>
-</span><span class='line'><span class="na">PREFIX</span><span class="o">=</span><span class="s">24</span>
-</span><span class='line'><span class="na">ONBOOT</span><span class="o">=</span><span class="s">yes</span>
-</span><span class='line'><span class="na">BOOTPROTO</span><span class="o">=</span><span class="s">none</span>
-</span><span class='line'><span class="na">VLAN</span><span class="o">=</span><span class="s">yes</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>Now we&rsquo;re ready to kick off OpenStack installation. This can be done with a single command that needs to be executed on the Control node. Note that <code>eth1.100</code> interface is spelled as <code>eth1_100</code> in the last line.</p>
-
-<figure class='code'><figcaption><span>Controller</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>packstack --allinone <span class="se">\</span>
-</span><span class='line'>    --os-cinder-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --os-ceilometer-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --os-trove-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --os-ironic-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --nagios-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --os-swift-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --os-gnocchi-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --os-aodh-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --os-neutron-ovs-bridge-mappings<span class="o">=</span>extnet:br-ex <span class="se">\</span>
-</span><span class='line'>    --os-neutron-ovs-bridge-interfaces<span class="o">=</span>br-ex:eth1.300 <span class="se">\</span>
-</span><span class='line'>    --os-neutron-ml2-type-drivers<span class="o">=</span>vxlan,flat <span class="se">\</span>
-</span><span class='line'>    --provision-demo<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    --os-compute-hosts<span class="o">=</span>192.168.91.10,192.168.91.11,192.168.91.12 <span class="se">\</span>
-</span><span class='line'>    --os-neutron-ovs-tunnel-if<span class="o">=</span>eth1_100
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Creating a virtual network for a pair of VMs</h2>
-
-<p>Once again, follow all steps from &ldquo;Configuring Openstack networking&rdquo; section of my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a>. Only this time when setting up a public subnet, update the subnet details to match our current environment:</p>
-
-<figure class='code'><figcaption><span>Step 3 - Creating a public subnet</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>  neutron subnet-create --name public_subnet <span class="se">\</span>
-</span><span class='line'>    --enable_dhcp<span class="o">=</span>False <span class="se">\</span>
-</span><span class='line'>    --allocation-pool<span class="o">=</span><span class="nv">start</span><span class="o">=</span>192.168.247.90,end<span class="o">=</span>192.168.247.126 <span class="se">\</span>
-</span><span class='line'>    --gateway<span class="o">=</span>192.168.247.1 external_network 192.168.247.0/24
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Nova-scheduler and setting up host aggregates</h2>
-
-<p>OpenStack&rsquo;s Nova project is responsible for managing virtual machines. Nova controller views all available compute nodes as a single pool of resources. When a new VM is to be instantiated, a special process called nova-scheduler examines all available compute nodes and selects the &ldquo;best&rdquo; one based on a special algorithm, which normally takes into account amount of RAM, CPU and other host capabilities.</p>
-
-<p>To make our host selection a little bit more deterministic, we can define a group of compute servers via <strong>host aggregates</strong>, which will be used by nova-scheduler in its selection algorithm. Normally it could include all servers in a single rack or a row of racks. In our case we&rsquo;ll setup two host aggregates each with a single compute host. This way we&rsquo;ll be able to select exactly which compute host to use when instantiating a new virtual machine.</p>
-
-<p>To setup it up, from Horizon&rsquo;s dashboard navigate to Admin -> System and create two host aggregates <strong>comp-1</strong> and <strong>comp-2</strong>, each including a single compute host.</p>
-
-<h2>Creating workloads and final testing</h2>
-
-<p>Using a process described in &ldquo;Spinning up a VM&rdquo; section of my <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous blogpost</a>, create a couple of virtual machines assigning them to different host aggregates created earlier.</p>
-
-<h2>Security and Remote access</h2>
-
-<p>To access these virtual machines we need to give them a <a href="https://www.rdoproject.org/networking/floating-ip-range/">floating</a> ip address from the External subnet range. To do that navigate to Project -> Compute -> Instances and select <strong>Associate Floating IP</strong> from the Actions drop-down menu.</p>
-
-<p>The final steps is to allow remote SSH access. Each new VM inherits ACLs from a default security group. So the easiest way to allow SSH is to go to Project -> Compute -> Access &amp; Security and add a rule to allow inbound SSH connections for the default security group.</p>
-
-<h2>Verification</h2>
-
-<p>At this stage you should be able to SSH into the floating IP addresses assigned to the two new VMs using the default credentials. Feel free to poke around and explore Horizon&rsquo;s interface a bit more. For example, try setting up an SSH key pair and re-build our two VMs to allow passwordless SSH access.</p>
-
-<h2>What to expect next</h2>
-
-<p>In the next post we&rsquo;ll explore some of the basic concepts of OpenStack&rsquo;s SDN. We&rsquo;ll peak inside the internal implementation of virtual networks and see what are some of their limitations and drawbacks.</p>
 ]]></content>
   </entry>
   
