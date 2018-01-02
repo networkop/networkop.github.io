@@ -4,7 +4,7 @@
   <title><![CDATA[Category: Sdn | Network-oriented programming]]></title>
   <link href="http://networkop.github.io/blog/categories/sdn/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-12-14T21:07:11+00:00</updated>
+  <updated>2018-01-02T13:28:01+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,525 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - OpenContrail With BGP VPN]]></title>
+    <link href="http://networkop.github.io/blog/2018/01/02/os-contrail/"/>
+    <updated>2018-01-02T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2018/01/02/os-contrail</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to build a dockerized OpenStack and OpenContrail lab, integrate it with Juniper MX80 DC-GW and demonstrate one of Contrail&rsquo;s most interesting and unique features called BGP-as-a-Service.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>Continuing on the trend started in my <a href="/blog/2017/12/15/os-odl-netvirt/">previous post about OpenDaylight</a>, I&rsquo;ll move on to the next open-source product that uses BGP VPNs for optimal North-South traffic forwarding. OpenContrail is one of the most popular SDN solutions for OpenStack. It was one of the first hybrid SDN solutions, offering both pure overlay and overlay/underlay integration. It is the default SDN platform of choice for Mirantis Cloud Platform, it has multiple large-scale deployments in companies like Workday and AT&amp;T. I, personally, don&rsquo;t have any production experience with OpenContrail, however my impression, based on what I&rsquo;ve heard and seen in the last 2-3 years that I&rsquo;ve been following Telco SDN space, is that OpenContrail is the most mature SDN platform for Telco NFVs not least because of its unique feature set.</p>
+
+<p>During the time of production deployment at AT&amp;T, Contrail has added a lot of features required by Telco NFVs like QoS, VLAN trunking and BGP-as-a-service. My first acquaintance with BGPaaS took place when I started working on Telco DCs and I remember being genuinely shocked when I first saw the requirement for dynamic routing exchange with VNFs. To me this seemed to break one of the main rules of cloud networking - a VM is not to have any knowledge or interaction with the underlay. I gradually went though all stages of grief, all the way to acceptance and although it still feels &ldquo;wrong&rdquo; now, I can at least understand why it&rsquo;s needed and what are the pros/cons of different BGPaaS solutions.</p>
+
+<h2>BGP-as-a-Service</h2>
+
+<p>There&rsquo;s a certain range of VNFs that may require to advertise a set of IP addresses into the existing VPNs inside Telco network. The most notable example is PGW inside EPC. I won&rsquo;t pretend to be an expert in this field, but based on my limited understanding PGW needs to advertise IP networks into various customer VPNs, for example to connect private APNs to existing customer L3VPNs. Obviously, when this kind of network function gets virtualised, it still retains this requirement which now needs to be fulfilled by DC SDN.</p>
+
+<p>This requirement catches a lot of big SDN vendors off guard and the best they come up with is connecting those VNFs, through VLANs, directly to underlay TOR switches. Although this solution is easy to implement, it has an incredible amount of drawbacks since a single VNF can now affect the stability of the whole POD or even the whole DC network. Some VNFs vendors also require BFD to monitor liveliness of those BGP sessions which, in case a L3 boundary is higher than the TOR, may create even a bigger number of issues on a POD spine.</p>
+
+<p>There&rsquo;s a small range of SDN platforms that run a full routing stack on each compute node (e.g. Cumulus, Calico). These solutions are the best fit for this kind of scenarios since they allow BGP sessions to be established over a single hop (VNF <-> virtual switch). However they represent a small fraction of total SDN solutions space with majority of vendors implementing a much simpler OpenFlow or XMPP-based flow push model.</p>
+
+<p>OpenContrail, as far as I know, is the only SDN controller that doesn&rsquo;t run a full routing stack on compute nodes but still fulfills this requirement in a very elegant way. When <a href="https://www.juniper.net/documentation/en_US/contrail3.2/topics/concept/bgp-as-a-service-overview.html">BGPaaS</a> is enabled for a particular VM&rsquo;s interface, controller programs vRouter to proxy BGP TCP connections coming to virtual network&rsquo;s default gateway IP and forward them to the controller. This way VNF thinks it peers with a next hop IP, however all BGP state and path computations still happen on the controller.</p>
+
+<p>The diagram below depicts a sample implementation of BGPaaS using OpenContrail. VNF is connected to a vRouter using a dot1Q trunk interface (to allow multiple VRFs over a single vEth link). Each VRF has its own BGPaaS session setup to advertise network ranges (NET1-3) into customer VPNs. These BGP sessions get proxied to the controller which injects those prefixes into their respective VPNs. These updates are then sent to DC gateways using either a VPNv4/6 or EVPN and the traffic is forwarded through DC underlay with VPN segregation preserved by either an MPLS tag (for MPLSoGRE or MPLSoUDL encapsulation) or a VXLAN VNI.</p>
+
+<p><img class="center" src="/images/contrail-bgpaas.png"></p>
+
+<p>Now let me briefly go over the lab that I&rsquo;ve built to showcase the BGPaaS and DC-GW integration features.</p>
+
+<h2>Lab setup overview</h2>
+
+<p>OpenContrail follows a familiar pattern of DC SDN architecture with central controller orchestrating the work of multiple virtual switches. In case of OpenContrail, these switches are called vRouters and they communicate with controller using XMPP-based extension of BGP as described in <a href="https://www.ietf.org/archive/id/draft-ietf-l3vpn-end-system-06.txt">this RFC draft</a>. A very detailed description of its internal architecture is available on <a href="http://www.opencontrail.org/opencontrail-architecture-documentation/">OpenContrail&rsquo;s website</a> so it would be pointless to repeat all of this information here. That&rsquo;s why I&rsquo;ll concentrate on how to get things done rather then on the architectural aspects. However to get things started, I always like to have a clear picture of what I&rsquo;m trying to achieve. The below diagram depicts a high-level architecture of my lab setup. Although OpenContrail supports BGP VPNv4/6 with multiple dataplane encapsulations, in this post I&rsquo;ll use EVPN as the only control plane protocol to communicate with MX80 and use VXLAN encapsulation in the dataplane.</p>
+
+<p><img class="center" src="/images/contrail-lab.png"></p>
+
+<p>EVPN as a DC-GW integration protocol is relatively new to OpenContrail and comes with a few limitations. One of them is the absence of EVPN type-5 routes, which means I can&rsquo;t use it in the same way I did in <a href="/blog/2017/12/15/os-odl-netvirt/">OpenDaylight&rsquo;s case</a>. Instead I&rsquo;ll demonstrate a DC-GW IRB scenario, which extends the existing virtual network to a DC-GW and makes IRB/SVI interface on that DC-GW act as a default gateway for this network. This is a very common scenario for L2 DCI and active-active DC deployment models. To demonstrate this scenario I&rsquo;m going to setup a single OpenStack virtual network with a couple of VMs whose gateway will reside on MX80. Since I only have a single OpenStack instance and a single MX80, I&rsquo;ll setup one half of L2 DCI and setup a mutual redistribution to make our overlay network reachable from MX80&rsquo;s global routing table.</p>
+
+<p><img class="center" src="/images/contrail-overlay.png"></p>
+
+<h2>All-in-one VM setup</h2>
+
+<p>Physically, my lab will consist of a single hypervisor running an all-in-one VM with <a href="https://docs.openstack.org/kolla/latest/">kolla-openstack</a> and <a href="https://github.com/Juniper/contrail-docker/wiki/OpenContrail-Kolla">kolla-contrail</a> and a physical Juniper MX80 playing the role of a DC-GW.</p>
+
+<p><img class="center" src="/images/contrail-setup.png"></p>
+
+<p>OpenContrail&rsquo;s <a href="https://github.com/Juniper/contrail-docker/wiki/OpenContrail-Kolla">kolla github page</a> contains a set of instructions to setup the environment. As usual, I have automated all of these steps which can be setup from a hypervisor with the following commands:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/networkop/kolla-odl-bgpvpn&quot;</span>&gt;https://github.com/networkop/kolla-odl-bgpvpn&lt;/a&gt; <span class="p">&amp;</span>amp<span class="p">;&amp;</span>amp<span class="p">;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-contrail.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>OpenStack setup</h2>
+
+<p>Once installation is complete and all docker containers are up and running, we can setup the OpenStack side of our test environment. The script below will do the following:</p>
+
+<ol>
+<li>Download cirros and CumulusVX images and upload them to Glance</li>
+<li>Create a virtual network</li>
+<li>Update security rules to allow inbound ICMP and SSH connections</li>
+<li>Create a pair of VMs - one based on cirros and one based on CumulusVX image</li>
+</ol>
+
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -L -o ./cirros &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img&quot;</span>&gt;http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img&lt;/a&gt;
+</span><span class='line'>curl -L -o ./cumulusVX &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2&quot;</span>&gt;http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2&lt;/a&gt;&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;openstack image create <span class="p">&amp;</span>ndash<span class="p">;</span>disk-format qcow2 <span class="p">&amp;</span>ndash<span class="p">;</span>container-format bare <span class="p">&amp;</span>ndash<span class="p">;</span>public <span class="se">\</span>
+</span><span class='line'><span class="p">&amp;</span>ndash<span class="p">;</span>property <span class="nv">os_type</span><span class="o">=</span>linux <span class="p">&amp;</span>ndash<span class="p">;</span>file ./cirros cirros
+</span><span class='line'>rm ./cirros&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;openstack image create <span class="p">&amp;</span>ndash<span class="p">;</span>disk-format qcow2 <span class="p">&amp;</span>ndash<span class="p">;</span>container-format bare <span class="p">&amp;</span>ndash<span class="p">;</span>public <span class="se">\</span>
+</span><span class='line'><span class="p">&amp;</span>ndash<span class="p">;</span>property <span class="nv">os_type</span><span class="o">=</span>linux <span class="p">&amp;</span>ndash<span class="p">;</span>file ./cumulusVX cumulus
+</span><span class='line'>rm ./cumulusVX&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;openstack network create <span class="p">&amp;</span>ndash<span class="p">;</span>provider-network-type vxlan irb-net&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;openstack subnet create <span class="p">&amp;</span>ndash<span class="p">;</span>subnet-range 10.0.100.160/27 <span class="p">&amp;</span>ndash<span class="p">;</span>network irb-net <span class="se">\</span>
+</span><span class='line'>      <span class="p">&amp;</span>ndash<span class="p">;</span>host-route <span class="nv">destination</span><span class="o">=</span>0.0.0.0/0,gateway<span class="o">=</span>10.0.100.190 <span class="se">\</span>
+</span><span class='line'>      <span class="p">&amp;</span>ndash<span class="p">;</span>gateway 10.0.100.161 <span class="p">&amp;</span>ndash<span class="p">;</span>dns-nameserver 8.8.8.8 irb-subnet&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;openstack flavor create <span class="p">&amp;</span>ndash<span class="p">;</span>id <span class="m">1</span> <span class="p">&amp;</span>ndash<span class="p">;</span>ram <span class="m">256</span> <span class="p">&amp;</span>ndash<span class="p">;</span>disk <span class="m">1</span> <span class="p">&amp;</span>ndash<span class="p">;</span>vcpus <span class="m">1</span> m1.nano
+</span><span class='line'>openstack flavor create <span class="p">&amp;</span>ndash<span class="p">;</span>id <span class="m">2</span> <span class="p">&amp;</span>ndash<span class="p">;</span>ram <span class="m">512</span> <span class="p">&amp;</span>ndash<span class="p">;</span>disk <span class="m">10</span> <span class="p">&amp;</span>ndash<span class="p">;</span>vcpus <span class="m">1</span> m1.tiny&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;ADMIN_PROJECT_ID<span class="o">=</span><span class="k">$(</span>openstack project show <span class="p">&amp;</span>lsquo<span class="p">;</span>admin<span class="p">&amp;</span>rsquo<span class="p">;</span> -f value -c id<span class="k">)</span>
+</span><span class='line'><span class="nv">ADMIN_SEC_GROUP</span><span class="o">=</span><span class="k">$(</span>openstack security group list <span class="p">&amp;</span>ndash<span class="p">;</span>project <span class="k">${</span><span class="nv">ADMIN_PROJECT_ID</span><span class="k">}</span> <span class="p">|</span> awk <span class="p">&amp;</span>lsquo<span class="p">;</span>/ default / <span class="o">{</span>print <span class="nv">$2</span><span class="o">}</span><span class="p">&amp;</span>rsquo<span class="p">;</span><span class="k">)</span>
+</span><span class='line'>openstack security group rule create <span class="p">&amp;</span>ndash<span class="p">;</span>ingress <span class="p">&amp;</span>ndash<span class="p">;</span>ethertype IPv4 <span class="se">\</span>
+</span><span class='line'>    <span class="p">&amp;</span>ndash<span class="p">;</span>protocol icmp <span class="k">${</span><span class="nv">ADMIN_SEC_GROUP</span><span class="k">}</span>
+</span><span class='line'>openstack security group rule create <span class="p">&amp;</span>ndash<span class="p">;</span>ingress <span class="p">&amp;</span>ndash<span class="p">;</span>ethertype IPv4 <span class="se">\</span>
+</span><span class='line'>    <span class="p">&amp;</span>ndash<span class="p">;</span>protocol tcp <span class="p">&amp;</span>ndash<span class="p">;</span>dst-port <span class="m">22</span> <span class="k">${</span><span class="nv">ADMIN_SEC_GROUP</span><span class="k">}</span>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cirros <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.nano <span class="p">&amp;</span>ndash<span class="p">;</span>net irb-net VM1
+</span><span class='line'>openstack server create <span class="p">&amp;</span>ndash<span class="p">;</span>image cumulus <span class="p">&amp;</span>ndash<span class="p">;</span>flavor m1.tiny <span class="p">&amp;</span>ndash<span class="p">;</span>net irb-net VR1
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The only thing worth noting in the above script is that a default gateway <code>10.0.100.161</code> gets overridden by a default host route pointing to <code>10.0.100.190</code>. Normally, to demonstrate DC-GW IRB scenario, I would have setup a gateway-less L2 only subnet, however in that case I wouldn&rsquo;t have been able to demonstrate BGPaaS on the same network, since this feature relies on having a gateway IP setup (which later acts as a BGP session termination endpoint). So instead of setting up two separate networks I&rsquo;ve decided to implement this hack to minimise the required configuration.</p>
+
+<h2>EVPN integration with MX80</h2>
+
+<p>DC-GW integration procedure is very simple and requires only a few simple steps:</p>
+
+<ol>
+<li>Make sure VXLAN VNI is matched on both ends</li>
+<li>Configure import/export route targets</li>
+<li>Setup BGP peering with DC-GW</li>
+</ol>
+
+
+<p>All of these steps can be done very easily through OpenContrail&rsquo;s GUI. However as I&rsquo;ve mentioned before, I always prefer to use API when I have a chance and in this case I even have a python library for OpenContrail&rsquo;s REST API available on Juniper&rsquo;s <a href="https://github.com/Juniper/contrail-python-api">github page</a>, which I&rsquo;m going to use below to implement the above three steps.</p>
+
+<h3>Configuration</h3>
+
+<p>Before we can begin working with OpenContrail&rsquo;s API, we need to authenticate with the controller and get a REST API connection handler.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">pycontrail.client</span> <span class="kn">as</span> <span class="nn">client</span>
+</span><span class='line'><span class="n">CONTRAIL_API</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="o">&lt;</span><span class="n">a</span> <span class="n">href</span><span class="o">=</span><span class="s">&quot;http://10.0.100.140:8082&quot;</span><span class="o">&gt;</span><span class="n">http</span><span class="p">:</span><span class="o">//</span><span class="mf">10.0</span><span class="o">.</span><span class="mf">100.140</span><span class="p">:</span><span class="mi">8082</span><span class="o">&lt;/</span><span class="n">a</span><span class="o">&gt;&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span><span class='line'><span class="n">AUTH_URL</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="o">&lt;</span><span class="n">a</span> <span class="n">href</span><span class="o">=</span><span class="s">&quot;http://10.0.100.140:5000/v2.0&quot;</span><span class="o">&gt;</span><span class="n">http</span><span class="p">:</span><span class="o">//</span><span class="mf">10.0</span><span class="o">.</span><span class="mf">100.140</span><span class="p">:</span><span class="mi">5000</span><span class="o">/</span><span class="n">v2</span><span class="o">.</span><span class="mi">0</span><span class="o">&lt;/</span><span class="n">a</span><span class="o">&gt;&amp;</span><span class="n">rsquo</span><span class="p">;</span>
+</span><span class='line'><span class="n">AUTH_PARAMS</span> <span class="o">=</span> <span class="p">{</span>
+</span><span class='line'>    <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="nb">type</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">keystone</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span>
+</span><span class='line'>    <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">username</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span>
+</span><span class='line'>    <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">password</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">mypassword</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span>
+</span><span class='line'>    <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">tenant_name</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span>
+</span><span class='line'>    <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">auth_url</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="n">AUTH_URL</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'><span class="n">conn</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">Client</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="n">CONTRAIL_API</span><span class="p">,</span><span class="n">auth_params</span><span class="o">=</span><span class="n">AUTH_PARAMS</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The first thing I&rsquo;m going to do is override the default VNI setup by OpenContrail for <code>irb-net</code> to a pre-defined value of <code>5001</code>. To do that I first need to get a handler for <code>irb-net</code> object and extract the <code>virtual_network_properties</code> object containing a <code>vxlan_network_identifier</code> property. Once it&rsquo;s overridden, I just need to update the parent <code>irb-net</code> object to apply the change to the running configuration on the controller.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">irb_net</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="p">[</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">default</span><span class="o">-</span><span class="n">domain</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span> <span class="p">,</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">irb</span><span class="o">-</span><span class="n">net</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;]</span> <span class="p">)</span>
+</span><span class='line'><span class="n">vni_props</span><span class="o">=</span><span class="n">irb_net</span><span class="o">.</span><span class="n">get_virtual_network_properties</span><span class="p">()</span>
+</span><span class='line'><span class="n">vni_props</span><span class="o">.</span><span class="n">set_vxlan_network_identifier</span><span class="p">(</span><span class="mi">5001</span><span class="p">)</span>
+</span><span class='line'><span class="n">irb_net</span><span class="o">.</span><span class="n">set_virtual_network_properties</span><span class="p">(</span><span class="n">vni_props</span><span class="p">)</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_update</span><span class="p">(</span><span class="n">irb_net</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The next thing I need to do is explicitly set the import/export route-target properties for the <code>irb-net</code> object. This will require a new <code>RouteTargetList</code> object which then gets referenced by a <code>route_target_list</code> property of the <code>irb-net</code> object.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">pycontrail</span> <span class="kn">import</span> <span class="n">types</span> <span class="k">as</span> <span class="n">t</span>
+</span><span class='line'><span class="n">new_rtl</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">RouteTargetList</span><span class="p">([</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">target</span><span class="p">:</span><span class="mi">200</span><span class="p">:</span><span class="mi">200</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;])</span>
+</span><span class='line'><span class="n">irb_net</span><span class="o">.</span><span class="n">set_route_target_list</span><span class="p">(</span><span class="n">new_rtl</span><span class="p">)</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_update</span><span class="p">(</span><span class="n">irb_net</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The final step is setting up a peering with MX80. The main object that needs to be created is <code>BgpRouter</code>, which contains a pointer to BGP session parameters object with session-specific values like ASN and remote peer IP. BGP router is defined in a global context (default domain and default project) which will make it available to all configured virtual networks.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">pycontrail</span> <span class="kn">import</span> <span class="n">types</span> <span class="k">as</span> <span class="n">t</span>
+</span><span class='line'><span class="n">ctx</span> <span class="o">=</span> <span class="p">[</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">default</span><span class="o">-</span><span class="n">domain</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">default</span><span class="o">-</span><span class="n">project</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">ip</span><span class="o">-</span><span class="n">fabric</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="o">&lt;</span><span class="n">strong</span><span class="o">&gt;</span><span class="n">default</span><span class="o">&lt;/</span><span class="n">strong</span><span class="o">&gt;&amp;</span><span class="n">rsquo</span><span class="p">;]</span>
+</span><span class='line'><span class="n">af</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">AddressFamilies</span><span class="p">(</span><span class="n">family</span><span class="o">=</span><span class="p">[</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">inet</span><span class="o">-</span><span class="n">vpn</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">e</span><span class="o">-</span><span class="n">vpn</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;])</span>
+</span><span class='line'><span class="n">bgp_params</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">BgpRouterParams</span><span class="p">(</span><span class="n">vendor</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">Juniper</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> \
+</span><span class='line'>                               <span class="n">autonomous_system</span><span class="o">=</span><span class="mi">65411</span><span class="p">,</span> \
+</span><span class='line'>                               <span class="n">address</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">10.0</span><span class="o">.</span><span class="mf">101.15</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> \
+</span><span class='line'>                               <span class="n">address_families</span><span class="o">=</span><span class="n">af</span><span class="p">)</span>
+</span><span class='line'><span class="n">vrf</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">routing_instance_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="n">ctx</span><span class="p">)</span>
+</span><span class='line'><span class="n">bgp_router</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">BgpRouter</span><span class="p">(</span><span class="n">name</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">MX80</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="n">display_name</span><span class="o">=&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">MX80</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> \
+</span><span class='line'>                         <span class="n">bgp_router_parameters</span><span class="o">=</span><span class="n">bgp_params</span><span class="p">,</span>
+</span><span class='line'>                         <span class="n">parent_obj</span><span class="o">=</span><span class="n">vrf</span><span class="p">)</span>
+</span><span class='line'><span class="n">contrail</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">bgp_router_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="n">ctx</span> <span class="o">+</span> <span class="p">[</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">controller</span><span class="o">-</span><span class="mi">1</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;])</span>
+</span><span class='line'><span class="n">bgp_router</span><span class="o">.</span><span class="n">set_bgp_router</span><span class="p">(</span><span class="n">contrail</span><span class="p">,</span><span class="n">t</span><span class="o">.</span><span class="n">BgpPeeringAttributes</span><span class="p">())</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">bgp_router_create</span><span class="p">(</span><span class="n">bgp_router</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>For the sake of brevity, I will not cover MX80&rsquo;s configuration in details and simply include it here for reference with some minor explanatory comments.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+<span class='line-number'>39</span>
+<span class='line-number'>40</span>
+<span class='line-number'>41</span>
+<span class='line-number'>42</span>
+<span class='line-number'>43</span>
+<span class='line-number'>44</span>
+<span class='line-number'>45</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;h1&gt;Interface and global settings configuration&lt;/h1&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set interfaces irb unit <span class="m">5001</span> family inet address 10.0.100.190/27
+</span><span class='line'><span class="nb">set </span>interfaces lo0 unit <span class="m">0</span> family inet address 10.0.101.15/32
+</span><span class='line'><span class="nb">set </span>routing-options router-id 10.0.101.15
+</span><span class='line'><span class="nb">set </span>routing-options autonomous-system 65411&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;h1&gt;Setup BGP peering with OpenContrail&lt;/h1&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set protocols bgp group CONTRAIL multihop
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL <span class="nb">local</span>-address 10.0.101.15
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL family inet-vpn unicast
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL family evpn signaling
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL peer-as 64512
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL neighbor 10.0.100.140&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;h1&gt;Setup EVPN instance <span class="nb">type </span>with IRB interface and matching RT and VNI&lt;/h1&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set routing-instances EVPN-L2-IRB vtep-source-interface lo0.0
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB instance-type evpn
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vlan-id 501
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB routing-interface irb.5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vxlan vni 5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB route-distinguisher 200:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vrf-target target:200:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB protocols evpn encapsulation vxlan&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;h1&gt;Setup VRF instance with IRB interface&lt;/h1&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set routing-instances EVPN-L3-IRB instance-type vrf
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB interface irb.5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB route-distinguisher 201:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB vrf-target target:200:200&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;h1&gt;Setup route redistribution between EVPN and Global VRFs&lt;/h1&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;set routing-options rib-groups CONTRAIL-TO-GLOBAL import-rib EVPN-L3-IRB.inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups CONTRAIL-TO-GLOBAL import-rib inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups GLOBAL-TO-CONTRAIL import-rib inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups GLOBAL-TO-CONTRAIL import-rib EVPN-L3-IRB.inet.0
+</span><span class='line'><span class="nb">set </span>routing-options interface-routes rib-group inet CONTRAIL-TO-GLOBAL
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB routing-options interface-routes rib-group inet CONTRAIL-TO-GLOBAL
+</span><span class='line'><span class="nb">set </span>protocols bgp group EXTERNAL-BGP family inet unicast rib-group GLOBAL-TO-CONTRAIL
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h3>Verification</h3>
+
+<p>The easiest way to verify that BGP peering has been established is to query OpenContrail&rsquo;s introspection API:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>curl  -s &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://10.0.100.140:8083/Snh_BgpNeighborReq?ip_address=10.0.101.15&quot;</span>&gt;http://10.0.100.140:8083/Snh_BgpNeighborReq?ip_address<span class="o">=</span>10.0.101.15&lt;/a&gt; <span class="p">|</span> <span class="se">\</span>
+</span><span class='line'>  xmllint <span class="p">&amp;</span>ndash<span class="p">;</span>xpath <span class="p">&amp;</span>lsquo<span class="p">;</span>/BgpNeighborListResp/neighbors<span class="o">[</span>1<span class="o">]</span>/list/BgpNeighborResp/state<span class="p">&amp;</span>rsquo<span class="p">;</span> -
+</span><span class='line'>&lt;state <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;string&quot;</span> <span class="nv">identifier</span><span class="o">=</span><span class="s2">&quot;8&quot;</span>&gt;Established&lt;/state&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>Datapath verification can be done from either side, in this case I&rsquo;m showing a ping from MX80&rsquo;s global VRF towards one of the OpenStack VMs:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>admin@MX80&gt; ping 10.0.100.164 count 2
+</span><span class='line'>PING 10.0.100.164 <span class="o">(</span>10.0.100.164<span class="o">)</span>: <span class="m">56</span> data bytes
+</span><span class='line'><span class="m">64</span> bytes from 10.0.100.164: <span class="nv">icmp_seq</span><span class="o">=</span><span class="m">0</span> <span class="nv">ttl</span><span class="o">=</span><span class="m">64</span> <span class="nb">time</span><span class="o">=</span>3.836 ms
+</span><span class='line'><span class="m">64</span> bytes from 10.0.100.164: <span class="nv">icmp_seq</span><span class="o">=</span><span class="m">1</span> <span class="nv">ttl</span><span class="o">=</span><span class="m">64</span> <span class="nb">time</span><span class="o">=</span>3.907 ms&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;<span class="p">&amp;</span>mdash<span class="p">;</span> 10.0.100.164 ping statistics <span class="p">&amp;</span>mdash<span class="p">;</span>
+</span><span class='line'><span class="m">2</span> packets transmitted, <span class="m">2</span> packets received, 0% packet loss
+</span><span class='line'>round-trip min/avg/max/stddev <span class="o">=</span> 3.836/3.872/3.907/0.035 ms
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h2>BGP-as-a-Service</h2>
+
+<p>To keep things simple I will not use multiple dot1Q interfaces and setup a BGP peering with CumulusVX over a normal, non-trunk interface. From CumulusVX I will inject a loopback IP <code>1.1.1.1/32</code> into the <code>irb-net</code> network. Since REST API python library I&rsquo;ve used above is two major releases behind the current version of OpenContrail, it cannot be used to setup BGPaaS feature. Instead I will demonstrate how to use REST API directly from the command line of all-in-one VM using cURL.</p>
+
+<h3>Configuration</h3>
+
+<p>In order to start working with OpenContrail&rsquo;s API, I first need to obtain an authentication token from OpenStack&rsquo;s keystone. With that token I can now query the list of IPs assigned to all OpenStack instances and pick the one assigned to CumulusVX. I need the UUID of that particular IP address in order to extract the ID of the VM interface this IP is assigned to.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>openstack token issue -f value -c id<span class="k">)</span>
+</span><span class='line'><span class="nv">CONTRAIL_AUTH</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>X-AUTH-TOKEN: <span class="nv">$TOKEN</span><span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'><span class="nv">CTYPE</span><span class="o">=</span><span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/json<span class="p">;</span> <span class="nv">charset</span><span class="o">=</span>UTF-8<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>curl -H <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nv">$CONTRAIL_AUTH</span><span class="p">&amp;</span>rdquo<span class="p">;</span> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://10.0.100.140:8082/instance-ips&quot;</span>&gt;http://10.0.100.140:8082/instance-ips&lt;/a&gt; <span class="p">|</span> jq
+</span><span class='line'><span class="nv">VMI_ID</span><span class="o">=</span><span class="k">$(</span>curl -H <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nv">$CONTRAIL_AUTH</span><span class="p">&amp;</span>rdquo<span class="p">;</span> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://10.0.100.140:8082/instance-ip/2e7987be-3f53-4296-905a-0c64793307a9&quot;</span>&gt;http://10.0.100.140:8082/instance-ip/2e7987be-3f53-4296-905a-0c64793307a9&lt;/a&gt; <span class="p">|</span> <span class="se">\</span>
+</span><span class='line'>         jq <span class="p">&amp;</span>lsquo<span class="p">;</span>.<span class="o">[</span><span class="p">&amp;</span>ldquo<span class="p">;</span>instance-ip<span class="p">&amp;</span>rdquo<span class="p">;</span><span class="o">]</span> .virtual_machine_interface_refs<span class="o">[</span>0<span class="o">]</span>.uuid<span class="p">&amp;</span>rsquo<span class="p">;</span><span class="k">)</span>
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>With VM interface ID saved in a <code>VMI_ID</code> variable I can create a BGPaaS service and link it to that particular VM interface.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="p">&amp;</span>lt<span class="p">;&amp;</span>lt<span class="p">;</span> EOF &gt; ./bgpaas.json
+</span><span class='line'><span class="o">{</span>
+</span><span class='line'>    <span class="p">&amp;</span>ldquo<span class="p">;</span>bgp-as-a-service<span class="p">&amp;</span>rdquo<span class="p">;</span>:
+</span><span class='line'>    <span class="o">{</span>
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>fq_name<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span><span class="p">&amp;</span>ldquo<span class="p">;</span>default-domain<span class="p">&amp;</span>rdquo<span class="p">;</span>, <span class="p">&amp;</span>ldquo<span class="p">;</span>admin<span class="p">&amp;</span>rdquo<span class="p">;</span>, <span class="p">&amp;</span>ldquo<span class="p">;</span>cumulusVX-bgp<span class="p">&amp;</span>rdquo<span class="p">;</span> <span class="o">]</span>,
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>autonomous_system<span class="p">&amp;</span>rdquo<span class="p">;</span>: 321,
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>bgpaas_session_attributes<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">{</span>
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>address_families<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">{</span><span class="p">&amp;</span>ldquo<span class="p">;</span>family<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span><span class="p">&amp;</span>ldquo<span class="p">;</span>inet<span class="p">&amp;</span>rdquo<span class="p">;</span><span class="o">]</span> <span class="o">}</span>
+</span><span class='line'>            <span class="o">}</span>,
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>parent_type<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>project<span class="p">&amp;</span>rdquo<span class="p">;</span>,
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>virtual_machine_interface_refs<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[{</span>
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>attr<span class="p">&amp;</span>rdquo<span class="p">;</span>: null,
+</span><span class='line'>            <span class="p">&amp;</span>ldquo<span class="p">;</span>to<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="o">[</span><span class="p">&amp;</span>ldquo<span class="p">;</span>default-domain<span class="p">&amp;</span>rdquo<span class="p">;</span>, <span class="p">&amp;</span>ldquo<span class="p">;</span>admin<span class="p">&amp;</span>rdquo<span class="p">;</span>, <span class="k">${</span><span class="nv">VMI_ID</span><span class="k">}</span><span class="o">]</span>
+</span><span class='line'>            <span class="o">}]</span>,
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>bgpaas-shared<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="nb">false</span>,
+</span><span class='line'>        <span class="p">&amp;</span>ldquo<span class="p">;</span>bgpaas-ip-address<span class="p">&amp;</span>rdquo<span class="p">;</span>: <span class="p">&amp;</span>ldquo<span class="p">;</span>10.0.100.164<span class="p">&amp;</span>rdquo<span class="p">;</span>
+</span><span class='line'>    <span class="o">}</span>
+</span><span class='line'><span class="o">}</span>
+</span><span class='line'>EOF&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;curl -X POST -H <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nv">$CONTRAIL_AUTH</span><span class="p">&amp;</span>rdquo<span class="p">;</span> -H <span class="p">&amp;</span>ldquo<span class="p">;</span><span class="nv">$CTYPE</span><span class="p">&amp;</span>rdquo<span class="p">;</span> -d @bgpaas.json &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://10.0.100.140:8082/bgp-as-a-services&quot;</span>&gt;http://10.0.100.140:8082/bgp-as-a-services&lt;/a&gt;
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>The final step is setting up a BGP peering on the CumulusVX side. CumulusVX configuration is very simple and self-explanatory. The BGP neighbor IP is the IP of virtual network&rsquo;s default gateway located on local vRouter.</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>!
+</span><span class='line'>interface lo
+</span><span class='line'> ip address 1.1.1.1/32
+</span><span class='line'>!
+</span><span class='line'>router bgp 321
+</span><span class='line'> neighbor 10.0.100.161 remote-as 64512
+</span><span class='line'> !
+</span><span class='line'> address-family ipv4 unicast
+</span><span class='line'>  network 1.1.1.1/32
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'>!
+</span></code></pre></td></tr></table></div></figure></p>
+
+<h3>Verification</h3>
+
+<p>Here&rsquo;s where we come across another limitation of EVPN. The loopback prefix <code>1.1.1.1/32</code> does not get injected into EVPN address family, however it does show up automatically in the VPNv4 address family which can be verified from the MX80:</p>
+
+<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>admin@MX80&gt; show route table bgp.l3vpn.0 hidden 1.1.1.1/32 extensive&lt;/p&gt;
+</span><span class='line'>
+</span><span class='line'>&lt;p&gt;bgp.l3vpn.0: <span class="m">6</span> destinations, <span class="m">6</span> routes <span class="o">(</span><span class="m">3</span> active, <span class="m">0</span> holddown, <span class="m">3</span> hidden<span class="o">)</span>
+</span><span class='line'>10.0.100.140:2:1.1.1.1/32 <span class="o">(</span><span class="m">1</span> entry, <span class="m">0</span> announced<span class="o">)</span>
+</span><span class='line'>         BGP    Preference: 170/-101
+</span><span class='line'>                Route Distinguisher: 10.0.100.140:2
+</span><span class='line'>                Next hop <span class="nb">type</span>: Unusable, Next hop index: 0
+</span><span class='line'>                Next-hop reference count: 6
+</span><span class='line'>                State: &lt;Hidden Ext ProtectionPath ProtectionCand&gt;
+</span><span class='line'>                Local AS: <span class="m">65411</span> Peer AS: 64512
+</span><span class='line'>                Age: 37:44
+</span><span class='line'>                Validation State: unverified
+</span><span class='line'>                Task: BGP_64512.10.0.100.140
+</span><span class='line'>                AS path: <span class="m">64512</span> <span class="m">321</span> I
+</span><span class='line'>                Communities: target:200:200 target:64512:8000003 encapsulation:unknown<span class="o">(</span>0x2<span class="o">)</span> encapsulation:mpls-in-udp<span class="o">(</span>0xd<span class="o">)</span> unknown <span class="nb">type </span><span class="m">8004</span> value fc00:7a1201 unknown <span class="nb">type </span><span class="m">8071</span> value fc00:1389
+</span><span class='line'>                Import Accepted
+</span><span class='line'>                VPN Label: 31
+</span><span class='line'>                Localpref: 100
+</span><span class='line'>                Router ID: 10.0.100.140
+</span><span class='line'>                Secondary Tables: EVPN-L3-IRB.inet.0
+</span><span class='line'>                Indirect next hops: 1
+</span><span class='line'>                        Protocol next hop: 10.0.100.140
+</span><span class='line'>                        Label operation: Push 31
+</span><span class='line'>                        Label TTL action: prop-ttl
+</span><span class='line'>                        Load balance label: Label 31: None<span class="p">;</span>
+</span><span class='line'>                        Indirect next hop: 0x0 - INH Session ID: 0x0
+</span></code></pre></td></tr></table></div></figure></p>
+
+<p>It&rsquo;s hidden since I haven&rsquo;t configured MPLSoUDP <a href="https://www.juniper.net/documentation/en_US/junos/topics/example/example-next-hop-based-dynamic-mpls-udp-tunnel-configuring.html">dynamic tunnels</a> on MX80. However this proves that the prefix does get injected into customer VPNs and become available on all devices with the matching import route-target communities.</p>
+
+<h2>Outro</h2>
+
+<p>This post concludes Series 2 of my OpenStack SDN saga. I&rsquo;ve covered quite an extensive range of topics in my two-part series, however, OpenStack networking landscape is so big, it&rsquo;s simply impossible to cover everything I find interesting. I started writing about OpenStack SDN when I first learned I got a job with Nokia. Back then I knew little about VMware NSX and even less about OpenStack. That&rsquo;s why I started researching topics that I found interesting and branching out into adjacent areas as I went along. Almost 2 years later, looking back I can say I&rsquo;ve learned a lot about the internals of SDN in general and hopefully so have my readers. Now I&rsquo;m leaving Nokia to rediscover my networking roots at Arista. I&rsquo;ll dive into DC networking from a different perspective now and it may be awhile before I accumulate a critical mass of interesting material to start spilling it out in my blog again. I still may come back to OpenStack some day but for now I&rsquo;m gonna take a little break, maybe do some house keeping (e.g. move my blog from Jekyll to <a href="https://gohugo.io/">Hugo</a>, add TLS support) and enjoy my time being a farther.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[OpenStack SDN - OpenDaylight With BGP VPN]]></title>
@@ -924,6 +1443,8 @@ This can be done from the CSR side, however it&rsquo;s also possible to check th
 </span><span class='line'>&lt;p&gt;tacker vnffgd-create <span class="p">&amp;</span>ndash<span class="p">;</span>vnffgd-file vnffgd.yaml VNFFG-TEMPLATE
 </span></code></pre></td></tr></table></div></figure></p>
 
+<blockquote><p>Note that the VNFFGD has been updated to support multiple flow classifiers which means you many need to update the above template as per the <a href="https://github.com/openstack/tacker/blob/master/samples/tosca-templates/vnffgd/tosca-vnffgd-multiple-classifiers-sample.yaml">sample VNFFGD template</a></p></blockquote>
+
 <p>In order to instantiate a VNFFGD we need to provide two runtime parameters:</p>
 
 <ul>
@@ -1373,360 +1894,6 @@ troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeli
 <h2>Coming up</h2>
 
 <p>Now that the lab is up we can start exploring the new OpenStack SDN features. In the next post I&rsquo;ll have a close look at Neutron&rsquo;s <abbr title=" Service Function Chainng">SFC</abbr> feature, how to configure it and how it&rsquo;s been implemented in OVS forwarding pipeline.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Configuring Cisco IOS XE With YDK and OpenDaylight]]></title>
-    <link href="http://networkop.github.io/blog/2017/02/22/odl-ydk/"/>
-    <updated>2017-02-22T00:00:00+00:00</updated>
-    <id>http://networkop.github.io/blog/2017/02/22/odl-ydk</id>
-    <content type="html"><![CDATA[<p>Now it&rsquo;s time to turn our gaze to the godfather of YANG models and one of the most famous open-source SDN controllers, OpenDaylight. In this post I&rsquo;ll show how to connect Cisco IOS XE device to ODL and use Yang Development Kit to push a simple BGP configuration through ODL&rsquo;s RESTCONF interface.</p>
-
-<!--more-->
-
-
-<hr />
-
-<p>In the previous posts about <a href="/blog/2017/01/25/netconf-intro/">NETCONF</a> and <a href="/blog/2017/02/15/restconf-yang/">RESTCONF</a> I&rsquo;ve demonstrated how to interact with Cisco IOS XE device directly from the Linux shell of my development VM. This approach works fine in some cases, e.g. whenever I setup a new DC fabric, I would make calls directly to the devices I&rsquo;m configuring. However, it becomes impractical in the Ops world where change is constant and involves a large number of devices. This is where centralised service orchestrators come to the fore. The prime examples of such platforms are Network Services Orchestrator from Tail-f/Cisco and open-source project OpenDaylight. In this post we&rsquo;ll concentrate on ODL and how to make it work with Cisco IOS XE. Additionally, I&rsquo;ll show how to use an open-source tool <a href="https://developer.cisco.com/site/ydk/">YDK</a> to generate Python bindings for native YANG models and how it compares with <strong>pyangbind</strong>.</p>
-
-<h2>OpenDaylight primer</h2>
-
-<p>OpenDaylight is a swiss army knife of SDN controllers. At the moment it is comprised of dozens of projects implementing all possible sorts of SDN functionality starting from Openflow controller all the way up to L3VPN orchestrator. ODL speaks most of the modern Southbound protocols like Openflow, SNMP, NETCONF and BGP. The brain of the controller is in the Service Abstraction Layer, a framework to model all network-related characteristics and properties. All logic inside SAL is modelled in YANG which is why I called it the godfather of YANG models. Towards the end users ODL exposes Java function calls for applications running on the same host and REST API for application running remotely.</p>
-
-<p><img class="center" src="/images/odl-sal.jpg"></p>
-
-<p>OpenDaylight has several commercial offerings from companies involved in its development. Most notable ones are from Brocade and Cisco. Here I will allow myself a bit of a rant, feel free to skip it to go straight to the technical stuff.</p>
-
-<p>One thing I find interesting is that Cisco are being so secretive about their Open SDN Controller, perhaps due to the earlier market pressure to come up with a single SDN story, but still have a very large number of contributors to this open-source project. It could be the case of having an egg in each basket, but the number of Cisco&rsquo;s employees involved in ODL development is substantial. I wonder if, now that the use cases for ACI and ODL have finally formed and ACI still not showing the uptake originally expected, Cisco will change their strategy and start promoting ODL more aggressively, or at least stop hiding it deep in the bowels of <a href="cisco.com">cisco.com</a>. Or, perhaps, it will always stay in the shade of Tail-f&rsquo;s NSC and Insieme&rsquo;s ACI and will be used only for customer with unique requirements, e.g. to have both OpenStack and network devices managed through the same controller.</p>
-
-<h2>Environment setup</h2>
-
-<p>We&rsquo;ll use the same environment we&rsquo;ve setup in the <a href="/blog/2017/01/25/netconf-intro/">previous posts</a>, consisting of a CSR1K and a Linux VM connected to the same network inside my hypervisor. IOS XE device needs to have <code>netconf-yang</code> configured in order to enable the northbound NETCONF interface.</p>
-
-<p>On the same Linux VM, I&rsquo;ve downloaded and launched the latest version of ODL (Boron-SR2), and enabled NETCONF and RESTCONF plugins.</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>unzip distribution-karaf-0.5.2-Boron-SR2.zip
-</span><span class='line'>mv distribution-karaf-0.5.2-Boron-SR2 odl-0.5.2
-</span><span class='line'><span class="nb">cd </span>odl-0.5.2/
-</span><span class='line'>./bin/karaf
-</span><span class='line'>opendaylight-user@root&gt;feature:install odl-netconf-connector-all
-</span><span class='line'>opendaylight-user@root&gt;feature:install odl-restconf-all
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>We&rsquo;ll use NETCONF to connect to Cisco IOS XE device and RESTCONF to interact with ODL from a Linux shell.</p>
-
-<p><img class="center" src="/images/odl-ydk.png"></p>
-
-<p>It might be useful to turn on logging in karaf console to catch any errors we might encounter later:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>opendaylight-user@root&gt;log:tail
-</span></code></pre></td></tr></table></div></figure></p>
-
-<h2>Connecting IOS XE to ODL</h2>
-
-<p>According to ODL <a href="http://docs.opendaylight.org/en/stable-boron/user-guide/netconf-user-guide.html">NETCONF</a> user guide, in order to connect a new device to the controller, we need to create an XML document which will include the IP, port and user credentials of the IOS XE device. Here&rsquo;s the excerpt from the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1">full XML document</a>:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='xml'><span class='line'><span class="nt">&lt;module</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:config&quot;</span><span class="nt">&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;type</span> <span class="na">xmlns:prefix=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>prefix:sal-netconf-connector<span class="nt">&lt;/type&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;name&gt;</span>CSR1K<span class="nt">&lt;/name&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;address</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>192.168.145.51<span class="nt">&lt;/address&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;port</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>830<span class="nt">&lt;/port&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;username</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>admin<span class="nt">&lt;/username&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;password</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>admin<span class="nt">&lt;/password&gt;</span>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>Assuming this XML is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1">new_device.xml.1</a>, we can use <code>curl</code> to send it to ODL&rsquo;s netconf-connector plugin:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/xml<span class="p">&amp;</span>rdquo<span class="p">;</span> -X POST <span class="se">\</span>
-</span><span class='line'> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
-</span><span class='line'>&lt;/a&gt; /topology/topology-netconf/node/controller-config/yang-ext:mount/config:modules<span class="se">\</span>
-</span><span class='line'>  -d @new_device.xml.1
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>When the controller gets this information it will try to connect to the device via NETCONF and do the following three things:</p>
-
-<ul>
-<li>Discover device capabilities advertised in the Hello message</li>
-<li>Download all YANG models advertised by the device into the <code>./cache/schema</code> directory</li>
-<li>Go through all of the imports in each model and verify that they can be satisfied</li>
-</ul>
-
-
-<p>After ODL downloads all of the 260 available models (can take up to 20 minutes) we will see the following errors in the karaf console:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>Netconf device does not provide all yang models reported in hello message capabilities
-</span><span class='line'>Unable to build schema context, unsatisfied imports
-</span><span class='line'>Initialization in sal failed, disconnecting from device
-</span><span class='line'>No more sources <span class="k">for</span> schema context
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>Due to inconsistencies between the advertised and the available models, ODL fails to build the full device YANG schema context, which ultimately results in inability to connect the device to the controller. However, we won&rsquo;t need all of the 260 models advertised by the device. In fact, most of the configuration can be done through a single Cisco native YANG model, <code>ned</code>. With ODL it is possible to override the default capabilities advertised in the Hello message and &ldquo;pin&rdquo; only the ones that are going to be used. Assuming that ODL has downloaded most of the models at the previous step, we can simply tell it use the selected few with the following additions to the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2">XML document</a>:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='xml'><span class='line'><span class="nt">&lt;yang-module-capabilities</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
-</span><span class='line'>    <span class="nt">&lt;override&gt;</span>true<span class="nt">&lt;/override&gt;</span>
-</span><span class='line'>    <span class="nt">&lt;capability</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
-</span><span class='line'>      urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types<span class="ni">&amp;amp;</span>revision=2013-07-15
-</span><span class='line'>    <span class="nt">&lt;/capability&gt;</span>
-</span><span class='line'>    <span class="nt">&lt;capability</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
-</span><span class='line'>      <span class="nt">&lt;a</span> <span class="na">href=</span><span class="s">&quot;http://cisco.com/ns/yang/ned/ios?module=ned&amp;amp;amp;revision=2016-10-24&quot;</span><span class="nt">&gt;</span>http://cisco.com/ns/yang/ned/ios?module=ned<span class="ni">&amp;amp;</span>amp;revision=2016-10-24<span class="nt">&lt;/a&gt;</span>
-</span><span class='line'>    <span class="nt">&lt;/capability&gt;</span>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>Assuming the updated XML is saved in <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2">new_device.xml.2</a> file, the following command will update the current configuration of <strong>CSR1K</strong> device:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="p">&amp;</span>ldquo<span class="p">;</span>Content-Type: application/xml<span class="p">&amp;</span>rdquo<span class="p">;</span> -X PUT <span class="se">\</span>
-</span><span class='line'>&lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A/topology/topology-netconf/node/controller-config%0A/yang-ext:mount/config:modules/module%0A/odl-sal-netconf-connector-cfg:sal-netconf-connector%0A/CSR1K&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
-</span><span class='line'>/topology/topology-netconf/node/controller-config
-</span><span class='line'>/yang-ext:mount/config:modules/module
-</span><span class='line'>/odl-sal-netconf-connector-cfg:sal-netconf-connector
-</span><span class='line'>/CSR1K&lt;/a&gt; -d @new_device.xml.2
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>We can then verify that the device has been successfully mounted to the controller:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/operational%0A/network-topology:network-topology/&quot;</span>&gt;http://localhost:8181/restconf/operational
-</span><span class='line'>/network-topology:network-topology/&lt;/a&gt; <span class="p">|</span> python -m json.tool
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>The output should look similar to the following with the connection-status set to <code>connected</code> and no detected <code>unavailable-capabilities</code>:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:connection-status&amp;rdquo;:</span> <span class="err">&amp;ldquo;connected&amp;rdquo;,</span>
-</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:host&amp;rdquo;:</span> <span class="err">&amp;ldquo;</span><span class="mf">192.168</span><span class="err">.</span><span class="mf">145.51</span><span class="err">&amp;rdquo;,</span>
-</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:port&amp;rdquo;:</span> <span class="mi">830</span><span class="err">,</span>
-</span><span class='line'><span class="err">&amp;ldquo;netconf-node-topology:unavailable-capabilities&amp;rdquo;:</span> <span class="p">{}</span><span class="err">,</span>
-</span><span class='line'><span class="err">&amp;ldquo;node-id&amp;rdquo;:</span> <span class="err">&amp;ldquo;CSR</span><span class="mi">1</span><span class="err">K&amp;rdquo;</span>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>At this point we should be able to interact with IOS XE&rsquo;s native YANG model through ODL&rsquo;s RESTCONF interface using the following URL</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;http://localhost:8181/restconf/config/network-topology:network-topology%0A&quot;</span>&gt;http://localhost:8181/restconf/config/network-topology:network-topology
-</span><span class='line'>&lt;/a&gt; /topology/topology-netconf/node/CSR1K/yang-ext:mount/ned:native
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>The only thing that&rsquo;s missing is the actual configuration data. To generate it, I&rsquo;ll use a new open-source tool called YDK.</p>
-
-<h2>YDK primer</h2>
-
-<p>Yang Development Kit is a suite of tools to work with NETCONF/RESTCONF interfaces of a network device. The way I see it, YDK accomplishes two things:</p>
-
-<ul>
-<li>Generates API bindings for programming languages (Python and C++) from YANG models</li>
-<li>Creates an abstraction layer to interact with southbound protocols (NETCONF or RESTCONF) in a uniform way</li>
-</ul>
-
-
-<p>There&rsquo;s a lot of overlap between the tools that we&rsquo;ve used <a href="/blog/2017/02/15/restconf-yang/">before</a> and YDK. Effectively YDK combines in itself the functions of a NETCONF client, a REST client, pyangbind and pyang(the latter is used internally for model verification). Since one of the main functions of YDK is API generation I thought it&rsquo;d be interesting to know how it compares to Rob Shakir&rsquo;s <strong>pyangbind</strong> plugin. The following information is what I&rsquo;ve managed to find on the Internet and from the comment of Santiago Alvarez below:</p>
-
-<table>
-<thead>
-<tr>
-<th> Feature </th>
-<th> Pyangbind </th>
-<th> YDK </th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td> PL support </td>
-<td> Python </td>
-<td> Python, C++ with Ruby and Go in the pipeline </td>
-</tr>
-<tr>
-<td> Serialization </td>
-<td> JSON, XML </td>
-<td> only XML <a href="https://github.com/CiscoDevNet/ydk-gen/blob/master/sdk/python/core/ydk/providers/codec_provider.py#L53">at this stage</a> with JSON coming up in a few weeks </td>
-</tr>
-<tr>
-<td> Southbound interfaces   </td>
-<td> N/A </td>
-<td> NETCONF, RESTCONF with ODL coming up in a few weeks </td>
-</tr>
-<tr>
-<td> Support </td>
-<td> Cisco&rsquo;s devnet team </td>
-<td> Rob Shakir </td>
-</tr>
-</tbody>
-</table>
-
-
-<p>So it looks like YDK is a very promising alternative to <strong>pyangbind</strong>, however I, personally, would still prefer to use <strong>pyangbind</strong> due to familiarity, simplicity and the fact that I don&rsquo;t need the above extra features offered by YDK right now. However, given that YDK has been able to achieve so much in just under one year of its existence, I don&rsquo;t discount the possibility that I may switch to YDK as it becomes more mature and feature-rich.</p>
-
-<h2>Python binding generation with YDK-GEN</h2>
-
-<p>One of the first things we need to do is install YDK-GEN, the tools responsible for API bindings generation, and it&rsquo;s core Python packages on the local machine. The following few commands are my version of the official <a href="https://github.com/CiscoDevNet/ydk-gen">installation procedure</a>:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone &lt;a <span class="nv">href</span><span class="o">=</span><span class="s2">&quot;https://github.com/CiscoDevNet/ydk-gen.git&quot;</span>&gt;https://github.com/CiscoDevNet/ydk-gen.git&lt;/a&gt; ~/ydk-gen
-</span><span class='line'>pip install -r ~/ydk-gen/requirements.txt
-</span><span class='line'><span class="nb">export </span><span class="nv">YDKGEN_HOME</span><span class="o">=</span>~/ydk-gen/
-</span><span class='line'>~/ydk-gen/generate.py <span class="p">&amp;</span>ndash<span class="p">;</span>python <span class="p">&amp;</span>ndash<span class="p">;</span>core
-</span><span class='line'>pip install ~/ydk-gen/gen-api/python/ydk/dist/ydk*.tar.gz
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>YDK-GEN generates Python bindings based on the so-called <strong>bundle profile</strong>. This is a simple JSON document which lists all YANG models to include in the output package. In our case we&rsquo;d need to include a <code>ned</code> model along with all its imports. The sample below shows only the model specification. Refer to my <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json">Github repo</a> for a complete bundle profile for Cisco IOS XE native YANG model.</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="p">{</span><span class="err">&amp;ldquo;models&amp;rdquo;:{&amp;ldquo;git&amp;rdquo;:[{&amp;ldquo;url&amp;rdquo;:&amp;ldquo;&lt;a</span> <span class="err">href=</span><span class="nt">&quot;https://github.com/YangModels/yang.git&quot;</span><span class="err">&gt;https</span><span class="p">:</span><span class="err">//github.com/YangModels/yang.git&lt;/a&gt;&amp;rdquo;</span><span class="p">,</span>
-</span><span class='line'>  <span class="err">&amp;ldquo;commits&amp;rdquo;:[{&amp;ldquo;commitid&amp;rdquo;:&amp;ldquo;6f4a025431103f8cbbf3405ce01bdc61d0811b1d&amp;rdquo;,</span>
-</span><span class='line'>    <span class="err">&amp;ldquo;file&amp;rdquo;:[&amp;ldquo;vendor/cisco/xe/1641/ned.yang&amp;rdquo;,</span>
-</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-common.yang&amp;rdquo;,</span>
-</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-meta-extensions.yang&amp;rdquo;,</span>
-</span><span class='line'>      <span class="err">&amp;ldquo;vendor/cisco/xe/1641/tailf-cli-extensions.yang&amp;rdquo;,</span>
-</span><span class='line'>      <span class="err">&amp;ldquo;standard/ietf/RFC/ietf-inet-types.yang&amp;rdquo;,</span>
-</span><span class='line'>      <span class="err">&amp;ldquo;standard/ietf/RFC/ietf-yang-types.yang&amp;rdquo;]</span>
-</span><span class='line'>      <span class="p">}</span><span class="err">]}]}}</span>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>Assuming that the IOS XE bundle profile is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json">cisco-ios-xe_0_1_0.json</a>, we can use YDK to generate and install the Python binding package:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>~/ydk-gen/generate.py <span class="p">&amp;</span>ndash<span class="p">;</span>python <span class="p">&amp;</span>ndash<span class="p">;</span>bundle cisco-ios-xe_0_1_0.json -v
-</span><span class='line'>pip install ~/ydk-gen/gen-api/python/cisco_ios_xe-bundle/dist/ydk*.tar.gz
-</span></code></pre></td></tr></table></div></figure></p>
-
-<h2>Configuring BGP with YDK</h2>
-
-<p>Now we can start configuring BGP using our newly generated Python package. First, we need to create an instance of BGP configuration data:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ydk.models.cisco_ios_xe.ned</span> <span class="kn">import</span> <span class="n">Native</span>
-</span><span class='line'><span class="n">bgp</span> <span class="o">=</span> <span class="n">Native</span><span class="p">()</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">Bgp</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>The configuration will follow the pattern defined in the original model, which is why it&rsquo;s important to understand <a href="/blog/2017/02/15/restconf-yang/">the internal structure</a> of a YANG model. YANG leafs are represented as simple instance attributes. All YANG containers need to be explicitly instantiated, just like the <code>Native</code> and <code>Bgp</code> classes in the example above. Presence containers (<code>router</code> in the above example) will be instantiated at the same time as its parent container, inside the <code>__init__</code> function of the <code>Native</code> class. Don&rsquo;t worry if this doesn&rsquo;t make sense, use <strong>iPython</strong> or any IDE with autocompletion and after a few tries, you&rsquo;ll get the hang of it.</p>
-
-<p>Let&rsquo;s see how we can set the local BGP AS number and add a new BGP peer to the neighbor list.</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="mi">100</span>
-</span><span class='line'><span class="n">new_neighbor</span> <span class="o">=</span> <span class="n">bgp</span><span class="o">.</span><span class="n">Neighbor</span><span class="p">()</span>
-</span><span class='line'><span class="n">new_neighbor</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="mf">2.2</span><span class="o">.</span><span class="mf">2.2</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;</span>
-</span><span class='line'><span class="n">new_neighbor</span><span class="o">.</span><span class="n">remote_as</span> <span class="o">=</span> <span class="mi">65100</span>
-</span><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">neighbor</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_neighbor</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>At this point of time all data is stored inside the instance of a <code>Bgp</code> class. In order to get an XML representation of it, we need to use YDK&rsquo;s XML provider and encoding service:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ydk.providers</span> <span class="kn">import</span> <span class="n">CodecServiceProvider</span>
-</span><span class='line'><span class="kn">from</span> <span class="nn">ydk.services</span> <span class="kn">import</span> <span class="n">CodecService</span>
-</span><span class='line'><span class="n">provider</span> <span class="o">=</span> <span class="n">CodecServiceProvider</span><span class="p">(</span><span class="nb">type</span><span class="o">=&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="n">xml</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
-</span><span class='line'><span class="n">codec</span> <span class="o">=</span> <span class="n">CodecService</span><span class="p">()</span>
-</span><span class='line'><span class="n">xml_string</span> <span class="o">=</span> <span class="n">codec</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">provider</span><span class="p">,</span> <span class="n">bgp</span><span class="p">)</span>
-</span><span class='line'><span class="k">print</span> <span class="n">xml_string</span>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>All what we&rsquo;ve got left now is to send the data to ODL:</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">requests</span>
-</span><span class='line'><span class="n">url</span> <span class="o">=</span> <span class="p">(</span><span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">&lt;</span><span class="n">a</span> <span class="n">href</span><span class="o">=</span><span class="s">&quot;http://localhost:8181/restconf&quot;</span><span class="o">&gt;</span><span class="n">http</span><span class="p">:</span><span class="o">//</span><span class="n">localhost</span><span class="p">:</span><span class="mi">8181</span><span class="o">/</span><span class="n">restconf</span><span class="o">&lt;/</span><span class="n">a</span><span class="o">&gt;&amp;</span><span class="n">rdquo</span><span class="p">;</span>
-</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">config</span><span class="o">/</span><span class="n">network</span><span class="o">-</span><span class="n">topology</span><span class="p">:</span><span class="n">network</span><span class="o">-</span><span class="n">topology</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
-</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">topology</span><span class="o">/</span><span class="n">topology</span><span class="o">-</span><span class="n">netconf</span><span class="o">/</span><span class="n">node</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
-</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">CSR1K</span><span class="o">/</span><span class="n">yang</span><span class="o">-</span><span class="n">ext</span><span class="p">:</span><span class="n">mount</span><span class="o">/</span><span class="n">ned</span><span class="p">:</span><span class="n">native</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;</span>
-</span><span class='line'>       <span class="o">&amp;</span><span class="n">ldquo</span><span class="p">;</span><span class="o">/</span><span class="n">router</span><span class="o">&amp;</span><span class="n">rdquo</span><span class="p">;)</span>
-</span><span class='line'><span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">Content</span><span class="o">-</span><span class="n">Type</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;:</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">application</span><span class="o">/</span><span class="n">xml</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;}</span>
-</span><span class='line'><span class="n">result</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="p">(</span><span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;,</span> <span class="o">&amp;</span><span class="n">lsquo</span><span class="p">;</span><span class="n">admin</span><span class="o">&amp;</span><span class="n">rsquo</span><span class="p">;),</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">xml_string</span><span class="p">)</span>
-</span><span class='line'><span class="k">print</span> <span class="n">result</span><span class="o">.</span><span class="n">status_code</span>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p>The controller should have returned the status code <code>204 No Content</code>, meaning that configuration has been changed successfully.</p>
-
-<h2>Verification</h2>
-
-<p>Back at the IOS XE CLI we can see the new BGP configuration that has been pushed down from the controller.</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>TEST#sh run | i router
-</span><span class='line'>router bgp 100
-</span><span class='line'> bgp log-neighbor-changes
-</span><span class='line'> neighbor 2.2.2.2 remote-as 65100
-</span></code></pre></td></tr></table></div></figure></p>
-
-<h2>More examples</h2>
-
-<p>You can find a shorter version of the above procedure in my <a href="https://github.com/networkop/yang/tree/master/odl-101">ODL 101 repo</a>.</p>
 ]]></content>
   </entry>
   

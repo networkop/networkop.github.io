@@ -4,7 +4,7 @@
   <title><![CDATA[Network-oriented programming]]></title>
   <link href="http://networkop.github.io/atom.xml" rel="self"/>
   <link href="http://networkop.github.io/"/>
-  <updated>2017-12-14T21:07:11+00:00</updated>
+  <updated>2018-01-02T13:28:01+00:00</updated>
   <id>http://networkop.github.io/</id>
   <author>
     <name><![CDATA[Michael Kashin]]></name>
@@ -12,6 +12,524 @@
   </author>
   <generator uri="http://octopress.org/">Octopress</generator>
 
+  
+  <entry>
+    <title type="html"><![CDATA[Openstack SDN - OpenContrail With BGP VPN]]></title>
+    <link href="http://networkop.github.io/blog/2018/01/02/os-contrail/"/>
+    <updated>2018-01-02T00:00:00+00:00</updated>
+    <id>http://networkop.github.io/blog/2018/01/02/os-contrail</id>
+    <content type="html"><![CDATA[<p>In this post I&rsquo;ll show how to build a dockerized OpenStack and OpenContrail lab, integrate it with Juniper MX80 DC-GW and demonstrate one of Contrail&rsquo;s most interesting and unique features called BGP-as-a-Service.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>Continuing on the trend started in my <a href="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/">previous post about OpenDaylight</a>, I&rsquo;ll move on to the next open-source product that uses BGP VPNs for optimal North-South traffic forwarding. OpenContrail is one of the most popular SDN solutions for OpenStack. It was one of the first hybrid SDN solutions, offering both pure overlay and overlay/underlay integration. It is the default SDN platform of choice for Mirantis Cloud Platform, it has multiple large-scale deployments in companies like Workday and AT&amp;T. I, personally, don&rsquo;t have any production experience with OpenContrail, however my impression, based on what I&rsquo;ve heard and seen in the last 2-3 years that I&rsquo;ve been following Telco SDN space, is that OpenContrail is the most mature SDN platform for Telco NFVs not least because of its unique feature set.</p>
+
+<p>During the time of production deployment at AT&amp;T, Contrail has added a lot of features required by Telco NFVs like QoS, VLAN trunking and BGP-as-a-service. My first acquaintance with BGPaaS took place when I started working on Telco DCs and I remember being genuinely shocked when I first saw the requirement for dynamic routing exchange with VNFs. To me this seemed to break one of the main rules of cloud networking - a VM is not to have any knowledge or interaction with the underlay. I gradually went though all stages of grief, all the way to acceptance and although it still feels &ldquo;wrong&rdquo; now, I can at least understand why it&rsquo;s needed and what are the pros/cons of different BGPaaS solutions.</p>
+
+<h2>BGP-as-a-Service</h2>
+
+<p>There&rsquo;s a certain range of VNFs that may require to advertise a set of IP addresses into the existing VPNs inside Telco network. The most notable example is PGW inside EPC. I won&rsquo;t pretend to be an expert in this field, but based on my limited understanding PGW needs to advertise IP networks into various customer VPNs, for example to connect private APNs to existing customer L3VPNs. Obviously, when this kind of network function gets virtualised, it still retains this requirement which now needs to be fulfilled by DC SDN.</p>
+
+<p>This requirement catches a lot of big SDN vendors off guard and the best they come up with is connecting those VNFs, through VLANs, directly to underlay TOR switches. Although this solution is easy to implement, it has an incredible amount of drawbacks since a single VNF can now affect the stability of the whole POD or even the whole DC network. Some VNFs vendors also require BFD to monitor liveliness of those BGP sessions which, in case a L3 boundary is higher than the TOR, may create even a bigger number of issues on a POD spine.</p>
+
+<p>There&rsquo;s a small range of SDN platforms that run a full routing stack on each compute node (e.g. Cumulus, Calico). These solutions are the best fit for this kind of scenarios since they allow BGP sessions to be established over a single hop (VNF <-> virtual switch). However they represent a small fraction of total SDN solutions space with majority of vendors implementing a much simpler OpenFlow or XMPP-based flow push model.</p>
+
+<p>OpenContrail, as far as I know, is the only SDN controller that doesn&rsquo;t run a full routing stack on compute nodes but still fulfills this requirement in a very elegant way. When <a href="https://www.juniper.net/documentation/en_US/contrail3.2/topics/concept/bgp-as-a-service-overview.html">BGPaaS</a> is enabled for a particular VM&rsquo;s interface, controller programs vRouter to proxy BGP TCP connections coming to virtual network&rsquo;s default gateway IP and forward them to the controller. This way VNF thinks it peers with a next hop IP, however all BGP state and path computations still happen on the controller.</p>
+
+<p>The diagram below depicts a sample implementation of BGPaaS using OpenContrail. VNF is connected to a vRouter using a dot1Q trunk interface (to allow multiple VRFs over a single vEth link). Each VRF has its own BGPaaS session setup to advertise network ranges (NET1-3) into customer VPNs. These BGP sessions get proxied to the controller which injects those prefixes into their respective VPNs. These updates are then sent to DC gateways using either a VPNv4/6 or EVPN and the traffic is forwarded through DC underlay with VPN segregation preserved by either an MPLS tag (for MPLSoGRE or MPLSoUDL encapsulation) or a VXLAN VNI.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/contrail-bgpaas.png"></p>
+
+<p>Now let me briefly go over the lab that I&rsquo;ve built to showcase the BGPaaS and DC-GW integration features.</p>
+
+<h2>Lab setup overview</h2>
+
+<p>OpenContrail follows a familiar pattern of DC SDN architecture with central controller orchestrating the work of multiple virtual switches. In case of OpenContrail, these switches are called vRouters and they communicate with controller using XMPP-based extension of BGP as described in <a href="https://www.ietf.org/archive/id/draft-ietf-l3vpn-end-system-06.txt">this RFC draft</a>. A very detailed description of its internal architecture is available on <a href="http://www.opencontrail.org/opencontrail-architecture-documentation/">OpenContrail&rsquo;s website</a> so it would be pointless to repeat all of this information here. That&rsquo;s why I&rsquo;ll concentrate on how to get things done rather then on the architectural aspects. However to get things started, I always like to have a clear picture of what I&rsquo;m trying to achieve. The below diagram depicts a high-level architecture of my lab setup. Although OpenContrail supports BGP VPNv4/6 with multiple dataplane encapsulations, in this post I&rsquo;ll use EVPN as the only control plane protocol to communicate with MX80 and use VXLAN encapsulation in the dataplane.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/contrail-lab.png"></p>
+
+<p>EVPN as a DC-GW integration protocol is relatively new to OpenContrail and comes with a few limitations. One of them is the absence of EVPN type-5 routes, which means I can&rsquo;t use it in the same way I did in <a href="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/">OpenDaylight&rsquo;s case</a>. Instead I&rsquo;ll demonstrate a DC-GW IRB scenario, which extends the existing virtual network to a DC-GW and makes IRB/SVI interface on that DC-GW act as a default gateway for this network. This is a very common scenario for L2 DCI and active-active DC deployment models. To demonstrate this scenario I&rsquo;m going to setup a single OpenStack virtual network with a couple of VMs whose gateway will reside on MX80. Since I only have a single OpenStack instance and a single MX80, I&rsquo;ll setup one half of L2 DCI and setup a mutual redistribution to make our overlay network reachable from MX80&rsquo;s global routing table.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/contrail-overlay.png"></p>
+
+<h2>All-in-one VM setup</h2>
+
+<p>Physically, my lab will consist of a single hypervisor running an all-in-one VM with <a href="https://docs.openstack.org/kolla/latest/">kolla-openstack</a> and <a href="https://github.com/Juniper/contrail-docker/wiki/OpenContrail-Kolla">kolla-contrail</a> and a physical Juniper MX80 playing the role of a DC-GW.</p>
+
+<p><img class="center" src="http://networkop.github.io/images/contrail-setup.png"></p>
+
+<p>OpenContrail&rsquo;s <a href="https://github.com/Juniper/contrail-docker/wiki/OpenContrail-Kolla">kolla github page</a> contains a set of instructions to setup the environment. As usual, I have automated all of these steps which can be setup from a hypervisor with the following commands:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/kolla-odl-bgpvpn <span class="o">&amp;&amp;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-contrail.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>OpenStack setup</h2>
+
+<p>Once installation is complete and all docker containers are up and running, we can setup the OpenStack side of our test environment. The script below will do the following:</p>
+
+<ol>
+<li>Download cirros and CumulusVX images and upload them to Glance</li>
+<li>Create a virtual network</li>
+<li>Update security rules to allow inbound ICMP and SSH connections</li>
+<li>Create a pair of VMs - one based on cirros and one based on CumulusVX image</li>
+</ol>
+
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -L -o ./cirros http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
+</span><span class='line'>curl -L -o ./cumulusVX http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2
+</span><span class='line'>
+</span><span class='line'>openstack image create --disk-format qcow2 --container-format bare --public <span class="se">\</span>
+</span><span class='line'>--property <span class="nv">os_type</span><span class="o">=</span>linux --file ./cirros cirros
+</span><span class='line'>rm ./cirros
+</span><span class='line'>
+</span><span class='line'>openstack image create --disk-format qcow2 --container-format bare --public <span class="se">\</span>
+</span><span class='line'>--property <span class="nv">os_type</span><span class="o">=</span>linux --file ./cumulusVX cumulus
+</span><span class='line'>rm ./cumulusVX
+</span><span class='line'>
+</span><span class='line'>openstack network create --provider-network-type vxlan irb-net
+</span><span class='line'>
+</span><span class='line'>openstack subnet create --subnet-range 10.0.100.160/27 --network irb-net <span class="se">\</span>
+</span><span class='line'>      --host-route <span class="nv">destination</span><span class="o">=</span>0.0.0.0/0,gateway<span class="o">=</span>10.0.100.190 <span class="se">\</span>
+</span><span class='line'>      --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
+</span><span class='line'>
+</span><span class='line'>openstack flavor create --id <span class="m">1</span> --ram <span class="m">256</span> --disk <span class="m">1</span> --vcpus <span class="m">1</span> m1.nano
+</span><span class='line'>openstack flavor create --id <span class="m">2</span> --ram <span class="m">512</span> --disk <span class="m">10</span> --vcpus <span class="m">1</span> m1.tiny
+</span><span class='line'>
+</span><span class='line'><span class="nv">ADMIN_PROJECT_ID</span><span class="o">=</span><span class="k">$(</span>openstack project show <span class="s1">&#39;admin&#39;</span> -f value -c id<span class="k">)</span>
+</span><span class='line'><span class="nv">ADMIN_SEC_GROUP</span><span class="o">=</span><span class="k">$(</span>openstack security group list --project <span class="k">${</span><span class="nv">ADMIN_PROJECT_ID</span><span class="k">}</span> <span class="p">|</span> awk <span class="s1">&#39;/ default / {print $2}&#39;</span><span class="k">)</span>
+</span><span class='line'>openstack security group rule create --ingress --ethertype IPv4 <span class="se">\</span>
+</span><span class='line'>    --protocol icmp <span class="k">${</span><span class="nv">ADMIN_SEC_GROUP</span><span class="k">}</span>
+</span><span class='line'>openstack security group rule create --ingress --ethertype IPv4 <span class="se">\</span>
+</span><span class='line'>    --protocol tcp --dst-port <span class="m">22</span> <span class="k">${</span><span class="nv">ADMIN_SEC_GROUP</span><span class="k">}</span>
+</span><span class='line'>
+</span><span class='line'>openstack server create --image cirros --flavor m1.nano --net irb-net VM1
+</span><span class='line'>openstack server create --image cumulus --flavor m1.tiny --net irb-net VR1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The only thing worth noting in the above script is that a default gateway <code>10.0.100.161</code> gets overridden by a default host route pointing to <code>10.0.100.190</code>. Normally, to demonstrate DC-GW IRB scenario, I would have setup a gateway-less L2 only subnet, however in that case I wouldn&rsquo;t have been able to demonstrate BGPaaS on the same network, since this feature relies on having a gateway IP setup (which later acts as a BGP session termination endpoint). So instead of setting up two separate networks I&rsquo;ve decided to implement this hack to minimise the required configuration.</p>
+
+<h2>EVPN integration with MX80</h2>
+
+<p>DC-GW integration procedure is very simple and requires only a few simple steps:</p>
+
+<ol>
+<li>Make sure VXLAN VNI is matched on both ends</li>
+<li>Configure import/export route targets</li>
+<li>Setup BGP peering with DC-GW</li>
+</ol>
+
+
+<p>All of these steps can be done very easily through OpenContrail&rsquo;s GUI. However as I&rsquo;ve mentioned before, I always prefer to use API when I have a chance and in this case I even have a python library for OpenContrail&rsquo;s REST API available on Juniper&rsquo;s <a href="https://github.com/Juniper/contrail-python-api">github page</a>, which I&rsquo;m going to use below to implement the above three steps.</p>
+
+<h3>Configuration</h3>
+
+<p>Before we can begin working with OpenContrail&rsquo;s API, we need to authenticate with the controller and get a REST API connection handler.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">pycontrail.client</span> <span class="kn">as</span> <span class="nn">client</span>
+</span><span class='line'><span class="n">CONTRAIL_API</span> <span class="o">=</span> <span class="s">&#39;http://10.0.100.140:8082&#39;</span>
+</span><span class='line'><span class="n">AUTH_URL</span> <span class="o">=</span> <span class="s">&#39;http://10.0.100.140:5000/v2.0&#39;</span>
+</span><span class='line'><span class="n">AUTH_PARAMS</span> <span class="o">=</span> <span class="p">{</span>
+</span><span class='line'>    <span class="s">&#39;type&#39;</span><span class="p">:</span> <span class="s">&#39;keystone&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s">&#39;username&#39;</span><span class="p">:</span> <span class="s">&#39;admin&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s">&#39;password&#39;</span><span class="p">:</span> <span class="s">&#39;mypassword&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s">&#39;tenant_name&#39;</span><span class="p">:</span> <span class="s">&#39;admin&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s">&#39;auth_url&#39;</span><span class="p">:</span> <span class="n">AUTH_URL</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'><span class="n">conn</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">Client</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="n">CONTRAIL_API</span><span class="p">,</span><span class="n">auth_params</span><span class="o">=</span><span class="n">AUTH_PARAMS</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The first thing I&rsquo;m going to do is override the default VNI setup by OpenContrail for <code>irb-net</code> to a pre-defined value of <code>5001</code>. To do that I first need to get a handler for <code>irb-net</code> object and extract the <code>virtual_network_properties</code> object containing a <code>vxlan_network_identifier</code> property. Once it&rsquo;s overridden, I just need to update the parent <code>irb-net</code> object to apply the change to the running configuration on the controller.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">irb_net</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="p">[</span> <span class="s">&#39;default-domain&#39;</span><span class="p">,</span> <span class="s">&#39;admin&#39;</span> <span class="p">,</span><span class="s">&#39;irb-net&#39;</span><span class="p">]</span> <span class="p">)</span>
+</span><span class='line'><span class="n">vni_props</span><span class="o">=</span><span class="n">irb_net</span><span class="o">.</span><span class="n">get_virtual_network_properties</span><span class="p">()</span>
+</span><span class='line'><span class="n">vni_props</span><span class="o">.</span><span class="n">set_vxlan_network_identifier</span><span class="p">(</span><span class="mi">5001</span><span class="p">)</span>
+</span><span class='line'><span class="n">irb_net</span><span class="o">.</span><span class="n">set_virtual_network_properties</span><span class="p">(</span><span class="n">vni_props</span><span class="p">)</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_update</span><span class="p">(</span><span class="n">irb_net</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The next thing I need to do is explicitly set the import/export route-target properties for the <code>irb-net</code> object. This will require a new <code>RouteTargetList</code> object which then gets referenced by a <code>route_target_list</code> property of the <code>irb-net</code> object.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">pycontrail</span> <span class="kn">import</span> <span class="n">types</span> <span class="k">as</span> <span class="n">t</span>
+</span><span class='line'><span class="n">new_rtl</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">RouteTargetList</span><span class="p">([</span><span class="s">&#39;target:200:200&#39;</span><span class="p">])</span>
+</span><span class='line'><span class="n">irb_net</span><span class="o">.</span><span class="n">set_route_target_list</span><span class="p">(</span><span class="n">new_rtl</span><span class="p">)</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_update</span><span class="p">(</span><span class="n">irb_net</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The final step is setting up a peering with MX80. The main object that needs to be created is <code>BgpRouter</code>, which contains a pointer to BGP session parameters object with session-specific values like ASN and remote peer IP. BGP router is defined in a global context (default domain and default project) which will make it available to all configured virtual networks.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">pycontrail</span> <span class="kn">import</span> <span class="n">types</span> <span class="k">as</span> <span class="n">t</span>
+</span><span class='line'><span class="n">ctx</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;default-domain&#39;</span><span class="p">,</span> <span class="s">&#39;default-project&#39;</span><span class="p">,</span> <span class="s">&#39;ip-fabric&#39;</span><span class="p">,</span> <span class="s">&#39;__default__&#39;</span><span class="p">]</span>
+</span><span class='line'><span class="n">af</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">AddressFamilies</span><span class="p">(</span><span class="n">family</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;inet-vpn&#39;</span><span class="p">,</span> <span class="s">&#39;e-vpn&#39;</span><span class="p">])</span>
+</span><span class='line'><span class="n">bgp_params</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">BgpRouterParams</span><span class="p">(</span><span class="n">vendor</span><span class="o">=</span><span class="s">&#39;Juniper&#39;</span><span class="p">,</span> \
+</span><span class='line'>                               <span class="n">autonomous_system</span><span class="o">=</span><span class="mi">65411</span><span class="p">,</span> \
+</span><span class='line'>                               <span class="n">address</span><span class="o">=</span><span class="s">&#39;10.0.101.15&#39;</span><span class="p">,</span> \
+</span><span class='line'>                               <span class="n">address_families</span><span class="o">=</span><span class="n">af</span><span class="p">)</span>
+</span><span class='line'><span class="n">vrf</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">routing_instance_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="n">ctx</span><span class="p">)</span>
+</span><span class='line'><span class="n">bgp_router</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">BgpRouter</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s">&#39;MX80&#39;</span><span class="p">,</span> <span class="n">display_name</span><span class="o">=</span><span class="s">&#39;MX80&#39;</span><span class="p">,</span> \
+</span><span class='line'>                         <span class="n">bgp_router_parameters</span><span class="o">=</span><span class="n">bgp_params</span><span class="p">,</span>
+</span><span class='line'>                         <span class="n">parent_obj</span><span class="o">=</span><span class="n">vrf</span><span class="p">)</span>
+</span><span class='line'><span class="n">contrail</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">bgp_router_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="n">ctx</span> <span class="o">+</span> <span class="p">[</span><span class="s">&#39;controller-1&#39;</span><span class="p">])</span>
+</span><span class='line'><span class="n">bgp_router</span><span class="o">.</span><span class="n">set_bgp_router</span><span class="p">(</span><span class="n">contrail</span><span class="p">,</span><span class="n">t</span><span class="o">.</span><span class="n">BgpPeeringAttributes</span><span class="p">())</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">bgp_router_create</span><span class="p">(</span><span class="n">bgp_router</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>For the sake of brevity, I will not cover MX80&rsquo;s configuration in details and simply include it here for reference with some minor explanatory comments.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="c"># Interface and global settings configuration</span>
+</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">5001</span> family inet address 10.0.100.190/27
+</span><span class='line'><span class="nb">set </span>interfaces lo0 unit <span class="m">0</span> family inet address 10.0.101.15/32
+</span><span class='line'><span class="nb">set </span>routing-options router-id 10.0.101.15
+</span><span class='line'><span class="nb">set </span>routing-options autonomous-system 65411
+</span><span class='line'>
+</span><span class='line'><span class="c"># Setup BGP peering with OpenContrail</span>
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL multihop
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL <span class="nb">local</span>-address 10.0.101.15
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL family inet-vpn unicast
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL family evpn signaling
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL peer-as 64512
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL neighbor 10.0.100.140
+</span><span class='line'>
+</span><span class='line'><span class="c"># Setup EVPN instance type with IRB interface and matching RT and VNI</span>
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vtep-source-interface lo0.0
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB instance-type evpn
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vlan-id 501
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB routing-interface irb.5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vxlan vni 5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB route-distinguisher 200:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vrf-target target:200:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB protocols evpn encapsulation vxlan
+</span><span class='line'>
+</span><span class='line'><span class="c"># Setup VRF instance with IRB interface</span>
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB instance-type vrf
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB interface irb.5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB route-distinguisher 201:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB vrf-target target:200:200
+</span><span class='line'>
+</span><span class='line'><span class="c"># Setup route redistribution between EVPN and Global VRFs</span>
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups CONTRAIL-TO-GLOBAL import-rib EVPN-L3-IRB.inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups CONTRAIL-TO-GLOBAL import-rib inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups GLOBAL-TO-CONTRAIL import-rib inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups GLOBAL-TO-CONTRAIL import-rib EVPN-L3-IRB.inet.0
+</span><span class='line'><span class="nb">set </span>routing-options interface-routes rib-group inet CONTRAIL-TO-GLOBAL
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB routing-options interface-routes rib-group inet CONTRAIL-TO-GLOBAL
+</span><span class='line'><span class="nb">set </span>protocols bgp group EXTERNAL-BGP family inet unicast rib-group GLOBAL-TO-CONTRAIL
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Verification</h3>
+
+<p>The easiest way to verify that BGP peering has been established is to query OpenContrail&rsquo;s introspection API:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>curl  -s http://10.0.100.140:8083/Snh_BgpNeighborReq?ip_address<span class="o">=</span>10.0.101.15 <span class="p">|</span> <span class="se">\</span>
+</span><span class='line'>  xmllint --xpath <span class="s1">&#39;/BgpNeighborListResp/neighbors[1]/list/BgpNeighborResp/state&#39;</span> -
+</span><span class='line'>&lt;state <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;string&quot;</span> <span class="nv">identifier</span><span class="o">=</span><span class="s2">&quot;8&quot;</span>&gt;Established&lt;/state&gt;
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Datapath verification can be done from either side, in this case I&rsquo;m showing a ping from MX80&rsquo;s global VRF towards one of the OpenStack VMs:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>admin@MX80&gt; ping 10.0.100.164 count <span class="m">2</span>
+</span><span class='line'>PING 10.0.100.164 <span class="o">(</span>10.0.100.164<span class="o">)</span>: <span class="m">56</span> data bytes
+</span><span class='line'><span class="m">64</span> bytes from 10.0.100.164: <span class="nv">icmp_seq</span><span class="o">=</span><span class="m">0</span> <span class="nv">ttl</span><span class="o">=</span><span class="m">64</span> <span class="nb">time</span><span class="o">=</span>3.836 ms
+</span><span class='line'><span class="m">64</span> bytes from 10.0.100.164: <span class="nv">icmp_seq</span><span class="o">=</span><span class="m">1</span> <span class="nv">ttl</span><span class="o">=</span><span class="m">64</span> <span class="nb">time</span><span class="o">=</span>3.907 ms
+</span><span class='line'>
+</span><span class='line'>--- 10.0.100.164 ping statistics ---
+</span><span class='line'><span class="m">2</span> packets transmitted, <span class="m">2</span> packets received, 0% packet loss
+</span><span class='line'>round-trip min/avg/max/stddev <span class="o">=</span> 3.836/3.872/3.907/0.035 ms
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>BGP-as-a-Service</h2>
+
+<p>To keep things simple I will not use multiple dot1Q interfaces and setup a BGP peering with CumulusVX over a normal, non-trunk interface. From CumulusVX I will inject a loopback IP <code>1.1.1.1/32</code> into the <code>irb-net</code> network. Since REST API python library I&rsquo;ve used above is two major releases behind the current version of OpenContrail, it cannot be used to setup BGPaaS feature. Instead I will demonstrate how to use REST API directly from the command line of all-in-one VM using cURL.</p>
+
+<h3>Configuration</h3>
+
+<p>In order to start working with OpenContrail&rsquo;s API, I first need to obtain an authentication token from OpenStack&rsquo;s keystone. With that token I can now query the list of IPs assigned to all OpenStack instances and pick the one assigned to CumulusVX. I need the UUID of that particular IP address in order to extract the ID of the VM interface this IP is assigned to.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>openstack token issue -f value -c id<span class="k">)</span>
+</span><span class='line'><span class="nv">CONTRAIL_AUTH</span><span class="o">=</span><span class="s2">&quot;X-AUTH-TOKEN: $TOKEN&quot;</span>
+</span><span class='line'><span class="nv">CTYPE</span><span class="o">=</span><span class="s2">&quot;Content-Type: application/json; charset=UTF-8&quot;</span>
+</span><span class='line'>curl -H <span class="s2">&quot;$CONTRAIL_AUTH&quot;</span> http://10.0.100.140:8082/instance-ips <span class="p">|</span> jq
+</span><span class='line'><span class="nv">VMI_ID</span><span class="o">=</span><span class="k">$(</span>curl -H <span class="s2">&quot;$CONTRAIL_AUTH&quot;</span> http://10.0.100.140:8082/instance-ip/2e7987be-3f53-4296-905a-0c64793307a9 <span class="p">|</span> <span class="se">\</span>
+</span><span class='line'>         jq <span class="s1">&#39;.[&quot;instance-ip&quot;] .virtual_machine_interface_refs[0].uuid&#39;</span><span class="k">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>With VM interface ID saved in a <code>VMI_ID</code> variable I can create a BGPaaS service and link it to that particular VM interface.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./bgpaas.json</span>
+</span><span class='line'><span class="s">{</span>
+</span><span class='line'><span class="s">    &quot;bgp-as-a-service&quot;:</span>
+</span><span class='line'><span class="s">    {</span>
+</span><span class='line'><span class="s">        &quot;fq_name&quot;: [&quot;default-domain&quot;, &quot;admin&quot;, &quot;cumulusVX-bgp&quot; ],</span>
+</span><span class='line'><span class="s">        &quot;autonomous_system&quot;: 321,</span>
+</span><span class='line'><span class="s">        &quot;bgpaas_session_attributes&quot;: {</span>
+</span><span class='line'><span class="s">            &quot;address_families&quot;: {&quot;family&quot;: [&quot;inet&quot;] }</span>
+</span><span class='line'><span class="s">            },</span>
+</span><span class='line'><span class="s">        &quot;parent_type&quot;: &quot;project&quot;,</span>
+</span><span class='line'><span class="s">        &quot;virtual_machine_interface_refs&quot;: [{</span>
+</span><span class='line'><span class="s">            &quot;attr&quot;: null,</span>
+</span><span class='line'><span class="s">            &quot;to&quot;: [&quot;default-domain&quot;, &quot;admin&quot;, ${VMI_ID}]</span>
+</span><span class='line'><span class="s">            }],</span>
+</span><span class='line'><span class="s">        &quot;bgpaas-shared&quot;: false,</span>
+</span><span class='line'><span class="s">        &quot;bgpaas-ip-address&quot;: &quot;10.0.100.164&quot;</span>
+</span><span class='line'><span class="s">    }</span>
+</span><span class='line'><span class="s">}</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>curl -X POST -H <span class="s2">&quot;$CONTRAIL_AUTH&quot;</span> -H <span class="s2">&quot;$CTYPE&quot;</span> -d @bgpaas.json http://10.0.100.140:8082/bgp-as-a-services
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The final step is setting up a BGP peering on the CumulusVX side. CumulusVX configuration is very simple and self-explanatory. The BGP neighbor IP is the IP of virtual network&rsquo;s default gateway located on local vRouter.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>!
+</span><span class='line'>interface lo
+</span><span class='line'> ip address 1.1.1.1/32
+</span><span class='line'>!
+</span><span class='line'>router bgp 321
+</span><span class='line'> neighbor 10.0.100.161 remote-as 64512
+</span><span class='line'> !
+</span><span class='line'> address-family ipv4 unicast
+</span><span class='line'>  network 1.1.1.1/32
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'>!
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Verification</h3>
+
+<p>Here&rsquo;s where we come across another limitation of EVPN. The loopback prefix <code>1.1.1.1/32</code> does not get injected into EVPN address family, however it does show up automatically in the VPNv4 address family which can be verified from the MX80:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>admin@MX80&gt; show route table bgp.l3vpn.0 hidden 1.1.1.1/32 extensive
+</span><span class='line'>
+</span><span class='line'>bgp.l3vpn.0: <span class="m">6</span> destinations, <span class="m">6</span> routes <span class="o">(</span><span class="m">3</span> active, <span class="m">0</span> holddown, <span class="m">3</span> hidden<span class="o">)</span>
+</span><span class='line'>10.0.100.140:2:1.1.1.1/32 <span class="o">(</span><span class="m">1</span> entry, <span class="m">0</span> announced<span class="o">)</span>
+</span><span class='line'>         BGP    Preference: 170/-101
+</span><span class='line'>                Route Distinguisher: 10.0.100.140:2
+</span><span class='line'>                Next hop <span class="nb">type</span>: Unusable, Next hop index: 0
+</span><span class='line'>                Next-hop reference count: 6
+</span><span class='line'>                State: &lt;Hidden Ext ProtectionPath ProtectionCand&gt;
+</span><span class='line'>                Local AS: <span class="m">65411</span> Peer AS: 64512
+</span><span class='line'>                Age: 37:44
+</span><span class='line'>                Validation State: unverified
+</span><span class='line'>                Task: BGP_64512.10.0.100.140
+</span><span class='line'>                AS path: <span class="m">64512</span> <span class="m">321</span> I
+</span><span class='line'>                Communities: target:200:200 target:64512:8000003 encapsulation:unknown<span class="o">(</span>0x2<span class="o">)</span> encapsulation:mpls-in-udp<span class="o">(</span>0xd<span class="o">)</span> unknown <span class="nb">type </span><span class="m">8004</span> value fc00:7a1201 unknown <span class="nb">type </span><span class="m">8071</span> value fc00:1389
+</span><span class='line'>                Import Accepted
+</span><span class='line'>                VPN Label: 31
+</span><span class='line'>                Localpref: 100
+</span><span class='line'>                Router ID: 10.0.100.140
+</span><span class='line'>                Secondary Tables: EVPN-L3-IRB.inet.0
+</span><span class='line'>                Indirect next hops: 1
+</span><span class='line'>                        Protocol next hop: 10.0.100.140
+</span><span class='line'>                        Label operation: Push 31
+</span><span class='line'>                        Label TTL action: prop-ttl
+</span><span class='line'>                        Load balance label: Label 31: None<span class="p">;</span>
+</span><span class='line'>                        Indirect next hop: 0x0 - INH Session ID: 0x0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>It&rsquo;s hidden since I haven&rsquo;t configured MPLSoUDP <a href="https://www.juniper.net/documentation/en_US/junos/topics/example/example-next-hop-based-dynamic-mpls-udp-tunnel-configuring.html">dynamic tunnels</a> on MX80. However this proves that the prefix does get injected into customer VPNs and become available on all devices with the matching import route-target communities.</p>
+
+<h2>Outro</h2>
+
+<p>This post concludes Series 2 of my OpenStack SDN saga. I&rsquo;ve covered quite an extensive range of topics in my two-part series, however, OpenStack networking landscape is so big, it&rsquo;s simply impossible to cover everything I find interesting. I started writing about OpenStack SDN when I first learned I got a job with Nokia. Back then I knew little about VMware NSX and even less about OpenStack. That&rsquo;s why I started researching topics that I found interesting and branching out into adjacent areas as I went along. Almost 2 years later, looking back I can say I&rsquo;ve learned a lot about the internals of SDN in general and hopefully so have my readers. Now I&rsquo;m leaving Nokia to rediscover my networking roots at Arista. I&rsquo;ll dive into DC networking from a different perspective now and it may be awhile before I accumulate a critical mass of interesting material to start spilling it out in my blog again. I still may come back to OpenStack some day but for now I&rsquo;m gonna take a little break, maybe do some house keeping (e.g. move my blog from Jekyll to <a href="https://gohugo.io/">Hugo</a>, add TLS support) and enjoy my time being a farther.</p>
+]]></content>
+  </entry>
   
   <entry>
     <title type="html"><![CDATA[OpenStack SDN - OpenDaylight With BGP VPN]]></title>
@@ -939,6 +1457,8 @@ This can be done from the CSR side, however it&rsquo;s also possible to check th
 </span><span class='line'>tacker vnffgd-create --vnffgd-file vnffgd.yaml VNFFG-TEMPLATE
 </span></code></pre></td></tr></table></div></figure>
 
+
+<blockquote><p>Note that the VNFFGD has been updated to support multiple flow classifiers which means you many need to update the above template as per the <a href="https://github.com/openstack/tacker/blob/master/samples/tosca-templates/vnffgd/tosca-vnffgd-multiple-classifiers-sample.yaml">sample VNFFGD template</a></p></blockquote>
 
 <p>In order to instantiate a VNFFGD we need to provide two runtime parameters:</p>
 
@@ -6193,452 +6713,6 @@ neutron
 <h2>Coming Up</h2>
 
 <p>In the next post I&rsquo;ll show how to overcome the requirement of a direct L2 adjacency between the network node and external subnet. Specifically, I&rsquo;ll use Arista switch to extend a L2 provider network over a L3 leaf-spine Cisco fabric.</p>
-]]></content>
-  </entry>
-  
-  <entry>
-    <title type="html"><![CDATA[Network Engineering Analysis of OpenStack SDN]]></title>
-    <link href="http://networkop.github.io/blog/2016/04/22/neutron-native/"/>
-    <updated>2016-04-22T00:00:00+01:00</updated>
-    <id>http://networkop.github.io/blog/2016/04/22/neutron-native</id>
-    <content type="html"><![CDATA[<p>Now that we have our 3-node OpenStack lab <a href="http://networkop.github.io/blog/2016/04/18/os-unl-lab/">up and running</a> we can start exploring how virtual networks are implemented under the hood.</p>
-
-<!--more-->
-
-
-<h2>Intro</h2>
-
-<p>This is going to be quite a lengthy blogpost so I&rsquo;ll try to explain its structure first. I&rsquo;ll start with a high level overview of components used to build virtual networks by examining 3 types of traffic:</p>
-
-<ul>
-<li>Unicast traffic between VM1 and VM2</li>
-<li>Unicast traffic between VM1 and the outside world (represented by an external subnet)</li>
-<li>Broadcast, Unknown unicast and Multicast or BUM traffic from VM1</li>
-</ul>
-
-
-<p>Following that I&rsquo;ll give a brief overview of how to interpret the configuration and dynamic state of OpenvSwitch to manually trace the path of a packet. This will be required for the next section where I&rsquo;ll go over the same 3 types of traffic but this time corroborating every step with the actual outputs collected from the virtual switches. For the sake of brevity I&rsquo;ll abridge a lot of the output to only contain the relevant information.</p>
-
-<h2>High Level Overview</h2>
-
-<p><a href="http://www.innervoice.in/blogs/2015/03/31/openstack-neutron-plugins-and-agents/">Neutron</a> server, residing in a control node, is responsible for orchestrating and provisioning of all virtual networks within an OpenStack environment. Its goal is to enable end-to-end reachability among the VMs and between the VMs and external subnets. To do that, Neutron uses concepts that should be very familiar to every network engineer like subnet, router, firewall, DHCP and NAT. In the <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">previous post</a> we&rsquo;ve seen how to create a virtual router and attach it to public and private networks. We&rsquo;ve also attached both of our VMs to a newly created private network and verified connectivity by logging into those virtual machines. Now let&rsquo;s see how exactly these VMs communicate with each other and the outside world.</p>
-
-<p><img class="center" src="http://networkop.github.io/images/neutron-high-level.png"></p>
-
-<h3>Unicast frame between VM1 and VM2</h3>
-
-<ol>
-<li><p>As soon as the frame leaves the vNIC of VM1 it hits the firewall. The firewall is implemented on a <a href="http://www.innervoice.in/blogs/2013/12/08/tap-interfaces-linux-bridge/">tap interface</a> of the integration bridge. A set of <abbr title="Access Control List">ACL</abbr> rules, defined in a <strong>Security Group</strong> that VM belongs to, gets translated into Linux <a href="https://www.frozentux.net/iptables-tutorial/iptables-tutorial.html#TRAVERSINGOFTABLES">iptables</a> rules and attached to this tap interface. These simple reflexive access lists are what VMware and Cisco are calling microsegmentation and touting as one of the main use case of their SDN solutions.</p></li>
-<li><p>Next our frame enters the integration bridge implemented using <a href="http://openvswitch.org/">OpenvSwitch</a>. Its primary function is to interconnect all virtual machines running on the host. Its secondary function is to provide isolation between different subnets and tenants by keeping them in different VLANs. VLAN IDs used for this are locally significant and don&rsquo;t propagate outside of the physical host.</p></li>
-<li><p>A dot1q-tagged packet is forwarded down a layer 2 trunk to the tunnel bridge, also implemented using OpenvSwitch. It is programmed to strip the dot1q tags, replace them with VXLAN headers and forward an IP/UDP packet with VXLAN payload on to the physical network.</p></li>
-<li><p>Our simple routed underlay delivers the packets to the destination host, where the tunnel bridge swaps the <abbr title=" VXLAN Network ID">VNI</abbr> with a dot1q tag and forwards the packet up to the integration bridge.</p></li>
-<li><p>Integration bridge consults the local MAC table, finds the output interface, clears the dot1q tag and send the frame up to the VM.</p></li>
-<li><p>The frame gets screened by incoming iptables rules and gets delivered to the VM2.</p></li>
-</ol>
-
-
-<h3>Unicast frame between VM1 and External host</h3>
-
-<ol>
-<li><p>The first 3 steps will still be the same. VM1 sends a frame with destination MAC address of a virtual router. This packet will get encapsulated in a VXLAN header and forwarded to the Network node.</p></li>
-<li><p>The tunnel and integration bridges of the network node deliver the packet to the private interface of a virtual router. This virtual router lives in a <a href="http://blog.scottlowe.org/2013/09/04/introducing-linux-network-namespaces/">linux network namespaces</a> (similar to <abbr title="Virtual Routing and Forwarding">VRF</abbr>s) used to provide isolation between OpenStack tenants.</p></li>
-<li><p>The router finds the outgoing interface (a port attached to the external bridge), and a next-hop IP which we have set when we configured a public subnet <a href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">earlier</a>.</p></li>
-<li><p>The router then performs a source NAT on the packet before forwarding it out. This way the private IP of the VM stays completely hidden and hosts outside of OpenStack can talk back to the VM by sending packets to (publicly routable) external subnet.</p></li>
-<li><p>External bridge (also an OpenvSwitch) receives the packet and forwards it out the attached physical interface (eth1.300).</p></li>
-</ol>
-
-
-<h3>BUM frame from VM1 for MAC address of VM2</h3>
-
-<ol>
-<li><p>VM1 sends a multicast frame, which gets examined by the iptables rules and enters the integration bridge.</p></li>
-<li><p>The integration bridge follows the same process as for the unicast frame to assign the dot1q tag and floods the frame to the tunnel bridge.</p></li>
-<li><p>The tunnel bridge sees the multicast bit in the destination MAC address and performs source replication by sending a duplicate copy of the frame to both compute host #2 and the network node.</p></li>
-<li><p>Tunnel bridges of both receiving hosts strip the VXLAN header, add the dot1q tag and flood the frame to their respective integration bridges.</p></li>
-<li><p>Integration bridges flood the frame within the VLAN identified by the dot1q header.</p></li>
-<li><p>The response from VM2 follows the same process as the unicast frame.</p></li>
-</ol>
-
-
-<p>One thing worth noting is when an ARP packet enters the integration bridge, its source IP address (in case of IPv4) or source MAC address (in case of IPv6) gets examined to make sure it belong to that VM. This is how <strong>ARP spoofing protection</strong> is implemented in OpenStack.</p>
-
-<h2>OpenvSwitch quick intro</h2>
-
-<p>Before we dive deeper into the details of the packet flows inside OVS let me give a brief overview of how it works. There are two main protocols to configure OVS:</p>
-
-<ul>
-<li><p>OVSDB - a management protocol used to configure bridges, ports, VLANs, QoS, monitoring etc.</p></li>
-<li><p>OpenFlow - used to install flow entries for traffic switching, similar to how you would configure a static route but allowing you to match on most of the L2-L4 protocol headers.</p></li>
-</ul>
-
-
-<p>Control node instructs all <a href="http://www.innervoice.in/blogs/2015/03/31/openstack-neutron-plugins-and-agents/">local OVS agents</a> about how to configure virtual networks. Each local OVS agent then uses these two protocols to configure OVS and install all the required forwarding entries. Each entry contains a set of matching fields (e.g. incoming port, MAC/IP addresses) and an action field which determines what to do with the packet. These forwarding entries are implemented as <a href="https://wiki.openstack.org/wiki/Ovs-flow-logic">tables</a>. This is how a packet traverses these tables:</p>
-
-<ol>
-<li><p>First packet always hits table 0. The entries are examined in order of their priority (highest first) to find the first match. Note that it&rsquo;s the first and not necessarily the more specific match. It&rsquo;s the responsibility of a controller to build tables so that more specific flows are matched first. Normally this is done by assigning a higher priority to a more specific flow. Exact matches (where all L2-L4 fields are specified) implicitly have the highest priority value of 65535.</p></li>
-<li><p>When a flow is matched, the <strong>action</strong> field of that flow is examined. Here are some of the most commonly used actions:</p>
-
-<table>
-<thead>
-<tr>
-<th> Action </th>
-<th></th>
-<th> Description </th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td> resubmit(X,) </td>
-<td></td>
-<td> Resubmit a packet to table X </td>
-</tr>
-<tr>
-<td> output:Y </td>
-<td></td>
-<td> Send a packet out port Y </td>
-</tr>
-<tr>
-<td> NORMAL </td>
-<td></td>
-<td> Use a standard flood-and-learn behaviour of a switch to populate a local dynamic MAC address table </td>
-</tr>
-<tr>
-<td> learn(table=Z) </td>
-<td></td>
-<td> Create an exact-match entry for the matched flow in table Z (we&rsquo;ll see how its used later on) </td>
-</tr>
-</tbody>
-</table>
-
-
-<p> These actions can be combined in a sequence to create complex behaviours like sending the same packet to multiple ports for multicast source replication.</p></li>
-<li><p>OVS also <a href="https://networkheresy.com/2014/11/13/accelerating-open-vswitch-to-ludicrous-speed/">implements</a> what Cisco calls <strong>Fast switching</strong>, where the first packet lookup triggers a cache entry to be installed in the kernel-space process to be used by all future packets from the same flow.</p></li>
-</ol>
-
-
-<h2>Detailed packet flow analysis</h2>
-
-<p>Let&rsquo;s start by recapping what we know about our private virtual network. All these values can be obtained from Horizon GUI by examining the private network configuration under Project -> Network -> Networks -> private_network:</p>
-
-<ul>
-<li>VM1, IP=10.0.0.8, MAC=fa:16:3e:19:e4:91, port id = <strong>258336bc-4f</strong>38-4bec-9229-4bc76e27f568</li>
-<li>VM2, IP=10.0.0.9, MAC=fa:16:3e:ab:1a:bf, port id = <strong>e5f7eaca-1a</strong>36-4b08-aa9b-14e9787f80b0</li>
-<li>Router, IP=10.0.0.1, MAC=fa:16:3e:cf:89:47, port id = <strong>96dfc1d3-d2</strong>3f-4d28-a461-fa2404767df2</li>
-</ul>
-
-
-<p>The first 11 characters of port id will be used inside an integration bridge to build the port names, e.g.:</p>
-
-<ul>
-<li>tap258336bc-4f - interface connected to VM1</li>
-<li>qr-96dfc1d3-d2 - interface connected to the router</li>
-</ul>
-
-
-<h3>Enumerating OVS ports</h3>
-
-<p>In its forwarding entries OVS uses internal port numbers a lot, therefore it would make sense to collect all port number information before we start. This is how it can be done:</p>
-
-<ul>
-<li>Use <code>ovs-vsctl show</code> command to collect information about existing port names and their attributes (e.g. dot1q tag, VXLAN tunnel IPs, etc). This is the output collected on compute host #1:</li>
-</ul>
-
-
-<figure class='code'><figcaption><span>ovs-vsctl show | grep -E "Bridge|Port|tag|options"</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>Bridge br-tun
-</span><span class='line'>    Port br-tun
-</span><span class='line'>    Port patch-int
-</span><span class='line'>            options: <span class="o">{</span><span class="nv">peer</span><span class="o">=</span>patch-tun<span class="o">}</span>
-</span><span class='line'>    Port <span class="s2">&quot;vxlan-0a00020a&quot;</span>
-</span><span class='line'>            options: <span class="o">{</span><span class="nv">df_default</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>, <span class="nv">in_key</span><span class="o">=</span>flow, <span class="nv">local_ip</span><span class="o">=</span><span class="s2">&quot;10.0.1.10&quot;</span>, <span class="nv">out_key</span><span class="o">=</span>flow, <span class="nv">remote_ip</span><span class="o">=</span><span class="s2">&quot;10.0.2.10&quot;</span><span class="o">}</span>
-</span><span class='line'>    Port <span class="s2">&quot;vxlan-0a00030a&quot;</span>
-</span><span class='line'>            options: <span class="o">{</span><span class="nv">df_default</span><span class="o">=</span><span class="s2">&quot;true&quot;</span>, <span class="nv">in_key</span><span class="o">=</span>flow, <span class="nv">local_ip</span><span class="o">=</span><span class="s2">&quot;10.0.1.10&quot;</span>, <span class="nv">out_key</span><span class="o">=</span>flow, <span class="nv">remote_ip</span><span class="o">=</span><span class="s2">&quot;10.0.3.10&quot;</span><span class="o">}</span>
-</span><span class='line'>Bridge br-int
-</span><span class='line'>    Port br-int
-</span><span class='line'>    Port <span class="s2">&quot;tap258336bc-4f&quot;</span>
-</span><span class='line'>        tag: 5
-</span><span class='line'>    Port patch-tun
-</span><span class='line'>            options: <span class="o">{</span><span class="nv">peer</span><span class="o">=</span>patch-int<span class="o">}</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<ul>
-<li>Use <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> command to correlate port names and numbers. Example below is for integration bridge of compute host #1:</li>
-</ul>
-
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-ports-desc br-int | grep addr</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> 2<span class="o">(</span>patch-tun<span class="o">)</span>: addr:5a:c5:44:fc:ac:72
-</span><span class='line'> 7<span class="o">(</span>tap258336bc-4f<span class="o">)</span>: addr:fe:16:3e:19:e4:91
-</span><span class='line'> LOCAL<span class="o">(</span>br-int<span class="o">)</span>: addr:46:fe:10:de:1b:4f
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>I&rsquo;ve put together a diagram showing all the relevant integration bridge (<strong>br-int</strong>) and tunnel bridge (<strong>br-tun</strong>) ports on all 3 hosts.</p>
-
-<p><img class="center" src="http://networkop.github.io/images/neutron-port-details.png"></p>
-
-<h3>Unicast frame between VM1 and VM2</h3>
-
-<ol>
-<li> Frame enters the br-int on port 7. Default iptables rules allow all outbound traffic from a VM.</li>
-
-<li> Inside the br-int our frame is matched by the "catch-all" rule which triggers the flood-and-learn behaviour:
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>10,arp,in_port<span class="o">=</span><span class="m">7</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,24<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span><span class="m">0</span> <span class="nv">actions</span><span class="o">=</span>NORMAL
-</span></code></pre></td></tr></table></div></figure></li>
-
-<li> Since it's a unicast frame the MAC address table is already populated by ARP:
-
-<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
-</span><span class='line'>    <span class="m">2</span>     <span class="m">5</span>  fa:16:3e:ab:1a:bf    1
-</span></code></pre></td></tr></table></div></figure></li>
-
-Target IP address is behind port 2 which is where the frame gets forwarded next.
-
-<li> Inside the tunnel bridge the frame will match three different tables. The first table simply matches the incoming port and resubmits the frame to table 2. Table 2 will match the unicast bit of the MAC address (the least significant bit of the first byte) and resubmit the frame to unicast table 20:
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1, <span class="nv">in_port</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0, <span class="nv">dl_dst</span><span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>20, <span class="nv">priority</span><span class="o">=</span>1, <span class="nv">vlan_tci</span><span class="o">=</span>0x0005/0x0fff,dl_dst<span class="o">=</span>fa:16:3e:ab:1a:bf <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x54-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:2
-</span></code></pre></td></tr></table></div></figure>
-
-The final match is done on a VLAN tag and destination MAC address. Resulting action is a combination of three consecutive steps:
-<ol>
-  <li> Clear the dot1q tag - load:0->NXM_OF_VLAN_TCI[]</li>
-  <li> Tag the frame with VNI 0x54 - load:0x54->NXM_NX_TUN_ID[]</li>
-  <li> Send the frame to compute host 2 - output:2</li>
-</ol>
-This last match entry is quite interesting in a way that it contains the destination MAC address of VM2, which means this entry was created <b>after</b> the ARP process. In fact, as we'll see in the next step, this entry is populated by a <b>learn</b> action triggered by the ARP response coming from VM2.
-</li>
-
-<li>A VXLAN packet arrives at compute host 2 and enters the tunnel bridge through port 2. It's matched on the incoming port and resubmitted to a table where it is assigned with an internal VLAN ID 3 based on the matched tunnel id 0x54. 
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">2</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>4, <span class="nv">priority</span><span class="o">=</span>1,tun_id<span class="o">=</span>0x54 <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:3,resubmit<span class="o">(</span>,10<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>10, <span class="nv">priority</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
-</span></code></pre></td></tr></table></div></figure>
-
-The last match does two things:
-<ol>
-  <li> Creates a mirroring entry in table 20 for the reverse packet flow. This is the entry similar to the one we've just seen in step 4.  </li>
-  <li> Sends the packet towards the integration bridge.</li>
-</ol>
-</li>  
-<li>The integration bridge checks the local dynamic MAC address table to find the MAC address of VM2(1a:bf).
-
-<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>port  VLAN  MAC                Age
-</span><span class='line'>  <span class="m">5</span>     <span class="m">3</span>  fa:16:3e:ab:1a:bf    0
-</span></code></pre></td></tr></table></div></figure>
-</li>
-
-<li>The frame is checked against the iptables rules configured on port 5 and gets sent up to VM2</li>
-</ol>
-
-
-<h3>Unicast frame to external host (192.168.247.1)</h3>
-
-<ol>
-  <li>
-    The first 5 steps will be similar to the previous section. The only exception will be that the tunnel bridge of compute host 1 will send the VXLAN packet out port 3 towards the network node.
-  </li>
-  <li>
-    The integration bridge of the network node consults the MAC address table to find the location of the virtual router (89:47) and forwards the packet out port 6.
-<figure class='code'><figcaption><span>ovs-appctl fdb/show br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
-</span><span class='line'>    <span class="m">6</span>     <span class="m">1</span>  fa:16:3e:cf:89:47    1
-</span></code></pre></td></tr></table></div></figure>
-  </li>
-  <li> The virtual router does the route lookup to find the outgoing interface (qg-18bff97b-57)
-<figure class='code'><figcaption><span>ip route get 192.168.247.1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>192.168.247.1 dev qg-18bff97b-57  src 192.168.247.90
-</span></code></pre></td></tr></table></div></figure>
-Remember that since our virtual router resides in a network namespace all commands must be prepended with <code>ip netns exec qrouter-uuid</code>
-  
-  </li>
-  <li> The virtual router performs the source IP translation to hide the private IP address: 
-<figure class='code'><figcaption><span>iptables -t nat -S | grep qg-18bff97b-57</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>-A neutron-l3-agent-POSTROUTING ! -i qg-18bff97b-57 ! -o qg-18bff97b-57 -m conntrack ! --ctstate DNAT -j ACCEPT
-</span><span class='line'>-A neutron-l3-agent-snat -o qg-18bff97b-57 -j SNAT --to-source 192.168.247.90
-</span></code></pre></td></tr></table></div></figure>
-By default all packets will get translated to the external address of the router. For each assigned floating IP address there will be a pair of source/destination NAT entries created in the same table. 
-
-  </li>
-  <li> The router consults its local ARP table to find the MAC address of the next hop:
-<figure class='code'><figcaption><span>ip neigh show 192.168.247.1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>192.168.247.1 dev qg-18bff97b-57 lladdr 00:50:56:c0:00:01 DELAY
-</span></code></pre></td></tr></table></div></figure>
-  </li>
-  <li> External bridge receives the frame from the virtual router on port 4, consults its own MAC address table built by ARP and forwards the packet to the final destination.
-<figure class='code'><figcaption><span>ovs-appctl fdb/show br-ex</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> port  VLAN  MAC                Age
-</span><span class='line'>    <span class="m">4</span>     <span class="m">0</span>  fa:16:3e:5c:90:e0    1
-</span><span class='line'>    <span class="m">1</span>     <span class="m">0</span>  00:50:56:c0:00:01    1
-</span></code></pre></td></tr></table></div></figure></li>
-</ol>
-
-
-<h3>BUM frame from VM1 for MAC address of VM2</h3>
-
-<ol>
-  <li>The integration bridge of the sending host will check the source IP of the ARP packet to make sure it hasn't been spoofed before flooding the packet within the local broadcast domain (VLAN 5).
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-int</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>10,arp,in_port<span class="o">=</span><span class="m">7</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,24<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>24, <span class="nv">priority</span><span class="o">=</span>2,arp,in_port<span class="o">=</span>7,arp_spa<span class="o">=</span>10.0.0.8 <span class="nv">actions</span><span class="o">=</span>NORMAL
-</span></code></pre></td></tr></table></div></figure>
-</li>
-<li> The flooded packet reaches the tunnel bridge where it goes through 3 different tables. The first table matches the incoming interface, the second table matches the multicast bit of the MAC address.
-
-<figure class='code'><figcaption><span>ovs-ofctl dump-flows br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>2, <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>01:00:00:00:00:00/01:00:00:00:00:00 <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>22, <span class="nv">dl_vlan</span><span class="o">=</span><span class="m">5</span> <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x54,output:3,output:2
-</span></code></pre></td></tr></table></div></figure>
-
-The final table swaps the dot1q and VXLAN identifiers and does the source replication by forwarding the packet out ports 2 and 3.
-</li>
-<li> The following steps are similar to the unicast frame propagation with the exception that the local MAC table of the integration bridges will flood the packet to all interfaces in the same broadcast domain. That means that duplicate ARP requests will reach both the private interface of the virtual router and VM2. The latter, recognising its own IP, will send a unicast ARP response whose source IP will be verified by the ARP spoofing rule of the integration bridge. As the result of that process, both integration bridges on compute host 1 and 2 will populate their local MAC tables with addresses of VM1 and VM2.
-</li>
-</ol>
-
-
-<h2>Native OpenStack SDN advantages and limitation</h2>
-
-<p>Current implementation of OpenStack networking has several advantages compared to the traditional SDN solutions:</p>
-
-<ul>
-<li>Data-plane learning allows network to function even in the absence of the controller node</li>
-<li>Multicast source replication does not rely on multicast support in the underlay network</li>
-<li>ARP spoofing protection is the default security setting</li>
-</ul>
-
-
-<p>However at this point it should also be clear that there a number of limitations that can impact the overall network scalability and performance:</p>
-
-<ul>
-<li>Multicast source replication creates unnecessary overhead by flooding ARP packets to all hosts</li>
-<li>All routed traffic has to go through the network node which becomes a bottleneck for the whole network</li>
-<li>There is no ability to control physical devices, even the ones that support OVSDB/Openflow</li>
-<li>Network node must be layer 2 adjacent with the external network segment</li>
-</ul>
-
-
-<h2>Things to explore next</h2>
-
-<p>In the following posts I&rsquo;ll continue poking around Neutron and explore a number of features designed to address some of the limitations described above:</p>
-
-<ul>
-<li><a href="http://networkop.github.io/blog/2016/05/06/neutron-l2pop/">L2 population</a></li>
-<li><a href="https://wiki.openstack.org/wiki/Neutron/DVR">Distributed Virtual Router</a></li>
-<li><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 hardware gateway</a></li>
-<li><a href="https://wiki.openstack.org/wiki/Neutron/L3_High_Availability_VRRP">Network High Availability</a></li>
-<li><a href="https://wiki.openstack.org/wiki/Neutron/LBaaS">Load-Balancing-as-a-Service</a></li>
-<li><a href="https://github.com/openstack/networking-ovn">Open Virtual Network for OVS</a></li>
-<li><a href="http://specs.openstack.org/openstack/neutron-specs/specs/mitaka/bgp-dynamic-routing.html">Neutron&rsquo;s dynamic BGP routing</a></li>
-</ul>
-
-
-<h2>C<sub>2</sub>O</h2>
-
-<p>While writing this post I&rsquo;ve compiled a list of commands most useful to query the state of OpenvSwitch. So now, inspired by a similar  IOS to JUNOS (I2J) command <a href="http://www.net-gyver.com/?page_id=1166">conversion tables</a>, I&rsquo;ve put together my own Cisco to OVS conversion table, just for fun.</p>
-
-<table>
-<thead>
-<tr>
-<th> Action </th>
-<th> Cisco </th>
-<th> OpenvSwitch </th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td> Show MAC address table </td>
-<td> show mac address-table dynamic   </td>
-<td> <code>ovs-appctl fdb/show &lt;bridge_id&gt;</code> </td>
-</tr>
-<tr>
-<td> Clear MAC address table </td>
-<td> clear mac address-table dynamic </td>
-<td> <code>ovs-appctl fdb/flush &lt;bridge_id&gt;</code> </td>
-</tr>
-<tr>
-<td> Show port numbers </td>
-<td> show interface status </td>
-<td> <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> </td>
-</tr>
-<tr>
-<td> Show OVS configuration </td>
-<td> show run </td>
-<td> <code>ovs-vsctl show</code> </td>
-</tr>
-<tr>
-<td> Show packet forwarding rules </td>
-<td> show ip route  </td>
-<td> <code>ovs-ofctl dump-flows &lt;bridge_id&gt;</code> </td>
-</tr>
-<tr>
-<td> Simulate packet flow </td>
-<td> packet-tracer   </td>
-<td> <code>ovs-appctl ofproto/trace &lt;bridge_id&gt; in_port=1</code> </td>
-</tr>
-<tr>
-<td> View command history </td>
-<td> show archive log config </td>
-<td> <code>ovsdb-tool show-log -m</code> </td>
-</tr>
-</tbody>
-</table>
-
-
-<h2>References</h2>
-
-<p>In this post I have glossed over some details like iptables and DHCP for the sake of brevity and readability. However this post wouldn&rsquo;t be complete if I didn&rsquo;t include references to other resources that contain a more complete, even if at times outdated, overview of OpenStack networking. This is also a way to pay tribute to blogs where I&rsquo;ve learned most of what I was writing about here:</p>
-
-<ul>
-<li><a href="https://www.rdoproject.org/networking/networking-in-too-much-detail/">Networking in too much detail</a></li>
-<li><a href="http://www.opencloudblog.com/?p=300">Neutron using VXLAN</a></li>
-<li><a href="http://docs.ocselected.org/openstack-manuals/kilo/networking-guide/content/under_the_hood_openvswitch.html">Under the hood of OVS</a></li>
-<li><a href="https://kimizhang.wordpress.com/2014/04/01/how-ml2vxlan-works/">How ML2/VXLAN works</a></li>
-<li><a href="http://docs.openstack.org/openstack-ops/content/network_troubleshooting.html">Official network troubleshooting guide</a></li>
-<li><a href="http://therandomsecurityguy.com/openvswitch-cheat-sheet/">OVS commands cheat sheet</a></li>
-</ul>
-
 ]]></content>
   </entry>
   

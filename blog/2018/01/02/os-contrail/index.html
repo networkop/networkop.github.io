@@ -1,0 +1,978 @@
+<!DOCTYPE html>
+<html class="no-js" lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Openstack SDN - OpenContrail With BGP VPN - Network-oriented programming</title>
+  <meta name="author" content="Michael Kashin">
+
+  <meta name="description" content="Building a simple OpenStack and OpenContrail lab to demonstrate EVPN integration and BGPaaS">
+  
+
+  <!-- http://t.co/dKP3o1e -->
+  <meta name="HandheldFriendly" content="True">
+  <meta name="MobileOptimized" content="320">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  
+  <link rel="canonical" href="http://networkop.github.io/blog/2018/01/02/os-contrail/">
+  <link href="/favicon.png" type="image/png" rel="icon">
+  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+
+  <!-- http://opengraphprotocol.org/ -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="http://networkop.github.io/blog/2018/01/02/os-contrail/">
+  <meta property="og:title" content="Openstack SDN - OpenContrail With BGP VPN - Network-oriented programming">
+  <meta property="og:description" content="Building a simple OpenStack and OpenContrail lab to demonstrate EVPN integration and BGPaaS">
+
+  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
+
+<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
+
+
+
+  
+  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
+
+  
+   <script>
+    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+
+    ga('create', 'UA-31517751-2', 'auto');
+    ga('send', 'pageview');
+
+  </script>
+
+
+</head>
+
+  <body   >
+    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
+    <div id="wrap">
+      <header role="banner">
+        <nav class="navbar navbar-default" role="navigation">
+    <div class="container">
+        <div class="navbar-header">
+            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+                <span class="icon-bar"></span>
+            </button>
+            <a class="navbar-brand" href="/">Network-oriented programming</a>
+        </div>
+
+        <div class="navbar-collapse collapse">
+            <ul class="nav navbar-nav">
+                <li class="active">
+                    <a rel="index" href="/">Blog</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/automation/index.html">Network Automation</a>
+                </li>
+                <li>
+                    <a href="/blog/categories/sdn/index.html">SDN</a>
+                </li>
+                <li>
+                    <a href="/blog/archives">Archives</a>
+                </li>
+				<li >
+                    <a href="/about">About</a>
+                </li>
+            </ul>
+            <ul class="nav navbar-nav navbar-right">
+                <li>
+                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
+                        <span class="visible-xs">RSS</span>
+                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
+                    </a>
+                </li>
+                
+            </ul>
+            
+                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
+                    <input type="hidden" name="sitesearch" value="networkop.github.io">
+                    <div class="form-group">
+                        <input class="form-control" type="text" name="q" placeholder="Search">
+                    </div>
+                </form>
+            
+        </div>
+    </div>
+</nav>
+
+
+      </header>
+      <div id="main" role="main" class="container">
+        <div id="content">
+          <div class="row">
+  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
+    <meta itemprop="name" content="Network-oriented programming" />
+    <meta itemprop="description" content="description goes here" />
+    <meta itemprop="url" content="http://networkop.github.io" />
+    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+      
+  <header class="page-header">
+    
+      <p class="meta text-muted text-uppercase">
+        
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2018-01-02T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">02/01/2018</time>
+        
+           | <a href="#disqus_thread" itemprop="discussionUrl"
+             data-disqus-identifier="http://networkop.github.io">Comments</a>
+        
+      </p>
+    
+    
+    <h1 class="entry-title" itemprop="name headline">
+        Openstack SDN - OpenContrail With BGP VPN
+        
+    </h1>
+    
+  </header>
+
+
+<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll show how to build a dockerized OpenStack and OpenContrail lab, integrate it with Juniper MX80 DC-GW and demonstrate one of Contrail&rsquo;s most interesting and unique features called BGP-as-a-Service.</p>
+
+<!--more-->
+
+
+<hr />
+
+<p>Continuing on the trend started in my <a href="/blog/2017/12/15/os-odl-netvirt/">previous post about OpenDaylight</a>, I&rsquo;ll move on to the next open-source product that uses BGP VPNs for optimal North-South traffic forwarding. OpenContrail is one of the most popular SDN solutions for OpenStack. It was one of the first hybrid SDN solutions, offering both pure overlay and overlay/underlay integration. It is the default SDN platform of choice for Mirantis Cloud Platform, it has multiple large-scale deployments in companies like Workday and AT&amp;T. I, personally, don&rsquo;t have any production experience with OpenContrail, however my impression, based on what I&rsquo;ve heard and seen in the last 2-3 years that I&rsquo;ve been following Telco SDN space, is that OpenContrail is the most mature SDN platform for Telco NFVs not least because of its unique feature set.</p>
+
+<p>During the time of production deployment at AT&amp;T, Contrail has added a lot of features required by Telco NFVs like QoS, VLAN trunking and BGP-as-a-service. My first acquaintance with BGPaaS took place when I started working on Telco DCs and I remember being genuinely shocked when I first saw the requirement for dynamic routing exchange with VNFs. To me this seemed to break one of the main rules of cloud networking - a VM is not to have any knowledge or interaction with the underlay. I gradually went though all stages of grief, all the way to acceptance and although it still feels &ldquo;wrong&rdquo; now, I can at least understand why it&rsquo;s needed and what are the pros/cons of different BGPaaS solutions.</p>
+
+<h2>BGP-as-a-Service</h2>
+
+<p>There&rsquo;s a certain range of VNFs that may require to advertise a set of IP addresses into the existing VPNs inside Telco network. The most notable example is PGW inside EPC. I won&rsquo;t pretend to be an expert in this field, but based on my limited understanding PGW needs to advertise IP networks into various customer VPNs, for example to connect private APNs to existing customer L3VPNs. Obviously, when this kind of network function gets virtualised, it still retains this requirement which now needs to be fulfilled by DC SDN.</p>
+
+<p>This requirement catches a lot of big SDN vendors off guard and the best they come up with is connecting those VNFs, through VLANs, directly to underlay TOR switches. Although this solution is easy to implement, it has an incredible amount of drawbacks since a single VNF can now affect the stability of the whole POD or even the whole DC network. Some VNFs vendors also require BFD to monitor liveliness of those BGP sessions which, in case a L3 boundary is higher than the TOR, may create even a bigger number of issues on a POD spine.</p>
+
+<p>There&rsquo;s a small range of SDN platforms that run a full routing stack on each compute node (e.g. Cumulus, Calico). These solutions are the best fit for this kind of scenarios since they allow BGP sessions to be established over a single hop (VNF <-> virtual switch). However they represent a small fraction of total SDN solutions space with majority of vendors implementing a much simpler OpenFlow or XMPP-based flow push model.</p>
+
+<p>OpenContrail, as far as I know, is the only SDN controller that doesn&rsquo;t run a full routing stack on compute nodes but still fulfills this requirement in a very elegant way. When <a href="https://www.juniper.net/documentation/en_US/contrail3.2/topics/concept/bgp-as-a-service-overview.html">BGPaaS</a> is enabled for a particular VM&rsquo;s interface, controller programs vRouter to proxy BGP TCP connections coming to virtual network&rsquo;s default gateway IP and forward them to the controller. This way VNF thinks it peers with a next hop IP, however all BGP state and path computations still happen on the controller.</p>
+
+<p>The diagram below depicts a sample implementation of BGPaaS using OpenContrail. VNF is connected to a vRouter using a dot1Q trunk interface (to allow multiple VRFs over a single vEth link). Each VRF has its own BGPaaS session setup to advertise network ranges (NET1-3) into customer VPNs. These BGP sessions get proxied to the controller which injects those prefixes into their respective VPNs. These updates are then sent to DC gateways using either a VPNv4/6 or EVPN and the traffic is forwarded through DC underlay with VPN segregation preserved by either an MPLS tag (for MPLSoGRE or MPLSoUDL encapsulation) or a VXLAN VNI.</p>
+
+<p><img class="center" src="/images/contrail-bgpaas.png"></p>
+
+<p>Now let me briefly go over the lab that I&rsquo;ve built to showcase the BGPaaS and DC-GW integration features.</p>
+
+<h2>Lab setup overview</h2>
+
+<p>OpenContrail follows a familiar pattern of DC SDN architecture with central controller orchestrating the work of multiple virtual switches. In case of OpenContrail, these switches are called vRouters and they communicate with controller using XMPP-based extension of BGP as described in <a href="https://www.ietf.org/archive/id/draft-ietf-l3vpn-end-system-06.txt">this RFC draft</a>. A very detailed description of its internal architecture is available on <a href="http://www.opencontrail.org/opencontrail-architecture-documentation/">OpenContrail&rsquo;s website</a> so it would be pointless to repeat all of this information here. That&rsquo;s why I&rsquo;ll concentrate on how to get things done rather then on the architectural aspects. However to get things started, I always like to have a clear picture of what I&rsquo;m trying to achieve. The below diagram depicts a high-level architecture of my lab setup. Although OpenContrail supports BGP VPNv4/6 with multiple dataplane encapsulations, in this post I&rsquo;ll use EVPN as the only control plane protocol to communicate with MX80 and use VXLAN encapsulation in the dataplane.</p>
+
+<p><img class="center" src="/images/contrail-lab.png"></p>
+
+<p>EVPN as a DC-GW integration protocol is relatively new to OpenContrail and comes with a few limitations. One of them is the absence of EVPN type-5 routes, which means I can&rsquo;t use it in the same way I did in <a href="/blog/2017/12/15/os-odl-netvirt/">OpenDaylight&rsquo;s case</a>. Instead I&rsquo;ll demonstrate a DC-GW IRB scenario, which extends the existing virtual network to a DC-GW and makes IRB/SVI interface on that DC-GW act as a default gateway for this network. This is a very common scenario for L2 DCI and active-active DC deployment models. To demonstrate this scenario I&rsquo;m going to setup a single OpenStack virtual network with a couple of VMs whose gateway will reside on MX80. Since I only have a single OpenStack instance and a single MX80, I&rsquo;ll setup one half of L2 DCI and setup a mutual redistribution to make our overlay network reachable from MX80&rsquo;s global routing table.</p>
+
+<p><img class="center" src="/images/contrail-overlay.png"></p>
+
+<h2>All-in-one VM setup</h2>
+
+<p>Physically, my lab will consist of a single hypervisor running an all-in-one VM with <a href="https://docs.openstack.org/kolla/latest/">kolla-openstack</a> and <a href="https://github.com/Juniper/contrail-docker/wiki/OpenContrail-Kolla">kolla-contrail</a> and a physical Juniper MX80 playing the role of a DC-GW.</p>
+
+<p><img class="center" src="/images/contrail-setup.png"></p>
+
+<p>OpenContrail&rsquo;s <a href="https://github.com/Juniper/contrail-docker/wiki/OpenContrail-Kolla">kolla github page</a> contains a set of instructions to setup the environment. As usual, I have automated all of these steps which can be setup from a hypervisor with the following commands:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/kolla-odl-bgpvpn <span class="o">&amp;&amp;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
+</span><span class='line'>./1-create.sh <span class="k">do</span>
+</span><span class='line'>./2-contrail.sh <span class="k">do</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>OpenStack setup</h2>
+
+<p>Once installation is complete and all docker containers are up and running, we can setup the OpenStack side of our test environment. The script below will do the following:</p>
+
+<ol>
+<li>Download cirros and CumulusVX images and upload them to Glance</li>
+<li>Create a virtual network</li>
+<li>Update security rules to allow inbound ICMP and SSH connections</li>
+<li>Create a pair of VMs - one based on cirros and one based on CumulusVX image</li>
+</ol>
+
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -L -o ./cirros http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
+</span><span class='line'>curl -L -o ./cumulusVX http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2
+</span><span class='line'>
+</span><span class='line'>openstack image create --disk-format qcow2 --container-format bare --public <span class="se">\</span>
+</span><span class='line'>--property <span class="nv">os_type</span><span class="o">=</span>linux --file ./cirros cirros
+</span><span class='line'>rm ./cirros
+</span><span class='line'>
+</span><span class='line'>openstack image create --disk-format qcow2 --container-format bare --public <span class="se">\</span>
+</span><span class='line'>--property <span class="nv">os_type</span><span class="o">=</span>linux --file ./cumulusVX cumulus
+</span><span class='line'>rm ./cumulusVX
+</span><span class='line'>
+</span><span class='line'>openstack network create --provider-network-type vxlan irb-net
+</span><span class='line'>
+</span><span class='line'>openstack subnet create --subnet-range 10.0.100.160/27 --network irb-net <span class="se">\</span>
+</span><span class='line'>      --host-route <span class="nv">destination</span><span class="o">=</span>0.0.0.0/0,gateway<span class="o">=</span>10.0.100.190 <span class="se">\</span>
+</span><span class='line'>      --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
+</span><span class='line'>
+</span><span class='line'>openstack flavor create --id <span class="m">1</span> --ram <span class="m">256</span> --disk <span class="m">1</span> --vcpus <span class="m">1</span> m1.nano
+</span><span class='line'>openstack flavor create --id <span class="m">2</span> --ram <span class="m">512</span> --disk <span class="m">10</span> --vcpus <span class="m">1</span> m1.tiny
+</span><span class='line'>
+</span><span class='line'><span class="nv">ADMIN_PROJECT_ID</span><span class="o">=</span><span class="k">$(</span>openstack project show <span class="s1">&#39;admin&#39;</span> -f value -c id<span class="k">)</span>
+</span><span class='line'><span class="nv">ADMIN_SEC_GROUP</span><span class="o">=</span><span class="k">$(</span>openstack security group list --project <span class="k">${</span><span class="nv">ADMIN_PROJECT_ID</span><span class="k">}</span> <span class="p">|</span> awk <span class="s1">&#39;/ default / {print $2}&#39;</span><span class="k">)</span>
+</span><span class='line'>openstack security group rule create --ingress --ethertype IPv4 <span class="se">\</span>
+</span><span class='line'>    --protocol icmp <span class="k">${</span><span class="nv">ADMIN_SEC_GROUP</span><span class="k">}</span>
+</span><span class='line'>openstack security group rule create --ingress --ethertype IPv4 <span class="se">\</span>
+</span><span class='line'>    --protocol tcp --dst-port <span class="m">22</span> <span class="k">${</span><span class="nv">ADMIN_SEC_GROUP</span><span class="k">}</span>
+</span><span class='line'>
+</span><span class='line'>openstack server create --image cirros --flavor m1.nano --net irb-net VM1
+</span><span class='line'>openstack server create --image cumulus --flavor m1.tiny --net irb-net VR1
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The only thing worth noting in the above script is that a default gateway <code>10.0.100.161</code> gets overridden by a default host route pointing to <code>10.0.100.190</code>. Normally, to demonstrate DC-GW IRB scenario, I would have setup a gateway-less L2 only subnet, however in that case I wouldn&rsquo;t have been able to demonstrate BGPaaS on the same network, since this feature relies on having a gateway IP setup (which later acts as a BGP session termination endpoint). So instead of setting up two separate networks I&rsquo;ve decided to implement this hack to minimise the required configuration.</p>
+
+<h2>EVPN integration with MX80</h2>
+
+<p>DC-GW integration procedure is very simple and requires only a few simple steps:</p>
+
+<ol>
+<li>Make sure VXLAN VNI is matched on both ends</li>
+<li>Configure import/export route targets</li>
+<li>Setup BGP peering with DC-GW</li>
+</ol>
+
+
+<p>All of these steps can be done very easily through OpenContrail&rsquo;s GUI. However as I&rsquo;ve mentioned before, I always prefer to use API when I have a chance and in this case I even have a python library for OpenContrail&rsquo;s REST API available on Juniper&rsquo;s <a href="https://github.com/Juniper/contrail-python-api">github page</a>, which I&rsquo;m going to use below to implement the above three steps.</p>
+
+<h3>Configuration</h3>
+
+<p>Before we can begin working with OpenContrail&rsquo;s API, we need to authenticate with the controller and get a REST API connection handler.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">pycontrail.client</span> <span class="kn">as</span> <span class="nn">client</span>
+</span><span class='line'><span class="n">CONTRAIL_API</span> <span class="o">=</span> <span class="s">&#39;http://10.0.100.140:8082&#39;</span>
+</span><span class='line'><span class="n">AUTH_URL</span> <span class="o">=</span> <span class="s">&#39;http://10.0.100.140:5000/v2.0&#39;</span>
+</span><span class='line'><span class="n">AUTH_PARAMS</span> <span class="o">=</span> <span class="p">{</span>
+</span><span class='line'>    <span class="s">&#39;type&#39;</span><span class="p">:</span> <span class="s">&#39;keystone&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s">&#39;username&#39;</span><span class="p">:</span> <span class="s">&#39;admin&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s">&#39;password&#39;</span><span class="p">:</span> <span class="s">&#39;mypassword&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s">&#39;tenant_name&#39;</span><span class="p">:</span> <span class="s">&#39;admin&#39;</span><span class="p">,</span>
+</span><span class='line'>    <span class="s">&#39;auth_url&#39;</span><span class="p">:</span> <span class="n">AUTH_URL</span>
+</span><span class='line'><span class="p">}</span>
+</span><span class='line'><span class="n">conn</span> <span class="o">=</span> <span class="n">client</span><span class="o">.</span><span class="n">Client</span><span class="p">(</span><span class="n">url</span><span class="o">=</span><span class="n">CONTRAIL_API</span><span class="p">,</span><span class="n">auth_params</span><span class="o">=</span><span class="n">AUTH_PARAMS</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The first thing I&rsquo;m going to do is override the default VNI setup by OpenContrail for <code>irb-net</code> to a pre-defined value of <code>5001</code>. To do that I first need to get a handler for <code>irb-net</code> object and extract the <code>virtual_network_properties</code> object containing a <code>vxlan_network_identifier</code> property. Once it&rsquo;s overridden, I just need to update the parent <code>irb-net</code> object to apply the change to the running configuration on the controller.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">irb_net</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="p">[</span> <span class="s">&#39;default-domain&#39;</span><span class="p">,</span> <span class="s">&#39;admin&#39;</span> <span class="p">,</span><span class="s">&#39;irb-net&#39;</span><span class="p">]</span> <span class="p">)</span>
+</span><span class='line'><span class="n">vni_props</span><span class="o">=</span><span class="n">irb_net</span><span class="o">.</span><span class="n">get_virtual_network_properties</span><span class="p">()</span>
+</span><span class='line'><span class="n">vni_props</span><span class="o">.</span><span class="n">set_vxlan_network_identifier</span><span class="p">(</span><span class="mi">5001</span><span class="p">)</span>
+</span><span class='line'><span class="n">irb_net</span><span class="o">.</span><span class="n">set_virtual_network_properties</span><span class="p">(</span><span class="n">vni_props</span><span class="p">)</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_update</span><span class="p">(</span><span class="n">irb_net</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The next thing I need to do is explicitly set the import/export route-target properties for the <code>irb-net</code> object. This will require a new <code>RouteTargetList</code> object which then gets referenced by a <code>route_target_list</code> property of the <code>irb-net</code> object.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">pycontrail</span> <span class="kn">import</span> <span class="n">types</span> <span class="k">as</span> <span class="n">t</span>
+</span><span class='line'><span class="n">new_rtl</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">RouteTargetList</span><span class="p">([</span><span class="s">&#39;target:200:200&#39;</span><span class="p">])</span>
+</span><span class='line'><span class="n">irb_net</span><span class="o">.</span><span class="n">set_route_target_list</span><span class="p">(</span><span class="n">new_rtl</span><span class="p">)</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">virtual_network_update</span><span class="p">(</span><span class="n">irb_net</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The final step is setting up a peering with MX80. The main object that needs to be created is <code>BgpRouter</code>, which contains a pointer to BGP session parameters object with session-specific values like ASN and remote peer IP. BGP router is defined in a global context (default domain and default project) which will make it available to all configured virtual networks.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">pycontrail</span> <span class="kn">import</span> <span class="n">types</span> <span class="k">as</span> <span class="n">t</span>
+</span><span class='line'><span class="n">ctx</span> <span class="o">=</span> <span class="p">[</span><span class="s">&#39;default-domain&#39;</span><span class="p">,</span> <span class="s">&#39;default-project&#39;</span><span class="p">,</span> <span class="s">&#39;ip-fabric&#39;</span><span class="p">,</span> <span class="s">&#39;__default__&#39;</span><span class="p">]</span>
+</span><span class='line'><span class="n">af</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">AddressFamilies</span><span class="p">(</span><span class="n">family</span><span class="o">=</span><span class="p">[</span><span class="s">&#39;inet-vpn&#39;</span><span class="p">,</span> <span class="s">&#39;e-vpn&#39;</span><span class="p">])</span>
+</span><span class='line'><span class="n">bgp_params</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">BgpRouterParams</span><span class="p">(</span><span class="n">vendor</span><span class="o">=</span><span class="s">&#39;Juniper&#39;</span><span class="p">,</span> \
+</span><span class='line'>                               <span class="n">autonomous_system</span><span class="o">=</span><span class="mi">65411</span><span class="p">,</span> \
+</span><span class='line'>                               <span class="n">address</span><span class="o">=</span><span class="s">&#39;10.0.101.15&#39;</span><span class="p">,</span> \
+</span><span class='line'>                               <span class="n">address_families</span><span class="o">=</span><span class="n">af</span><span class="p">)</span>
+</span><span class='line'><span class="n">vrf</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">routing_instance_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="n">ctx</span><span class="p">)</span>
+</span><span class='line'><span class="n">bgp_router</span> <span class="o">=</span> <span class="n">t</span><span class="o">.</span><span class="n">BgpRouter</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s">&#39;MX80&#39;</span><span class="p">,</span> <span class="n">display_name</span><span class="o">=</span><span class="s">&#39;MX80&#39;</span><span class="p">,</span> \
+</span><span class='line'>                         <span class="n">bgp_router_parameters</span><span class="o">=</span><span class="n">bgp_params</span><span class="p">,</span>
+</span><span class='line'>                         <span class="n">parent_obj</span><span class="o">=</span><span class="n">vrf</span><span class="p">)</span>
+</span><span class='line'><span class="n">contrail</span> <span class="o">=</span> <span class="n">conn</span><span class="o">.</span><span class="n">bgp_router_read</span><span class="p">(</span><span class="n">fq_name</span> <span class="o">=</span> <span class="n">ctx</span> <span class="o">+</span> <span class="p">[</span><span class="s">&#39;controller-1&#39;</span><span class="p">])</span>
+</span><span class='line'><span class="n">bgp_router</span><span class="o">.</span><span class="n">set_bgp_router</span><span class="p">(</span><span class="n">contrail</span><span class="p">,</span><span class="n">t</span><span class="o">.</span><span class="n">BgpPeeringAttributes</span><span class="p">())</span>
+</span><span class='line'><span class="n">conn</span><span class="o">.</span><span class="n">bgp_router_create</span><span class="p">(</span><span class="n">bgp_router</span><span class="p">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>For the sake of brevity, I will not cover MX80&rsquo;s configuration in details and simply include it here for reference with some minor explanatory comments.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+<span class='line-number'>27</span>
+<span class='line-number'>28</span>
+<span class='line-number'>29</span>
+<span class='line-number'>30</span>
+<span class='line-number'>31</span>
+<span class='line-number'>32</span>
+<span class='line-number'>33</span>
+<span class='line-number'>34</span>
+<span class='line-number'>35</span>
+<span class='line-number'>36</span>
+<span class='line-number'>37</span>
+<span class='line-number'>38</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="c"># Interface and global settings configuration</span>
+</span><span class='line'><span class="nb">set </span>interfaces irb unit <span class="m">5001</span> family inet address 10.0.100.190/27
+</span><span class='line'><span class="nb">set </span>interfaces lo0 unit <span class="m">0</span> family inet address 10.0.101.15/32
+</span><span class='line'><span class="nb">set </span>routing-options router-id 10.0.101.15
+</span><span class='line'><span class="nb">set </span>routing-options autonomous-system 65411
+</span><span class='line'>
+</span><span class='line'><span class="c"># Setup BGP peering with OpenContrail</span>
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL multihop
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL <span class="nb">local</span>-address 10.0.101.15
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL family inet-vpn unicast
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL family evpn signaling
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL peer-as 64512
+</span><span class='line'><span class="nb">set </span>protocols bgp group CONTRAIL neighbor 10.0.100.140
+</span><span class='line'>
+</span><span class='line'><span class="c"># Setup EVPN instance type with IRB interface and matching RT and VNI</span>
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vtep-source-interface lo0.0
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB instance-type evpn
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vlan-id 501
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB routing-interface irb.5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vxlan vni 5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB route-distinguisher 200:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB vrf-target target:200:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L2-IRB protocols evpn encapsulation vxlan
+</span><span class='line'>
+</span><span class='line'><span class="c"># Setup VRF instance with IRB interface</span>
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB instance-type vrf
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB interface irb.5001
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB route-distinguisher 201:200
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB vrf-target target:200:200
+</span><span class='line'>
+</span><span class='line'><span class="c"># Setup route redistribution between EVPN and Global VRFs</span>
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups CONTRAIL-TO-GLOBAL import-rib EVPN-L3-IRB.inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups CONTRAIL-TO-GLOBAL import-rib inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups GLOBAL-TO-CONTRAIL import-rib inet.0
+</span><span class='line'><span class="nb">set </span>routing-options rib-groups GLOBAL-TO-CONTRAIL import-rib EVPN-L3-IRB.inet.0
+</span><span class='line'><span class="nb">set </span>routing-options interface-routes rib-group inet CONTRAIL-TO-GLOBAL
+</span><span class='line'><span class="nb">set </span>routing-instances EVPN-L3-IRB routing-options interface-routes rib-group inet CONTRAIL-TO-GLOBAL
+</span><span class='line'><span class="nb">set </span>protocols bgp group EXTERNAL-BGP family inet unicast rib-group GLOBAL-TO-CONTRAIL
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Verification</h3>
+
+<p>The easiest way to verify that BGP peering has been established is to query OpenContrail&rsquo;s introspection API:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>curl  -s http://10.0.100.140:8083/Snh_BgpNeighborReq?ip_address<span class="o">=</span>10.0.101.15 <span class="p">|</span> <span class="se">\</span>
+</span><span class='line'>  xmllint --xpath <span class="s1">&#39;/BgpNeighborListResp/neighbors[1]/list/BgpNeighborResp/state&#39;</span> -
+</span><span class='line'>&lt;state <span class="nb">type</span><span class="o">=</span><span class="s2">&quot;string&quot;</span> <span class="nv">identifier</span><span class="o">=</span><span class="s2">&quot;8&quot;</span>&gt;Established&lt;/state&gt;
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>Datapath verification can be done from either side, in this case I&rsquo;m showing a ping from MX80&rsquo;s global VRF towards one of the OpenStack VMs:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>admin@MX80&gt; ping 10.0.100.164 count <span class="m">2</span>
+</span><span class='line'>PING 10.0.100.164 <span class="o">(</span>10.0.100.164<span class="o">)</span>: <span class="m">56</span> data bytes
+</span><span class='line'><span class="m">64</span> bytes from 10.0.100.164: <span class="nv">icmp_seq</span><span class="o">=</span><span class="m">0</span> <span class="nv">ttl</span><span class="o">=</span><span class="m">64</span> <span class="nb">time</span><span class="o">=</span>3.836 ms
+</span><span class='line'><span class="m">64</span> bytes from 10.0.100.164: <span class="nv">icmp_seq</span><span class="o">=</span><span class="m">1</span> <span class="nv">ttl</span><span class="o">=</span><span class="m">64</span> <span class="nb">time</span><span class="o">=</span>3.907 ms
+</span><span class='line'>
+</span><span class='line'>--- 10.0.100.164 ping statistics ---
+</span><span class='line'><span class="m">2</span> packets transmitted, <span class="m">2</span> packets received, 0% packet loss
+</span><span class='line'>round-trip min/avg/max/stddev <span class="o">=</span> 3.836/3.872/3.907/0.035 ms
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h2>BGP-as-a-Service</h2>
+
+<p>To keep things simple I will not use multiple dot1Q interfaces and setup a BGP peering with CumulusVX over a normal, non-trunk interface. From CumulusVX I will inject a loopback IP <code>1.1.1.1/32</code> into the <code>irb-net</code> network. Since REST API python library I&rsquo;ve used above is two major releases behind the current version of OpenContrail, it cannot be used to setup BGPaaS feature. Instead I will demonstrate how to use REST API directly from the command line of all-in-one VM using cURL.</p>
+
+<h3>Configuration</h3>
+
+<p>In order to start working with OpenContrail&rsquo;s API, I first need to obtain an authentication token from OpenStack&rsquo;s keystone. With that token I can now query the list of IPs assigned to all OpenStack instances and pick the one assigned to CumulusVX. I need the UUID of that particular IP address in order to extract the ID of the VM interface this IP is assigned to.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
+</span><span class='line'><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>openstack token issue -f value -c id<span class="k">)</span>
+</span><span class='line'><span class="nv">CONTRAIL_AUTH</span><span class="o">=</span><span class="s2">&quot;X-AUTH-TOKEN: $TOKEN&quot;</span>
+</span><span class='line'><span class="nv">CTYPE</span><span class="o">=</span><span class="s2">&quot;Content-Type: application/json; charset=UTF-8&quot;</span>
+</span><span class='line'>curl -H <span class="s2">&quot;$CONTRAIL_AUTH&quot;</span> http://10.0.100.140:8082/instance-ips <span class="p">|</span> jq
+</span><span class='line'><span class="nv">VMI_ID</span><span class="o">=</span><span class="k">$(</span>curl -H <span class="s2">&quot;$CONTRAIL_AUTH&quot;</span> http://10.0.100.140:8082/instance-ip/2e7987be-3f53-4296-905a-0c64793307a9 <span class="p">|</span> <span class="se">\</span>
+</span><span class='line'>         jq <span class="s1">&#39;.[&quot;instance-ip&quot;] .virtual_machine_interface_refs[0].uuid&#39;</span><span class="k">)</span>
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>With VM interface ID saved in a <code>VMI_ID</code> variable I can create a BGPaaS service and link it to that particular VM interface.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./bgpaas.json</span>
+</span><span class='line'><span class="s">{</span>
+</span><span class='line'><span class="s">    &quot;bgp-as-a-service&quot;:</span>
+</span><span class='line'><span class="s">    {</span>
+</span><span class='line'><span class="s">        &quot;fq_name&quot;: [&quot;default-domain&quot;, &quot;admin&quot;, &quot;cumulusVX-bgp&quot; ],</span>
+</span><span class='line'><span class="s">        &quot;autonomous_system&quot;: 321,</span>
+</span><span class='line'><span class="s">        &quot;bgpaas_session_attributes&quot;: {</span>
+</span><span class='line'><span class="s">            &quot;address_families&quot;: {&quot;family&quot;: [&quot;inet&quot;] }</span>
+</span><span class='line'><span class="s">            },</span>
+</span><span class='line'><span class="s">        &quot;parent_type&quot;: &quot;project&quot;,</span>
+</span><span class='line'><span class="s">        &quot;virtual_machine_interface_refs&quot;: [{</span>
+</span><span class='line'><span class="s">            &quot;attr&quot;: null,</span>
+</span><span class='line'><span class="s">            &quot;to&quot;: [&quot;default-domain&quot;, &quot;admin&quot;, ${VMI_ID}]</span>
+</span><span class='line'><span class="s">            }],</span>
+</span><span class='line'><span class="s">        &quot;bgpaas-shared&quot;: false,</span>
+</span><span class='line'><span class="s">        &quot;bgpaas-ip-address&quot;: &quot;10.0.100.164&quot;</span>
+</span><span class='line'><span class="s">    }</span>
+</span><span class='line'><span class="s">}</span>
+</span><span class='line'><span class="s">EOF</span>
+</span><span class='line'>
+</span><span class='line'>curl -X POST -H <span class="s2">&quot;$CONTRAIL_AUTH&quot;</span> -H <span class="s2">&quot;$CTYPE&quot;</span> -d @bgpaas.json http://10.0.100.140:8082/bgp-as-a-services
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>The final step is setting up a BGP peering on the CumulusVX side. CumulusVX configuration is very simple and self-explanatory. The BGP neighbor IP is the IP of virtual network&rsquo;s default gateway located on local vRouter.</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>!
+</span><span class='line'>interface lo
+</span><span class='line'> ip address 1.1.1.1/32
+</span><span class='line'>!
+</span><span class='line'>router bgp 321
+</span><span class='line'> neighbor 10.0.100.161 remote-as 64512
+</span><span class='line'> !
+</span><span class='line'> address-family ipv4 unicast
+</span><span class='line'>  network 1.1.1.1/32
+</span><span class='line'> <span class="nb">exit</span>-address-family
+</span><span class='line'>!
+</span></code></pre></td></tr></table></div></figure>
+
+
+<h3>Verification</h3>
+
+<p>Here&rsquo;s where we come across another limitation of EVPN. The loopback prefix <code>1.1.1.1/32</code> does not get injected into EVPN address family, however it does show up automatically in the VPNv4 address family which can be verified from the MX80:</p>
+
+<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
+<span class='line-number'>2</span>
+<span class='line-number'>3</span>
+<span class='line-number'>4</span>
+<span class='line-number'>5</span>
+<span class='line-number'>6</span>
+<span class='line-number'>7</span>
+<span class='line-number'>8</span>
+<span class='line-number'>9</span>
+<span class='line-number'>10</span>
+<span class='line-number'>11</span>
+<span class='line-number'>12</span>
+<span class='line-number'>13</span>
+<span class='line-number'>14</span>
+<span class='line-number'>15</span>
+<span class='line-number'>16</span>
+<span class='line-number'>17</span>
+<span class='line-number'>18</span>
+<span class='line-number'>19</span>
+<span class='line-number'>20</span>
+<span class='line-number'>21</span>
+<span class='line-number'>22</span>
+<span class='line-number'>23</span>
+<span class='line-number'>24</span>
+<span class='line-number'>25</span>
+<span class='line-number'>26</span>
+</pre></td><td class='code'><pre><code class='bash'><span class='line'>admin@MX80&gt; show route table bgp.l3vpn.0 hidden 1.1.1.1/32 extensive
+</span><span class='line'>
+</span><span class='line'>bgp.l3vpn.0: <span class="m">6</span> destinations, <span class="m">6</span> routes <span class="o">(</span><span class="m">3</span> active, <span class="m">0</span> holddown, <span class="m">3</span> hidden<span class="o">)</span>
+</span><span class='line'>10.0.100.140:2:1.1.1.1/32 <span class="o">(</span><span class="m">1</span> entry, <span class="m">0</span> announced<span class="o">)</span>
+</span><span class='line'>         BGP    Preference: 170/-101
+</span><span class='line'>                Route Distinguisher: 10.0.100.140:2
+</span><span class='line'>                Next hop <span class="nb">type</span>: Unusable, Next hop index: 0
+</span><span class='line'>                Next-hop reference count: 6
+</span><span class='line'>                State: &lt;Hidden Ext ProtectionPath ProtectionCand&gt;
+</span><span class='line'>                Local AS: <span class="m">65411</span> Peer AS: 64512
+</span><span class='line'>                Age: 37:44
+</span><span class='line'>                Validation State: unverified
+</span><span class='line'>                Task: BGP_64512.10.0.100.140
+</span><span class='line'>                AS path: <span class="m">64512</span> <span class="m">321</span> I
+</span><span class='line'>                Communities: target:200:200 target:64512:8000003 encapsulation:unknown<span class="o">(</span>0x2<span class="o">)</span> encapsulation:mpls-in-udp<span class="o">(</span>0xd<span class="o">)</span> unknown <span class="nb">type </span><span class="m">8004</span> value fc00:7a1201 unknown <span class="nb">type </span><span class="m">8071</span> value fc00:1389
+</span><span class='line'>                Import Accepted
+</span><span class='line'>                VPN Label: 31
+</span><span class='line'>                Localpref: 100
+</span><span class='line'>                Router ID: 10.0.100.140
+</span><span class='line'>                Secondary Tables: EVPN-L3-IRB.inet.0
+</span><span class='line'>                Indirect next hops: 1
+</span><span class='line'>                        Protocol next hop: 10.0.100.140
+</span><span class='line'>                        Label operation: Push 31
+</span><span class='line'>                        Label TTL action: prop-ttl
+</span><span class='line'>                        Load balance label: Label 31: None<span class="p">;</span>
+</span><span class='line'>                        Indirect next hop: 0x0 - INH Session ID: 0x0
+</span></code></pre></td></tr></table></div></figure>
+
+
+<p>It&rsquo;s hidden since I haven&rsquo;t configured MPLSoUDP <a href="https://www.juniper.net/documentation/en_US/junos/topics/example/example-next-hop-based-dynamic-mpls-udp-tunnel-configuring.html">dynamic tunnels</a> on MX80. However this proves that the prefix does get injected into customer VPNs and become available on all devices with the matching import route-target communities.</p>
+
+<h2>Outro</h2>
+
+<p>This post concludes Series 2 of my OpenStack SDN saga. I&rsquo;ve covered quite an extensive range of topics in my two-part series, however, OpenStack networking landscape is so big, it&rsquo;s simply impossible to cover everything I find interesting. I started writing about OpenStack SDN when I first learned I got a job with Nokia. Back then I knew little about VMware NSX and even less about OpenStack. That&rsquo;s why I started researching topics that I found interesting and branching out into adjacent areas as I went along. Almost 2 years later, looking back I can say I&rsquo;ve learned a lot about the internals of SDN in general and hopefully so have my readers. Now I&rsquo;m leaving Nokia to rediscover my networking roots at Arista. I&rsquo;ll dive into DC networking from a different perspective now and it may be awhile before I accumulate a critical mass of interesting material to start spilling it out in my blog again. I still may come back to OpenStack some day but for now I&rsquo;m gonna take a little break, maybe do some house keeping (e.g. move my blog from Jekyll to <a href="https://gohugo.io/">Hugo</a>, add TLS support) and enjoy my time being a farther.</p>
+</div>
+
+
+      <footer>
+        <p class="meta text-muted">
+          
+  
+
+<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+
+          
+
+
+
+
+
+
+
+
+
+
+
+
+<span class="glyphicon glyphicon-calendar"></span> <time datetime="2018-01-02T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">02/01/2018</time>
+          
+
+<span class="glyphicon glyphicon-tags"></span>&nbsp;
+<span class="categories">
+  
+    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
+  
+</span>
+
+
+        </p>
+        
+          <div class="sharing">
+  
+  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2018/01/02/os-contrail/" data-via="" data-counturl="http://networkop.github.io/blog/2018/01/02/os-contrail/" >Tweet</a>
+  
+  
+  
+    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
+  
+	
+	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
+    <script type="IN/Share" data-url="http://networkop.github.io/blog/2018/01/02/os-contrail/" data-counter="right"></script>
+	
+</div>
+
+        
+        
+          <ul class="meta text-muted pager">
+            
+            <li class="previous"><a href="/blog/2017/12/15/os-odl-netvirt/" title="Previous Post: OpenStack SDN - OpenDaylight with BGP VPN">&laquo; OpenStack SDN - OpenDaylight with BGP VPN</a></li>
+            
+            
+          </ul>
+        
+      </footer>
+    </article>
+    
+      <section>
+        <h2>Comments</h2>
+        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+</div>
+      </section>
+    
+  </div>
+
+  
+  <aside class="sidebar col-md-3">
+    
+      <section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Recent Posts</h3>
+  </div>
+  
+  <div id="recent_posts" class="list-group">
+    
+    <a class="list-group-item active" href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
+    
+    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
+    
+    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
+    
+    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
+    
+    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
+    
+  </div>
+</section>
+<section class="panel panel-default">
+  <div class="panel-heading">
+    <h3 class="panel-title">Categories</h3>
+  </div>  
+  <div class="list-group">
+	
+    
+    
+    <a class="list-group-item " href="/blog/categories/automation/index.html">
+        <span class="badge">18</span>
+        automation
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/openstack/index.html">
+        <span class="badge">16</span>
+        openstack
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/sdn/index.html">
+        <span class="badge">15</span>
+        sdn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/network/index.html">
+        <span class="badge">11</span>
+        network
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
+        <span class="badge">6</span>
+        unetlab
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ansible/index.html">
+        <span class="badge">6</span>
+        ansible
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/yang/index.html">
+        <span class="badge">4</span>
+        yang
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/devops/index.html">
+        <span class="badge">4</span>
+        devops
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/rest/index.html">
+        <span class="badge">4</span>
+        rest
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/cisco/index.html">
+        <span class="badge">4</span>
+        cisco
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/restconf/index.html">
+        <span class="badge">2</span>
+        restconf
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/ovn/index.html">
+        <span class="badge">2</span>
+        ovn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/howto/index.html">
+        <span class="badge">2</span>
+        howto
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/tdd/index.html">
+        <span class="badge">2</span>
+        tdd
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/bgp/index.html">
+        <span class="badge">2</span>
+        bgp
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/routing/index.html">
+        <span class="badge">2</span>
+        routing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/odl/index.html">
+        <span class="badge">1</span>
+        odl
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/netconf/index.html">
+        <span class="badge">1</span>
+        netconf
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
+        <span class="badge">1</span>
+        pycharm
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/git/index.html">
+        <span class="badge">1</span>
+        git
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
+        <span class="badge">1</span>
+        syncthing
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/trick/index.html">
+        <span class="badge">1</span>
+        trick
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
+        <span class="badge">1</span>
+        troubleshooting
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
+        <span class="badge">1</span>
+        l3vpn
+      </a>
+    
+    
+    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
+        <span class="badge">1</span>
+        best practice
+      </a>
+    
+  </div>
+</section>
+    
+  </aside>
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+    <footer role="contentinfo"><div class="container">
+    <p class="text-muted credits">
+  Copyright &copy; 2018 - Michael Kashin<br>
+  <small>
+      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
+      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
+  </small>
+</p>
+
+</div>
+</footer>
+    
+
+<script type="text/javascript">
+      var disqus_shortname = 'networkop';
+      
+        
+        // var disqus_developer = 1;
+        var disqus_identifier = 'http://networkop.github.io/blog/2018/01/02/os-contrail/';
+        var disqus_url = 'http://networkop.github.io/blog/2018/01/02/os-contrail/';
+        var disqus_script = 'embed.js';
+      
+    (function () {
+      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
+      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
+      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
+    }());
+</script>
+
+
+
+<div id="fb-root"></div>
+<script>(function(d, s, id) {
+  var js, fjs = d.getElementsByTagName(s)[0];
+  if (d.getElementById(id)) {return;}
+  js = d.createElement(s); js.id = id; js.async = true;
+  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
+  fjs.parentNode.insertBefore(js, fjs);
+}(document, 'script', 'facebook-jssdk'));</script>
+
+
+
+
+
+  <script type="text/javascript">
+    (function(){
+      var twitterWidgets = document.createElement('script');
+      twitterWidgets.type = 'text/javascript';
+      twitterWidgets.async = true;
+      twitterWidgets.src = '//platform.twitter.com/widgets.js';
+      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
+    })();
+  </script>
+
+
+<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
+<script src="/javascripts/modernizr.js"></script>
+
+
+  </body>
+</html>
