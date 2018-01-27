@@ -1,804 +1,697 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Openstack on UNetlab - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Running a single-node Openstack instance inside UNetLab">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="What the hell am I trying to do? I admit that running OpenStack on anything other than baremetal is nonsense. So why would anyone want to run it with two layers of virtualisation underneath? My goal is to explore some of the new SDN/NFV technologies without leaving the confines of my home area network and/or racking up a triple-digit electricity bill. I also wanted to be able to swap underlay networks without spending hours trying to plumb together virtualized switches and servers from multiple vendors.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2016/04/04/openstack-unl/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/04/04/openstack-unl/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2016/04/04/openstack-unl/">
-  <meta property="og:title" content="Openstack on UNetlab - Network-oriented programming">
-  <meta property="og:description" content="Running a single-node Openstack instance inside UNetLab">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2016/04/04/openstack-unl/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2016/04/04/openstack-unl/">
+  <meta property="og:title" content="OpenStack on UNetlab | Network-oriented programming">
+  <meta property="og:description" content="What the hell am I trying to do? I admit that running OpenStack on anything other than baremetal is nonsense. So why would anyone want to run it with two layers of virtualisation underneath? My goal is to explore some of the new SDN/NFV technologies without leaving the confines of my home area network and/or racking up a triple-digit electricity bill. I also wanted to be able to swap underlay networks without spending hours trying to plumb together virtualized switches and servers from multiple vendors.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2016-04-04T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2016-04-04T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>OpenStack on UNetlab | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">OpenStack on UNetlab</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2016-04-04 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      4 Apr 2016
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    8 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2016/04/04/openstack-unl/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/sdn">SDN</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=OpenStack%20on%20UNetlab&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f04%2f04%2fopenstack-unl%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f04%2f04%2fopenstack-unl%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f04%2f04%2fopenstack-unl%2f&amp;title=OpenStack%20on%20UNetlab"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=OpenStack%20on%20UNetlab&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f04%2f04%2fopenstack-unl%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p><img src="/img/unl-os.png" alt="" /></p>
 
+<h1 id="what-the-hell-am-i-trying-to-do">What the hell am I trying to do?</h1>
 
+<p>I admit that running OpenStack on anything other than baremetal is nonsense. So why would anyone want to run it with two layers of virtualisation underneath? My goal is to explore some of the new SDN/NFV technologies without leaving the confines of my home area network and/or racking up a triple-digit electricity bill. I also wanted to be able to swap underlay networks without spending hours trying to plumb together virtualized switches and servers from multiple vendors. That&rsquo;s why I&rsquo;ve decided to use UNetLab VM as a host for my OpenStack lab. This would allow me to easily assemble any type of underlay, WAN or DCI network and with hardware virtualisation support I can afford to run OpenStack double-nested inside Workstation and Qemu on my dual-core i7 without too much of a performance penalty. After all, <a href="https://www.ravellosystems.com/technology/hvx" target="_blank">some companies</a> even managed to turn similar things into a commercial product.</p>
 
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-04-04T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">04/04/2016</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Openstack on UNetlab
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;m going to show how to get a running instance of Openstack inside a UNetLab virtual machine.</p>
-
-<!--more-->
-
-
-<p><img class="center" src="/images/unl-os.png"></p>
-
-<h2>What the hell am I trying to do?</h2>
-
-<p>I admit that running Openstack on anything other than baremetal is nonsense. So why would anyone want to run it with two layers of virtualisation underneath? My goal is to explore some of the new SDN/NFV technologies without leaving the confines on my home area network and/or racking up a triple-digit electricity bill. I also wanted to be able to swap underlay networks without spending hours trying to plumb together virtualized switches and servers from multiple vendors. That&rsquo;s why I&rsquo;ve decided to use UNetLab VM as a host for my Openstack lab. This would allow me to easily assemble any type of underlay, WAN or DCI network and with hardware virtualisation support I can afford to run Openstack double-nested inside Workstation and Qemu on my dual-core i7 without too much of a performance penalty. After all, <a href="https://www.ravellosystems.com/technology/hvx">some companies</a> even managed to turn similar things into a commercial product.</p>
-
-<p>My interest in Openstack is strictly limited by networking, that&rsquo;s why a lot of the things you&rsquo;ll see in this and following posts will not be applicable to a real-life production environment. However, as far as networking is concerned, I&rsquo;ll try to stick as close to the official Openstack <a href="http://docs.openstack.org/openstack-ops/content/example_architecture.html">network design</a> as possible. I&rsquo;ll be using <a href="https://www.rdoproject.org">RDO</a> to deploy Openstack. The specific method will be Packstack which is a collection of Puppet modules used to deploy Openstack components.</p>
+<p>My interest in OpenStack is strictly limited by networking, that&rsquo;s why a lot of the things you&rsquo;ll see in this and following posts will not be applicable to a real-life production environment. However, as far as networking is concerned, I&rsquo;ll try to stick as close to the official OpenStack <a href="http://docs.OpenStack.org/OpenStack-ops/content/example_architecture.html" target="_blank">network design</a> as possible. I&rsquo;ll be using <a href="https://www.rdoproject.org" target="_blank">RDO</a> to deploy OpenStack. The specific method will be Packstack which is a collection of Puppet modules used to deploy OpenStack components.</p>
 
 <p>Why have I not went the OpenDaylight/Mininet way if I wanted to play with SDN/NFV? Because I wanted something more realistic to play with, that wouldn&rsquo;t feel like vendor&rsquo;s powerpoint presentation. Plus there&rsquo;s plenty of resources on the &lsquo;net about it anyway.</p>
 
 <p>So, without further ado, let&rsquo;s get cracking.</p>
 
-<h2>Setting the scene</h2>
+<h1 id="setting-the-scene">Setting the scene</h1>
 
-<p>On my Windows 8 laptop I&rsquo;ve got a UNL virtual machine running inside a VMWare Workstation.. I&rsquo;ve <a href="http://www.unetlab.com/download/">downloaded</a> and <a href="http://www.unetlab.com/2014/11/upgrade-unetlab-installation/">upgraded</a> a pre-built UNL VM image. I&rsquo;ve also downloaded a copy of the <a href="http://isoredirect.centos.org/centos/7/isos/x86_64/CentOS-7-x86_64-Minimal-1511.iso">Centos 7 minimal ISO image</a> and copied it over to my UNL VM&rsquo;s home directory.</p>
+<p>On my Windows 8 laptop I&rsquo;ve got a UNL virtual machine running inside a VMWare Workstation.. I&rsquo;ve <a href="http://www.unetlab.com/download/" target="_blank">downloaded</a> and <a href="http://www.unetlab.com/2014/11/upgrade-unetlab-installation/" target="_blank">upgraded</a> a pre-built UNL VM image. I&rsquo;ve also downloaded a copy of the <a href="http://isoredirect.centos.org/centos/7/isos/x86_64/CentOS-7-x86_64-Minimal-1511.iso" target="_blank">Centos 7 minimal ISO image</a> and copied it over to my UNL VM&rsquo;s home directory.</p>
 
-<p>For network access I&rsquo;ll be using VMWware Workstation&rsquo;s NAT interface. It&rsquo;s currently configured with <code>192.168.91.0/24</code> subnet with DHCP range of <code>.128-.254</code>. Therefore I&rsquo;ll be using <code>.10-.126</code> to allocate IPs to my Openstack servers.</p>
+<p>For network access I&rsquo;ll be using VMWware Workstation&rsquo;s NAT interface. It&rsquo;s currently configured with <code>192.168.91.0/24</code> subnet with DHCP range of <code>.128-.254</code>. Therefore I&rsquo;ll be using <code>.10-.126</code> to allocate IPs to my OpenStack servers.</p>
 
-<h2>Creating a custom node type in UNL</h2>
+<h1 id="creating-a-custom-node-type-in-unl">Creating a custom node type in UNL</h1>
 
-<p>Every node type inside UNL has its own unique settings. Some settings, like amount of RAM, CPU or number of network interfaces, can be changed during node instantiation, while some of them remain &ldquo;baked in&rdquo;. Say, for example, the default &ldquo;Linux&rdquo; template creates nodes with default <strong>Qemu Virtual CPU</strong> which doesn&rsquo;t support the hardware virtualisation (<strong>VT-X/AMD-V</strong>) <a href="http://docs.openstack.org/liberty/config-reference/content/kvm.html">required</a> by Openstack. In order to change that you can either edit the existing node template or follow these steps to create a new one:</p>
+<p>Every node type inside UNL has its own unique settings. Some settings, like amount of RAM, CPU or number of network interfaces, can be changed during node instantiation, while some of them remain &ldquo;baked in&rdquo;. Say, for example, the default &ldquo;Linux&rdquo; template creates nodes with default <strong>Qemu Virtual CPU</strong> which doesn&rsquo;t support the hardware virtualisation (<strong>VT-X/AMD-V</strong>) <a href="http://docs.OpenStack.org/liberty/config-reference/content/kvm.html" target="_blank">required</a> by OpenStack. In order to change that you can either edit the existing node template or follow these steps to create a new one:</p>
 
 <ol>
-<li><p>Add Openstack node definition to initialization file <code>/opt/unetlab/html/includes/init.php</code>.</p>
+<li><p>Add OpenStack node definition to initialization file <code>/opt/unetlab/html/includes/init.php</code>.</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='php'><span class='line'>    <span class="s1">&#39;linux&#39;</span>                 <span class="o">=&gt;</span>      <span class="s1">&#39;Linux&#39;</span><span class="p">,</span>
-</span><span class='line'>    <span class="s1">&#39;openstack&#39;</span>             <span class="o">=&gt;</span>      <span class="s1">&#39;Openstack&#39;</span><span class="p">,</span>
-</span><span class='line'>    <span class="s1">&#39;mikrotik&#39;</span>              <span class="o">=&gt;</span>      <span class="s1">&#39;MikroTik RouterOS&#39;</span><span class="p">,</span>
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create a new Openstack node template based on existing linux node template.</p>
+<pre><code>'linux'                 =&gt;      'Linux',
+'OpenStack'             =&gt;      'OpenStack',
+'mikrotik'              =&gt;      'MikroTik RouterOS',
+</code></pre></li>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>cp /opt/unetlab/html/templates/linux.php /opt/unetlab/html/templates/openstack.php
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Edit the template file replacing all occurences of &lsquo;Linux&rsquo; with &lsquo;Openstack&rsquo;</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>sed -i <span class="s1">&#39;s/Linux/Openstack/g; s/linux/openstack/g&#39;</span> /opt/unetlab/html/templates/openstack.php
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Edit the template file to double the RAM and CPU and pass all host&rsquo;s CPU instructions to Openstack nodes</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>sed -i <span class="s1">&#39;s/2048/4096/; s/(cpu.*) = 1/\1 = 2/; s/(order=)dc/\1cd -cpu host/&#39;</span> /opt/unetlab/html/templates/openstack.php
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Create a new OpenStack node template based on existing linux node template.</p></li>
 </ol>
 
+<pre><code>   $ cp /opt/unetlab/html/templates/linux.php /opt/unetlab/html/templates/OpenStack.php
+</code></pre>
 
-<p>At this point you should be able to navigate to UNL&rsquo;s web interface and find a new node of type Openstack. However you won&rsquo;t be able to create it until you have at least one image, which is what we&rsquo;re going to build next.</p>
+<ol>
+<li>Edit the template file replacing all occurences of &lsquo;Linux&rsquo; with &lsquo;OpenStack&rsquo;</li>
+</ol>
 
-<h2>Building a Linux VM inside UNetLab</h2>
+<pre><code>   $ sed -i 's/Linux/OpenStack/g; s/linux/OpenStack/g' /opt/unetlab/html/templates/OpenStack.php
+</code></pre>
 
-<p>Now we need to create a CentOS image inside a UNL. One way to do it is build it inside a VMWare Workstation, copy it to UNL and convert the <strong>.vmdk</strong> to <strong>.qcow2</strong>. However, when I tried doing this I ran into a problem with CentOS not finding the correct disk partitions during bootup. The workaround was to boot into rescue mode and rebuild the initramfs. For those feeling adventurous, I would recommend checking out the following links [<a href="https://wiki.centos.org/TipsAndTricks/CreateNewInitrd">1</a>, <a href="http://advancelinux.blogspot.com.au/2013/06/how-to-rebuild-initrd-or-initramfs-in.html">2</a>, <a href="http://forums.fedoraforum.org/showthread.php?t=288020">3</a>] before trying this option.<br/>
+<ol>
+<li>Edit the template file to double the RAM and CPU and pass all host&rsquo;s CPU instructions to OpenStack nodes</li>
+</ol>
+
+<pre><code>   $ sed -i 's/2048/4096/; s/\(cpu.*\) = 1/\1 = 2/; s/\(order=\)dc/\1cd -cpu host/' /opt/unetlab/html/templates/OpenStack.php
+</code></pre>
+
+<p>At this point you should be able to navigate to UNL&rsquo;s web interface and find a new node of type OpenStack. However you won&rsquo;t be able to create it until you have at least one image, which is what we&rsquo;re going to build next.</p>
+
+<h1 id="building-a-linux-vm-inside-unetlab">Building a Linux VM inside UNetLab</h1>
+
+<p>Now we need to create a CentOS image inside a UNL. One way to do it is build it inside a VMWare Workstation, copy it to UNL and convert the <strong>.vmdk</strong> to <strong>.qcow2</strong>. However, when I tried doing this I ran into a problem with CentOS not finding the correct disk partitions during bootup. The workaround was to boot into rescue mode and rebuild the initramfs. For those feeling adventurous, I would recommend checking out the following links [<a href="https://wiki.centos.org/TipsAndTricks/CreateNewInitrd" target="_blank">1</a>, <a href="http://advancelinux.blogspot.com.au/2013/06/how-to-rebuild-initrd-or-initramfs-in.html" target="_blank">2</a>, <a href="http://forums.fedoraforum.org/showthread.php?t=288020" target="_blank">3</a>] before trying this option.<br />
 The other option is to build CentOS inside UNL from scratch. This is how you can do it:</p>
 
 <ol>
-<li><p>Create a new directory for Openstack image</p>
+<li><p>Create a new directory for OpenStack image</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>mkdir -p /opt/unetlab/addons/qemu/openstack-1
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create a link to CentOS ISO boot image from our new directory</p>
+<pre><code>$ mkdir -p /opt/unetlab/addons/qemu/OpenStack-1
+</code></pre></li>
 
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>ln -s ~/CentOS-7-x86_64-Minimal-1511.iso /opt/unetlab/addons/qemu/openstack-1/cdrom.iso
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create a blank 6Gb disk image</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>   <span class="nv">$ </span>/opt/qemu/bin/qemu-img create -f qcow2 -o <span class="nv">preallocation</span><span class="o">=</span>metadata /opt/unetlab/addons/qemu/openstack-1/virtioa.qcow2 6G
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
-
-<p> If you want to create <strong>snapshots</strong> at any stage of the process you&rsquo;d need to use a copy of this file under /opt/unetlab/tmp/pod_id/lab_uuid/node_id/ directory</p></li>
+<li><p>Create a link to CentOS ISO boot image from our new directory</p></li>
 </ol>
 
-
-<p>Now you should be able to successfully create an Openstack node and connect it to Internet. Create a new network that would have Internet connectivity (in my case it&rsquo;s <strong>pnet0</strong>) and connect it to Openstack&rsquo;s <strong>eth0</strong>.  At this stage we have everything ready to start installing Openstack, but before we move on let me take a quick detour to tell you about my ordeals with VNC integration.</p>
-
-<h2>Optional: Integrating TightVNC with UNL</h2>
-
-<p>For some unknown reason UltraVNC does not work well on my laptop. My sessions would often crash or start minimised with the only option to close the window. That&rsquo;s not the only thing not working properly on my laptop thanks to the corporate policies with half of the sh*t locked down for <em>security</em> reasons.<br/>
-So instead of mucking around with <strong>Ultra</strong> I decided to give me old pal <strong>Tight</strong>VNC a go. The setup process is very similar to the <a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/">official VNC integration guide</a> with the following exceptions:</p>
+<pre><code>   $ ln -s ~/CentOS-7-x86_64-Minimal-1511.iso /opt/unetlab/addons/qemu/OpenStack-1/cdrom.iso
+</code></pre>
 
 <ol>
-<li><p>The wrapper file simply strips the leading &lsquo;vnc://&rsquo; and trailing &lsquo;/&rsquo; off the passed argument</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='winbatch'><span class='line'>   <span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%1</span>
-</span><span class='line'>   <span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%arg:~6%</span>
-</span><span class='line'>   <span class="k">SET</span> <span class="nv">arg</span><span class="o">=</span><span class="nv">%arg:~0</span><span class="p">,</span><span class="m">-1</span>%
-</span><span class='line'>   start <span class="s2">&quot;&quot;</span> <span class="s2">&quot;c:\Program Files\TightVNC\tvnviewer.exe&quot;</span> <span class="nv">%arg%</span>
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>The registry entry now points to the TightVNC wrapper</p>
-
-<p><figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='registry'><span class='line'>   <span class="k">[</span><span class="nb">HKEY_CLASSES_ROOT</span><span class="k">\vnc\shell\open\command]</span>
-</span><span class='line'>   <span class="na">@</span><span class="o">=</span><span class="s">&quot;\&quot;c:\Program Files\TightVNC\wrapper.bat\&quot; %1&quot;</span>
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
+<li>Create a blank 6Gb disk image</li>
 </ol>
 
+<pre><code>   $ /opt/qemu/bin/qemu-img create -f qcow2 -o preallocation=metadata /opt/unetlab/addons/qemu/OpenStack-1/virtioa.qcow2 6G
+</code></pre>
 
-<h2>Installing CentOS and Openstack</h2>
+<p>If you want to create <strong>snapshots</strong> at any stage of the process you&rsquo;d need to use a copy of this file under /opt/unetlab/tmp/pod_id/lab_uuid/node_id/ directory</p>
 
-<p>Finally, we&rsquo;ve got all our ducks lined up in a row and we&rsquo;re ready to shoot. Fire up the Openstack node inside UNL and click on it to open a vnc session. Proceed to install CentOS with default options. You need to confirm which <strong>hard disk</strong> to use and setup the <strong>hostname</strong> and the <strong>root password</strong> during installation process.
-As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all the necessary Openstack components. The whole installation process will be quite simple and can be found on the RDO&rsquo;s <a href="https://www.rdoproject.org/install/quickstart/">quickstart page</a>. Here is my slightly modified version of installation process:</p>
+<p>Now you should be able to successfully create an OpenStack node and connect it to Internet. Create a new network that would have Internet connectivity (in my case it&rsquo;s <strong>pnet0</strong>) and connect it to OpenStack&rsquo;s <strong>eth0</strong>.  At this stage we have everything ready to start installing OpenStack, but before we move on let me take a quick detour to tell you about my ordeals with VNC integration.</p>
+
+<h1 id="optional-integrating-tightvnc-with-unl">Optional: Integrating TightVNC with UNL</h1>
+
+<p>For some unknown reason UltraVNC does not work well on my laptop. My sessions would often crash or start minimised with the only option to close the window. That&rsquo;s not the only thing not working properly on my laptop thanks to the corporate policies with half of the sh*t locked down for <em>security</em> reasons.<br />
+So instead of mucking around with <strong>Ultra</strong> I decided to give me old pal <strong>Tight</strong>VNC a go. The setup process is very similar to the <a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/" target="_blank">official VNC integration guide</a> with the following exceptions:</p>
+
+<ol>
+<li>The wrapper file simply strips the leading &lsquo;vnc://&rsquo; and trailing &lsquo;/&rsquo; off the passed argument</li>
+</ol>
+
+<pre><code>   SET arg=%1
+   SET arg=%arg:~6%
+   SET arg=%arg:~0,-1%
+   start &quot;&quot; &quot;c:\Program Files\TightVNC\tvnviewer.exe&quot; %arg%
+</code></pre>
+
+<ol>
+<li>The registry entry now points to the TightVNC wrapper</li>
+</ol>
+
+<pre><code>   [HKEY_CLASSES_ROOT\vnc\shell\open\command]
+   @=&quot;\\&quot;c:\\Program Files\\TightVNC\\wrapper.bat\\&quot; %1&quot;
+</code></pre>
+
+<h1 id="installing-centos-and-openstack">Installing CentOS and OpenStack</h1>
+
+<p>Finally, we&rsquo;ve got all our ducks lined up in a row and we&rsquo;re ready to shoot. Fire up the OpenStack node inside UNL and click on it to open a vnc session. Proceed to install CentOS with default options. You need to confirm which <strong>hard disk</strong> to use and setup the <strong>hostname</strong> and the <strong>root password</strong> during installation process.
+As I mentioned earlier, we&rsquo;ll be using RDO&rsquo;s Packstack to deploy all the necessary OpenStack components. The whole installation process will be quite simple and can be found on the RDO&rsquo;s <a href="https://www.rdoproject.org/install/quickstart/" target="_blank">quickstart page</a>. Here is my slightly modified version of installation process:</p>
 
 <ol>
 <li><p>Disable Network Manager and SELinux.</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>service NetworkManager stop
-</span><span class='line'>    <span class="nv">$ </span>systemctl disable NetworkManager.service
-</span><span class='line'>    <span class="nv">$ </span>setenforce 0
-</span><span class='line'>    <span class="nv">$ </span>sed -i <span class="s1">&#39;s/enforcing/permissive/&#39;</span> /etc/selinux/config
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Configure static IP address <code>192.168.91.10</code> on the network interface. <br/>
- Assuming your interface name is <code>eth0</code> make sure you /etc/sysconfig/network-scripts/ifcfg-eth0 looks something like this:</p>
+<pre><code>$ service NetworkManager stop
+$ systemctl disable NetworkManager.service
+$ setenforce 0
+$ sed -i 's/enforcing/permissive/' /etc/selinux/config
+</code></pre></li>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">TYPE</span><span class="o">=</span><span class="s2">&quot;Ethernet&quot;</span>
-</span><span class='line'>    <span class="nv">BOOTPROTO</span><span class="o">=</span><span class="s2">&quot;static&quot;</span>
-</span><span class='line'>    <span class="nv">IPADDR</span><span class="o">=</span>192.168.91.10
-</span><span class='line'>    <span class="nv">PREFIX</span><span class="o">=</span>24
-</span><span class='line'>    <span class="nv">GATEWAY</span><span class="o">=</span>192.168.91.2
-</span><span class='line'>    <span class="nv">DNS1</span><span class="o">=</span>192.168.91.2
-</span><span class='line'>    <span class="nv">NAME</span><span class="o">=</span><span class="s2">&quot;eth0&quot;</span>
-</span><span class='line'>    <span class="nv">DEVICE</span><span class="o">=</span><span class="s2">&quot;eth0&quot;</span>
-</span><span class='line'>    <span class="nv">ONBOOT</span><span class="o">=</span><span class="s2">&quot;yes&quot;</span>
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
+<li><p>Configure static IP address <code>192.168.91.10</code> on the network interface.<br />
+Assuming your interface name is <code>eth0</code> make sure you /etc/sysconfig/network-scripts/ifcfg-eth0 looks something like this:</p>
 
-<p>  Issue a <code>service network restart</code> and reconnect to the new static IP address. Make sure that you still have access to Internet after making this change.</p></li>
+<pre><code>TYPE=&quot;Ethernet&quot;
+BOOTPROTO=&quot;static&quot;
+IPADDR=192.168.91.10
+PREFIX=24
+GATEWAY=192.168.91.2
+DNS1=192.168.91.2
+NAME=&quot;eth0&quot;
+DEVICE=&quot;eth0&quot;
+ONBOOT=&quot;yes&quot;  
+</code></pre>
+
+<p>Issue a <code>service network restart</code> and reconnect to the new static IP address. Make sure that you still have access to Internet after making this change.</p></li>
+
 <li><p>Setup RDO repositories</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>sudo yum install -y <a href="https://rdoproject.org/repos/rdo-release.rpm">https://rdoproject.org/repos/rdo-release.rpm</a>
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
+<pre><code>$ sudo yum install -y https://rdoproject.org/repos/rdo-release.rpm
+</code></pre></li>
+
 <li><p>Update your current packages</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>sudo yum update -y
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
+<pre><code>$ sudo yum update -y
+</code></pre></li>
+
 <li><p>Install Packstack</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>sudo yum install -y openstack-packstack
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
+<pre><code>$ sudo yum install -y OpenStack-packstack
+</code></pre>
 
-<p>  That&rsquo;s where it&rsquo;d make sense to take a snapshot with <code>qemu-img snapshot -c pre-install virtioa.qcow2</code> command</p></li>
-<li><p>Deploy a single-node Openstack environment</p>
+<p>That&rsquo;s where it&rsquo;d make sense to take a snapshot with <code>qemu-img snapshot -c pre-install virtioa.qcow2</code> command</p></li>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span>packstack <span class="se">-</span>-allinone <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-os-cinder-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-os-ceilometer-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-os-trove-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-os-ironic-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-nagios-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-os-swift-install<span class="o">=</span>n <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-os-neutron-ovs-bridge-mappings<span class="o">=</span>extnet:br-ex <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-os-neutron-ovs-bridge-interfaces<span class="o">=</span>br-ex:eth0 <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-os-neutron-ml2-type-drivers<span class="o">=</span>vxlan,flat <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-provision-demo<span class="o">=</span>n
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
+<li><p>Deploy a single-node OpenStack environment</p>
 
-<p>  Here we&rsquo;re overriding some of the default Packstack options. We&rsquo;re not installing some of the components we&rsquo;re not going to use and setting up a name (<strong>extnet</strong>) for our external physical segment, which we&rsquo;ll use in the next section.</p></li>
+<pre><code>$ packstack \--allinone \
+\--os-cinder-install=n \
+\--os-ceilometer-install=n \
+\--os-trove-install=n \
+\--os-ironic-install=n \
+\--nagios-install=n \
+\--os-swift-install=n \
+\--os-neutron-ovs-bridge-mappings=extnet:br-ex \
+\--os-neutron-ovs-bridge-interfaces=br-ex:eth0 \
+\--os-neutron-ml2-type-drivers=vxlan,flat \
+\--provision-demo=n
+</code></pre>
+
+<p>Here we&rsquo;re overriding some of the default Packstack options. We&rsquo;re not installing some of the components we&rsquo;re not going to use and setting up a name (<strong>extnet</strong>) for our external physical segment, which we&rsquo;ll use in the next section.</p></li>
 </ol>
 
+<p>At the end of these 4 steps you should be able to navigate to Horizon (OpenStack&rsquo;s dashboard) by typing <code>http://192.168.91.10</code> in your browser. You can find login credentials in the <code>~/keystonerc_admin</code> file.</p>
 
-<p>At the end of these 4 steps you should be able to navigate to Horizon (Openstack&rsquo;s dashboard) by typing <code>http://192.168.91.10</code> in your browser. You can find login credentials in the <code>~/keystonerc_admin</code> file.</p>
+<h1 id="configuring-openstack-networking">Configuring OpenStack networking</h1>
 
-<h2>Configuring Openstack networking</h2>
+<p>At this stage we need to setup virtual networking infrastructure inside OpenStack. This will be almost the same as described in RDO&rsquo;s external network <a href="https://www.rdoproject.org/networking/neutron-with-existing-external-network/" target="_blank">setup guide</a>. The only exceptions will be the <a href="https://www.rdoproject.org/networking/difference-between-floating-ip-and-private-ip/" target="_blank">floating IP range</a>, which will match our existing environment, and the fact that we&rsquo;re no going to setup any additional tenants yet. This is how our topology will look like:</p>
 
-<p>At this stage we need to setup virtual networking infrastructure inside Openstack. This will be almost the same as described in RDO&rsquo;s external network <a href="https://www.rdoproject.org/networking/neutron-with-existing-external-network/">setup guide</a>. The only exceptions will be the <a href="https://www.rdoproject.org/networking/difference-between-floating-ip-and-private-ip/">floating IP range</a>, which will match our existing environment, and the fact that we&rsquo;re no going to setup any additional tenants yet. This is how our topology will look like:</p>
-
-<p><img class="center" src="/images/os-net-1.png"></p>
+<p><img src="/img/os-net-1.png" alt="" /></p>
 
 <ol>
-<li><p>Switch to Openstack&rsquo;s <code>admin</code> user
- <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    <span class="nv">$ </span><span class="nb">source</span> ~/keystonerc_admin
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>Create external network
- <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    neutron net-create external_network <span class="se">-</span>-provider:network_type flat <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-provider:physical_network extnet  <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-router:external <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-shared
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
+<li><p>Switch to OpenStack&rsquo;s <code>admin</code> user</p>
+
+<pre><code>$ source ~/keystonerc_admin
+</code></pre></li>
+
+<li><p>Create external network</p>
+
+<pre><code>neutron net-create external_network \--provider:network_type flat \
+\--provider:physical_network extnet  \
+\--router:external \
+\--shared
+</code></pre></li>
+
 <li><p>Create a public subnet</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    neutron subnet-create <span class="se">-</span>-name public_subnet <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-enable_dhcp<span class="o">=</span>False <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-allocation-pool<span class="o">=</span><span class="nv">start</span><span class="o">=</span>192.168.91.90,end<span class="o">=</span>192.168.91.126 <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-gateway<span class="o">=</span>192.168.91.2 external_network 192.168.91.0/24
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
+<pre><code>neutron subnet-create \--name public_subnet \
+\--enable_dhcp=False \
+\--allocation-pool=start=192.168.91.90,end=192.168.91.126 \
+\--gateway=192.168.91.2 external_network 192.168.91.0/24
+</code></pre>
 
-<p>  Default gateway is VMware&rsquo;s NAT IP address</p></li>
+<p>Default gateway is VMware&rsquo;s NAT IP address</p></li>
+
 <li><p>Create a private network and subnet</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    neutron net-create private_network
-</span><span class='line'>    neutron subnet-create <span class="se">-</span>-name private_subnet private_network 10.0.0.0/24 <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-dns-nameserver 8.8.8.8
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p>
+<pre><code>neutron net-create private_network
+neutron subnet-create \--name private_subnet private_network 10.0.0.0/24 \
+\--dns-nameserver 8.8.8.8
+</code></pre>
 
-<p>   This network is not routable outside of Openstack and is used for inter-VM communication</p></li>
+<p>This network is not routable outside of OpenStack and is used for inter-VM communication</p></li>
+
 <li><p>Create a virtual router and attach it to both networks</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    neutron router-create router
-</span><span class='line'>    neutron router-gateway-set router external_network
-</span><span class='line'>    neutron router-interface-add router private_subnet
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
+<pre><code>neutron router-create router
+neutron router-gateway-set router external_network
+neutron router-interface-add router private_subnet
+</code></pre></li>
 </ol>
-
 
 <p>Make sure to check out the visualisation of our newly created network topology in Horizon, it&rsquo;s amazing.</p>
 
-<h2>Spinning up a VM</h2>
+<h1 id="spinning-up-a-vm">Spinning up a VM</h1>
 
-<p>There&rsquo;s no point in installing Openstack just for the sake of it. Our final step would be to create a working virtual machine that would be able to connect to Internet.</p>
+<p>There&rsquo;s no point in installing OpenStack just for the sake of it. Our final step would be to create a working virtual machine that would be able to connect to Internet.</p>
 
 <ol>
 <li><p>Download a test linux image</p>
 
-<p> <figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>    curl <a href="http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img">http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img</a> <span class="p">|</span> glance <span class="se">\</span>
-</span><span class='line'>    image-create <span class="se">-</span>-name<span class="o">=</span><span class="s1">&#39;cirros image&#39;</span> <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-visibility<span class="o">=</span>public <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-container-format<span class="o">=</span>bare <span class="se">\</span>
-</span><span class='line'>    <span class="se">-</span>-disk-format<span class="o">=</span>qcow2
-</span><span class='line'>
-</span></code></pre></td></tr></table></div></figure></p></li>
-<li><p>From Horizon&rsquo;s home page navigate to Project -> Compute -> Images.</p></li>
+<pre><code>curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
+image-create \--name='cirros image' \
+\--visibility=public \
+\--container-format=bare \
+\--disk-format=qcow2
+</code></pre></li>
+
+<li><p>From Horizon&rsquo;s home page navigate to Project -&gt; Compute -&gt; Images.</p></li>
+
 <li><p>Click on <code>Launch Instance</code> and give the new VM a name.</p></li>
+
 <li><p>Make sure it&rsquo;s attached to <code>private_network</code> under the Networking tab.</p></li>
+
 <li><p>Less then a minute later the status should change to <code>Active</code> and you can navigate to VM&rsquo;s console by clicking on its name and going to <code>Console</code> tab.</p></li>
+
 <li><p>Login using the default credentials (<strong>cirros/cubswin:)</strong>) and verify Internet access by pinging google.com.</p></li>
 </ol>
 
-
 <p>Congratulations, we have successfully created a VM running inside a KVM inside a KVM inside a VMWare Workstation inside Windows!</p>
 
-<h2>What to expect next</h2>
+<h1 id="what-to-expect-next">What to expect next</h1>
 
-<p>Unlike my other post series, I don&rsquo;t have a clear goal at this stage so I guess I&rsquo;ll continue playing around with different underlays for multi-node Openstack and then move on to various SDN solutions available like OpenDayLight and OpenContrail. Unless I lose interest half way through, which happened in the past. But until that happens, stay tuned for more.</p>
+<p>Unlike my other post series, I don&rsquo;t have a clear goal at this stage so I guess I&rsquo;ll continue playing around with different underlays for multi-node OpenStack and then move on to various SDN solutions available like OpenDayLight and OpenContrail. Unless I lose interest half way through, which happened in the past. But until that happens, stay tuned for more.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/openstack-sdn">OpenStack-SDN</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
-
-          
-
-
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-04-04T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">04/04/2016</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/unetlab/'>unetlab</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/04/04/openstack-unl/" data-via="" data-counturl="http://networkop.github.io/blog/2016/04/04/openstack-unl/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/04/04/openstack-unl/" data-counter="right"></script>
-	
-</div>
-
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2016/03/23/network-ci-demo-large/" title="Previous Post: Network-CI Part 3 - OSPF to BGP migration in Active/Standby DC">&laquo; Network-CI Part 3 - OSPF to BGP migration in Active/Standby DC</a></li>
-            
-            
-            <li class="next"><a href="/blog/2016/04/18/os-unl-lab/" title="Next Post: Building a multi-node OpenStack lab in UNetLab">Building a multi-node OpenStack lab in UNetLab &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
+    </div>
   </div>
 
+</article>
+
+
+
+
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2016/04/04/openstack-unl/';
-        var disqus_url = 'http://networkop.github.io/blog/2016/04/04/openstack-unl/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

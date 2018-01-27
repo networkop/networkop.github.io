@@ -1,374 +1,446 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Development Environment Setup - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Setting up of development and testing environments">
-  <meta name="keywords" content="tdd, ansible, unetlab, setup, development">
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:
+ Network Simulation Environment Ansible Development Environment  To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use UnetLab, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on the website.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2015/06/17/dev-env-setup/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2015/06/17/dev-env-setup/">
-  <meta property="og:title" content="Development Environment Setup - Network-oriented programming">
-  <meta property="og:description" content="Setting up of development and testing environments">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2015/06/17/dev-env-setup/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2015/06/17/dev-env-setup/">
+  <meta property="og:title" content="Development Environment Setup | Network-oriented programming">
+  <meta property="og:description" content="Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:
+ Network Simulation Environment Ansible Development Environment  To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use UnetLab, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on the website.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2015-06-17T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2015-06-17T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Development Environment Setup | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Development Environment Setup</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2015-06-17 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      17 Jun 2015
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    6 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2015/06/17/dev-env-setup/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Development%20Environment%20Setup&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f06%2f17%2fdev-env-setup%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f06%2f17%2fdev-env-setup%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f06%2f17%2fdev-env-setup%2f&amp;title=Development%20Environment%20Setup"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Development%20Environment%20Setup&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f06%2f17%2fdev-env-setup%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
-
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-17T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">17/06/2015</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Development Environment Setup
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:</p>
+<p>Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:</p>
 
 <ul>
 <li>Network Simulation Environment</li>
 <li>Ansible Development Environment</li>
 </ul>
 
+<p>To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use <a href="http://www.unetlab.com/" target="_blank">UnetLab</a>, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on <a href="http://www.unetlab.com/download/" target="_blank">the website</a>. To simulate network devices I will run <a href="abbr:IOS on Unix" target="_blank">IOU</a> which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.</p>
 
-<p>To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use <a href="http://www.unetlab.com/">UnetLab</a>, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on <a href="http://www.unetlab.com/download/">the website</a>. To simulate network devices I will run <abbr title="IOS on Unix">IOU</abbr> which will be interconnected to form a simple network. Finally, I will show how to setup development environment with Ansible, git and Python.</p>
+<h1 id="unetlab-setup">UnetLab setup</h1>
 
-<!--more-->
-
-
-<h2>UnetLab setup</h2>
-
-<p>UnetLab is a network simulation environment very similar to GNS3. The biggest advantage for me, personally, is that it runs as a single entity and doesn&rsquo;t require a separate front-end like GNS3. That being said, the only requirement for this project is for the test network to have remote connectivity to a machine running Ansible, so having UnetLab specifically is not required and any network simulator would do, including a real (non-virtual) lab. One of the side effects of choosing UnetLab is that all development will have to be done on Ubuntu which is the OS pre-installed in the OVA.<br/>
+<p>UnetLab is a network simulation environment very similar to GNS3. The biggest advantage for me, personally, is that it runs as a single entity and doesn&rsquo;t require a separate front-end like GNS3. That being said, the only requirement for this project is for the test network to have remote connectivity to a machine running Ansible, so having UnetLab specifically is not required and any network simulator would do, including a real (non-virtual) lab. One of the side effects of choosing UnetLab is that all development will have to be done on Ubuntu which is the OS pre-installed in the OVA.<br />
 Here are the steps required to get the network environment setup:</p>
 
 <ol>
-<li><a href="http://www.unetlab.com/download/">Download</a> and import OVA file into the hypervisor of your choice.</li>
-<li>Download and <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/">import</a> Cisco L3 IOU file.</li>
-<li>Create a simple 4-device network (<a href="http://www.unetlab.com/2014/11/create-the-first-lab/">example</a>) and <a href="http://www.unetlab.com/2014/11/using-cloud-devices/">connect it to the network of host machine</a>.</li>
-<li><a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/">Configure</a> your favourite terminal program to work with UnetLab&rsquo;s web interface</li>
+<li><a href="http://www.unetlab.com/download/" target="_blank">Download</a> and import OVA file into the hypervisor of your choice.<br /></li>
+<li>Download and <a href="http://www.unetlab.com/2014/11/adding-cisco-iouiol-images/" target="_blank">import</a> Cisco L3 IOU file.</li>
+<li>Create a simple 4-device network (<a href="http://www.unetlab.com/2014/11/create-the-first-lab/" target="_blank">example</a>) and <a href="http://www.unetlab.com/2014/11/using-cloud-devices/" target="_blank">connect it to the network of host machine</a>.</li>
+<li><a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/" target="_blank">Configure</a> your favourite terminal program to work with UnetLab&rsquo;s web interface</li>
 </ol>
 
+<p>This is the topology I will be using for testing:</p>
 
-<p>This is the topology I will be using for testing:
-<img class="center" src="/images/lab-topo.png" title="'Test Topology'" ></p>
+<p><img src="/img/lab-topo.png" alt="Test topology" /></p>
 
 <p>Each device will have a Loopback interface in <code>10.0.0.0/24</code> subnet which I will statically point to <code>interface Eth0/2</code> of R1 on the host machine. Here&rsquo;s the example of R1&rsquo;s configuration:</p>
 
-<figure class='code'><figcaption><span>Sample Router Configuration - R1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>! Configure hostname, domain and RSA key to enable SSH
-</span><span class='line'>hostname R1
-</span><span class='line'>ip domain name tdd.lab
-</span><span class='line'>crypto key generate rsa modulus 1024
-</span><span class='line'>! Point AAA to local database
-</span><span class='line'>aaa new-model
-</span><span class='line'>aaa authentication login default local
-</span><span class='line'>aaa authorization exec default local
-</span><span class='line'>username cisco privilege 15 secret cisco
-</span><span class='line'>! Enable remote ssh connections
-</span><span class='line'>line vty 0 4
-</span><span class='line'> transport input ssh
-</span><span class='line'>! Configure interfaces
-</span><span class='line'>interface Loopback0
-</span><span class='line'> ip address 10.0.0.1 255.255.255.255
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/0
-</span><span class='line'> ip address 12.12.12.1 255.255.255.0
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/1
-</span><span class='line'> ip address 14.14.14.1 255.255.255.0
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/2
-</span><span class='line'> description connection to host machine
-</span><span class='line'> ip address 192.168.247.25 255.255.255.0
-</span><span class='line'>! Enable dynamic routing
-</span><span class='line'>router eigrp 100
-</span><span class='line'> network 0.0.0.0
-</span><span class='line'>!
-</span><span class='line'>end
-</span><span class='line'>write
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
+<pre><code>! Configure hostname, domain and RSA key to enable SSH
+hostname R1
+ip domain name tdd.lab
+crypto key generate rsa modulus 1024
+! Point AAA to local database
+aaa new-model
+aaa authentication login default local
+aaa authorization exec default local
+username cisco privilege 15 secret cisco
+! Enable remote ssh connections
+line vty 0 4
+ transport input ssh
+! Configure interfaces
+interface Loopback0
+ ip address 10.0.0.1 255.255.255.255
+!
+interface Ethernet0/0
+ ip address 12.12.12.1 255.255.255.0
+!
+interface Ethernet0/1
+ ip address 14.14.14.1 255.255.255.0
+!
+interface Ethernet0/2
+ description connection to host machine
+ ip address 192.168.247.25 255.255.255.0
+! Enable dynamic routing
+router eigrp 100
+ network 0.0.0.0
+!
+end
+write 
+</code></pre>
 
 <p>All other devices will have similar configuration with the end goal of having connectivity between any pair of Loopback interfaces.</p>
 
 <p>In order to to have connectivity to devices from a host machine we need to add a static route for <code>10.0.0.0/24</code> network:</p>
 
-<figure class='code'><figcaption><span>Adding a static route to test topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>route add -net 10.0.0.0 netmask 255.255.255.0 gw 192.168.247.25
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
+<pre><code class="language-bash">$ route add -net 10.0.0.0 netmask 255.255.255.0 gw 192.168.247.25
+</code></pre>
 
 <p>At this point host machine should be able to ping each one of those Loopbacks:</p>
 
-<figure class='code'><figcaption><span>Testing connectivity to test devices</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span><span class="k">for</span> i in <span class="o">{</span>1..4<span class="o">}</span><span class="p">;</span> <span class="k">do</span> ping -c <span class="m">1</span> 10.0.0.<span class="nv">$i</span><span class="p">;</span> <span class="k">done</span> <span class="p">|</span> grep packets
-</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
-</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
-</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
-</span><span class='line'><span class="m">1</span> packets transmitted, <span class="m">1</span> received, 0% packet loss, <span class="nb">time </span>0ms
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">$ for i in {1..4}; do ping -c 1 10.0.0.$i; done | grep packets
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+</code></pre>
 
-
-<h2>Dev environment setup</h2>
+<h1 id="dev-environment-setup">Dev environment setup</h1>
 
 <p>Ansible is one of the most popular automation and orchestration tools in IT industry. Part of its popularity is due to the &ldquo;clientless&rdquo; architecture where
 the only requirement to a managed system is to have ssh access and Python execution environment. The latter pretty much rules out the biggest part of common
 networking infrastructure. However it is still possible to use Ansible in a &ldquo;raw&rdquo; mode and write modules of our own. That&rsquo;s exactly what we&rsquo;re gonna do in this exercise.
-Due to the fact that Ansible is written in Python, it has better support for modules written in the same language, therefore all modules will be written in Python.<br/>
+Due to the fact that Ansible is written in Python, it has better support for modules written in the same language, therefore all modules will be written in Python.<br />
 One important tool every developer uses is version control. It allows to track changes made to the code and enables collaboration between multiple
 people working on the same project. For beginners it always makes sense to stick to the most popular tools, that&rsquo;s why I&rsquo;ll be using git for version control and store all my code on Github.</p>
 
 <p>This is what&rsquo;s needed to setup the development environment:</p>
 
-<figure class='code'><figcaption><span>1. Install Python and git packages</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo apt-get update <span class="o">&amp;&amp;</span> sudo apt-get install python git-core
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">$ sudo apt-get update &amp;&amp; sudo apt-get install python git-core
+</code></pre>
 
+<pre><code class="language-bash">$ git config --global user.name &quot;Network-oriented programming&quot;
+$ git config --global user.email &quot;networkop@example.com&quot;
+</code></pre>
 
-<p></p>
+<pre><code class="language-bash">$ sudo apt-get install software-properties-common
+$ sudo apt-add-repository ppa:ansible/ansible
+$ sudo apt-get update
+$ sudo apt-get install ansible
+</code></pre>
 
-<figure class='code'><figcaption><span>2. Initialise global git settings</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>git config --global user.name <span class="s2">&quot;Network-oriented programming&quot;</span>
-</span><span class='line'><span class="nv">$ </span>git config --global user.email <span class="s2">&quot;networkop@example.com&quot;</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<figure class='code'><figcaption><span>3. Install Ansible</span><a href='http://docs.ansible.com/intro_installation.html'>Ansible Installation</a></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo apt-get install software-properties-common
-</span><span class='line'><span class="nv">$ </span>sudo apt-add-repository ppa:ansible/ansible
-</span><span class='line'><span class="nv">$ </span>sudo apt-get update
-</span><span class='line'><span class="nv">$ </span>sudo apt-get install ansible
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p></p>
-
-<figure class='code'><figcaption><span>4. Test Ansible connectivity to our network topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo <span class="nb">echo</span> <span class="s2">&quot;R1 ansible_ssh_host=10.0.0.1&quot;</span> &gt;&gt; /etc/ansible/hosts
-</span><span class='line'><span class="nv">$ </span><span class="nb">printf</span> <span class="s2">&quot;[defaults]\nhost_key_checking=False\n&quot;</span> &gt;&gt; ansible.cfg
-</span><span class='line'><span class="nv">$ </span>ansible R1 -u cisco --ask-pass -m <span class="s2">&quot;raw&quot;</span> -a <span class="s2">&quot;show version | include IOS&quot;</span>
-</span><span class='line'>SSH password:
-</span><span class='line'>R3 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>Cisco IOS Software, Linux Software <span class="o">(</span>I86BI_LINUX-ADVENTERPRISEK9-M<span class="o">)</span>, Version 15.4<span class="o">(</span>1<span class="o">)</span>T, DEVELOPMENT TEST SOFTWARE
-</span><span class='line'>Connection to 10.0.0.1 closed by remote host.
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">$ sudo echo &quot;R1 ansible_ssh_host=10.0.0.1&quot; &gt;&gt; /etc/ansible/hosts
+$ printf &quot;[defaults]\nhost_key_checking=False\n&quot; &gt;&gt; ansible.cfg
+$ ansible R1 -u cisco --ask-pass -m &quot;raw&quot; -a &quot;show version | include IOS&quot;
+SSH password:
+R3 | success | rc=0 &gt;&gt;
+Cisco IOS Software, Linux Software (I86BI_LINUX-ADVENTERPRISEK9-M), Version 15.4(1)T, DEVELOPMENT TEST SOFTWARE
+Connection to 10.0.0.1 closed by remote host.
+</code></pre>
 
 <p>The above script first populates Ansible <code>inventory</code> file with an ip address of R1, then disables ssh key checking,
  and finally runs an <code>ad-hoc</code> command <code>show version | include IOS</code> which should prompt for a password and return a result of command execution on R1.
  I will explain about inventory and configuration files in a bit more detail in the next post. At this stage all what&rsquo;s required is a meaningful response from a Cisco router.</p>
 
-<p><figure class='code'><figcaption><span>
-5. Create a free Github account and setup a new repository
-</span><a href='https://github.com/join'>Join Github</a></figcaption><div class="highlight">
-</figure>
-For my blog I will be using <code>networkop</code> as a Github username and <code>simple-cisco-tdd</code> as a repository name.
-Once respository is created, Github will provide instructions to setup repository on a local machine which will be done in the next step.</p>
+<p>Next step is to create a free Github account and setup a new repository. For my blog I will be using <code>networkop</code> as a Github username and <code>simple-cisco-tdd</code> as a repository name. Once respository is created, Github will provide instructions to setup repository on a local machine which will be done in the next step.</p>
 
-<p><figure class='code'><figcaption><span>6. Setup a project directory and initialise git</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>mkdir ~/tdd_ansible <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/tdd_ansible
-</span><span class='line'><span class="nv">$ </span>eacho <span class="s2">&quot;simple-cisco-tdd&quot;</span> &gt;&gt; README.md
-</span><span class='line'><span class="nv">$ </span>git init
-</span><span class='line'><span class="nv">$ </span>git add README.md
-</span><span class='line'><span class="nv">$ </span>git commit -m <span class="s2">&quot;first commit&quot;</span>
-</span><span class='line'><span class="nv">$ </span>git remote add origin <a href="https://github.com/networkop/simple-cisco-tdd.git">https://github.com/networkop/simple-cisco-tdd.git</a>
-</span><span class='line'><span class="nv">$ </span>git push -u origin master
-</span><span class='line'>Username <span class="k">for</span> <a href="https://github.com:">https://github.com:</a> networkop
-</span><span class='line'>Password <span class="k">for</span> <a href="https://networkop@github.com:">https://networkop@github.com:</a>
-</span><span class='line'>Counting objects: 3, <span class="k">done</span>.
-</span><span class='line'>Writing objects: 100% <span class="o">(</span>3/3<span class="o">)</span>, <span class="m">206</span> bytes <span class="p">|</span> <span class="m">0</span> bytes/s, <span class="k">done</span>.
-</span><span class='line'>Total <span class="m">3</span> <span class="o">(</span>delta 0<span class="o">)</span>, reused <span class="m">0</span> <span class="o">(</span>delta 0<span class="o">)</span>
-</span><span class='line'>To <a href="https://github.com/networkop/simple-cisco-tdd.git">https://github.com/networkop/simple-cisco-tdd.git</a>
-</span><span class='line'> * <span class="o">[</span>new branch<span class="o">]</span>      master -&gt; master
-</span><span class='line'>Branch master <span class="nb">set </span>up to track remote branch master from origin.
-</span></code></pre></td></tr></table></div></figure></p>
+<pre><code class="language-bash">$ mkdir ~/tdd_ansible &amp;&amp; cd ~/tdd_ansible
+$ echo &quot;simple-cisco-tdd&quot; &gt;&gt; README.md
+$ git init
+$ git add README.md
+$ git commit -m &quot;first commit&quot;
+$ git remote add origin https://github.com/networkop/simple-cisco-tdd.git
+$ git push -u origin master
+Username for https://github.com: networkop
+Password for https://networkop@github.com:
+Counting objects: 3, done.
+Writing objects: 100% (3/3), 206 bytes | 0 bytes/s, done.
+Total 3 (delta 0), reused 0 (delta 0)
+To https://github.com/networkop/simple-cisco-tdd.git
+ * [new branch]      master -&gt; master
+Branch master set up to track remote branch master from origin.
+</code></pre>
 
 <p>The above result indicates that <code>README.md</code> file has been pushed to Github successfully. Needless to say that all pushed local files can be also viewed from Github&rsquo;s web page.</p>
 
@@ -376,325 +448,155 @@ Once respository is created, Github will provide instructions to setup repositor
 
 <p>This completes the initial environment setup. I highly recommend at this stage, hypervisor permitting, to take a snapshot of a current state of a virtual machine to avoid having to rebuild it every time something goes pear-shaped.
 In the next post I will show how to setup Ansible to work with Cisco devices.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-tdd">network-TDD</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible">Ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-17T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">17/06/2015</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/ansible/'>ansible</a> <a class='category label label-primary' href='/blog/categories/unetlab/'>unetlab</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/06/17/dev-env-setup/" data-via="" data-counturl="http://networkop.github.io/blog/2015/06/17/dev-env-setup/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2015/06/17/dev-env-setup/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2015/06/15/simple-tdd-framework/">Building a Simple Network TDD Framework</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2015/06/15/simple-tdd-framework/" title="Previous Post: Building a simple network TDD framework">&laquo; Building a simple network TDD framework</a></li>
-            
-            
-            <li class="next"><a href="/blog/2015/06/22/dev-file-sync/" title="Next Post: Windows-Linux file synchronisation">Windows-Linux file synchronisation &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2015/06/17/dev-env-setup/';
-        var disqus_url = 'http://networkop.github.io/blog/2015/06/17/dev-env-setup/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

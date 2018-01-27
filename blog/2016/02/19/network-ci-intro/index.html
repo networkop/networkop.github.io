@@ -1,172 +1,329 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Network Continuous Integration and Delivery - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Application of CI/CD methodologies to traditional networks">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="CI/CD vs ITIL How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an RFC, submit it at least a week before the planned implementation date, go through at least one CAB meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place?">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2016/02/19/network-ci-intro/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/02/19/network-ci-intro/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2016/02/19/network-ci-intro/">
-  <meta property="og:title" content="Network Continuous Integration and Delivery - Network-oriented programming">
-  <meta property="og:description" content="Application of CI/CD methodologies to traditional networks">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2016/02/19/network-ci-intro/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2016/02/19/network-ci-intro/">
+  <meta property="og:title" content="Network Continuous Integration and Delivery | Network-oriented programming">
+  <meta property="og:description" content="CI/CD vs ITIL How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an RFC, submit it at least a week before the planned implementation date, go through at least one CAB meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place?">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2016-02-19T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2016-02-19T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Network Continuous Integration and Delivery | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Network Continuous Integration and Delivery</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2016-02-19 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      19 Feb 2016
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    3 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2016/02/19/network-ci-intro/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Network%20Continuous%20Integration%20and%20Delivery&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f02%2f19%2fnetwork-ci-intro%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f02%2f19%2fnetwork-ci-intro%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f02%2f19%2fnetwork-ci-intro%2f&amp;title=Network%20Continuous%20Integration%20and%20Delivery"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Network%20Continuous%20Integration%20and%20Delivery&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f02%2f19%2fnetwork-ci-intro%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<h1 id="ci-cd-vs-itil">CI/CD vs ITIL</h1>
 
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-02-19T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">19/02/2016</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Network Continuous Integration and Delivery
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this series of posts I&rsquo;ll introduce the tools I&rsquo;ve been using for continuous network development and how they can be used with automation servers like Jenkins for network continuous integration and delivery.</p>
-
-<!--more-->
-
-
-<h2>CI/CD vs ITIL</h2>
-
-<p>How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an <abbr title=" Request For Change">RFC</abbr>, submit it at least a week before the planned implementation date, go through at least one <abbr title=" Change Admission Board">CAB</abbr> meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to &lsquo;please have a look at the network performance issues&rsquo;?</p>
+<p>How do you implement changes in your network? In today&rsquo;s world there&rsquo;s 95% chance that you have to write up an <a href="abbr: Request For Change" target="_blank">RFC</a>, submit it at least a week before the planned implementation date, go through at least one <a href="abbr: Change Admission Board" target="_blank">CAB</a> meeting and only then, assuming it got approved, can you implement it. But the most important question is &lsquo;how do you test&rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place? And how often do you get a call the next morning from a very nervous client asking you to &lsquo;please have a look at the network performance issues&rsquo;?</p>
 
 <p>Software developers have solved most of these problems for themselves. DevOps movement has brought forth ideas of Continuous Integration and Delivery (CI/CD) to streamline the change process and &lsquo;embrace&rsquo; the change rather than protect against it. But how applicable are those ideas to the networks of today? Can we simply rip and replace our CAB meetings with a Jenkins server and live happily ever after?  As always, things are getting difficult as you move down from Layer 7.</p>
 
-<h2>Problem #1 - How to test</h2>
+<h1 id="problem-1-how-to-test">Problem #1 - How to test</h1>
 
-<p>Ever since the dawn of networking, the only tools that engineers could use for testing were traceroutes and pings. It&rsquo;s not necessarily bad since, after all, networks are supposed to be a simple packet transports and shouldn&rsquo;t be endowed with application-layer knowledge. Note that I&rsquo;m talking about traditional or, in SDN-era terms, &lsquo;underlay&rsquo; networks. The biggest problem with network testability is not the lack of test tools but rather lack of automation. For every ping and every traceroute we had to login a device, carefully craft the command including source interface names, VRFs and other various options and then interpret the output.<br/>
-I have already explored the idea of automated network testing in my previous blog posts - <a href="http://networkop.github.io/blog/2015/06/15/simple-tdd-framework/">Building Network TDD framework</a> and <a href="http://networkop.github.io/blog/2015/07/17/tdd-quickstart/">Network TDD quickstart</a>. I even got lucky enough to get invited to one of the <a href="http://blog.ipspace.net/2015/11/test-driven-network-development-with.html">greatest networking podcasts</a> hosted by Ivan Pepelnjak.</p>
+<p>Ever since the dawn of networking, the only tools that engineers could use for testing were traceroutes and pings. It&rsquo;s not necessarily bad since, after all, networks are supposed to be a simple packet transports and shouldn&rsquo;t be endowed with application-layer knowledge. Note that I&rsquo;m talking about traditional or, in SDN-era terms, &lsquo;underlay&rsquo; networks. The biggest problem with network testability is not the lack of test tools but rather lack of automation. For every ping and every traceroute we had to login a device, carefully craft the command including source interface names, VRFs and other various options and then interpret the output.<br />
+I have already explored the idea of automated network testing in my previous blog posts - <a href="/blog/2015/06/15/simple-tdd-framework/">Building Network TDD framework</a> and <a href="/blog/2015/07/17/tdd-quickstart/">Network TDD quickstart</a>. I even got lucky enough to get invited to one of the <a href="http://blog.ipspace.net/2015/11/test-driven-network-development-with.html" target="_blank">greatest networking podcasts</a> hosted by Ivan Pepelnjak.</p>
 
-<h2>Problem #2 - Where to test</h2>
+<h1 id="problem-2-where-to-test">Problem #2 - Where to test</h1>
 
 <p>Another big problem is the lack of testable network software. We&rsquo;ve only had IOU, vSRX and vEOS for the past 3-4 years and even now a lot of the real-world functionality remains unvirtualizable. However having those images is a lot better than not, even though some of them tend to crash and behave unreliably from time to time.</p>
 
-<h2>Network CI</h2>
+<h1 id="network-ci">Network CI</h1>
 
 <p>Here I&rsquo;ve come to the actual gist of my post. I want to demonstrate the tools that I&rsquo;ve built and how I use them to automate a lot of the repetitive tasks to prepare for network deployments and upgrades. This is what these tools can do:</p>
 
@@ -178,345 +335,182 @@ I have already explored the idea of automated network testing in my previous blo
 <li>Shutdown and delete the network topology</li>
 </ul>
 
-
 <p>All these steps can be done automatically without making a single click in a GUI or entering a single command in a CLI. This is a sneak peak of what to expect later in the series:</p>
 
-<div class="embed-video-container"><iframe src="//www.youtube.com/embed/jiZs0969RWI" allowfullscreen></iframe></div>
+
+<div style="position: relative; padding-bottom: 56.25%; padding-top: 30px; height: 0; overflow: hidden;">
+  <iframe src="//www.youtube.com/embed/jiZs0969RWI" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" allowfullscreen frameborder="0" title="YouTube Video"></iframe>
+ </div>
 
 
 <p>Please don&rsquo;t judge me too harshly, this is my first experience with screencasts.</p>
 
-<h2>Coming up</h2>
+<h1 id="coming-up">Coming up</h1>
 
 <p>In the following posts I&rsquo;ll show how to:</p>
 
 <ul>
-<li><a href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/">Setup continuous delivery environment with Jenkins and UNetLab</a></li>
-<li><a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/">Create test cases to enable automatic testing by Jenkins server</a></li>
-<li><a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-large/">Safely replace a core routing protocol inside an Active/Standby DC</a></li>
+<li><a href="/blog/2016/02/25/network-ci-dev-setup/">Setup continuous delivery environment with Jenkins and UNetLab</a></li>
+<li><a href="/blog/2016/03/03/network-ci-demo-small/">Create test cases to enable automatic testing by Jenkins server</a></li>
+<li><a href="/blog/2016/03/03/network-ci-demo-large/">Safely replace a core routing protocol inside an Active/Standby DC</a></li>
 </ul>
 
-
 <p>If that sounds interesting to you - stay tuned.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-ci">network-ci</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-02-19T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">19/02/2016</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/devops/'>devops</a> <a class='category label label-primary' href='/blog/categories/network/'>network</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/02/19/network-ci-intro/" data-via="" data-counturl="http://networkop.github.io/blog/2016/02/19/network-ci-intro/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/02/19/network-ci-intro/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2016/01/17/rest-unl-advanced/">REST for Network Engineers Part 3 - Advanced Operations With UnetLab</a></li>
+    
+    <li><a href="/blog/2016/01/06/rest-basic-operations/">REST for Network Engineers Part 2 - Basic Operations With UnetLab</a></li>
+    
+    <li><a href="/blog/2016/01/03/dev-env-setup-rest/">REST for Network Engineers Part 1 - Development Environment Setup</a></li>
+    
+    <li><a href="/blog/2016/01/01/rest-for-neteng/">REST API for Network Engineers</a></li>
+    
+    <li><a href="/blog/2015/11/13/automating-flexvpn-config/">Automating the Build of a FlexVPN Network</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2016/01/17/rest-unl-advanced/" title="Previous Post: REST for Network Engineers Part 3 - Advanced operations with UnetLab">&laquo; REST for Network Engineers Part 3 - Advanced operations with UnetLab</a></li>
-            
-            
-            <li class="next"><a href="/blog/2016/02/25/network-ci-dev-setup/" title="Next Post: Network-CI Part 1 - Automatically building a VM with UNetLab and Jenkins">Network-CI Part 1 - Automatically building a VM with UNetLab and Jenkins &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2016/02/19/network-ci-intro/';
-        var disqus_url = 'http://networkop.github.io/blog/2016/02/19/network-ci-intro/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

@@ -1,235 +1,368 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Configuring Cisco IOS XE With YDK and OpenDaylight - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Using RESTCONF to configure BGP on IOS XE though OpenDaylight">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="In the previous posts about NETCONF and RESTCONF I&rsquo;ve demonstrated how to interact with Cisco IOS XE device directly from the Linux shell of my development VM. This approach works fine in some cases, e.g. whenever I setup a new DC fabric, I would make calls directly to the devices I&rsquo;m configuring. However, it becomes impractical in the Ops world where change is constant and involves a large number of devices.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2017/02/22/odl-ydk/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2017/02/22/odl-ydk/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2017/02/22/odl-ydk/">
-  <meta property="og:title" content="Configuring Cisco IOS XE With YDK and OpenDaylight - Network-oriented programming">
-  <meta property="og:description" content="Using RESTCONF to configure BGP on IOS XE though OpenDaylight">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2017/02/22/odl-ydk/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2017/02/22/odl-ydk/">
+  <meta property="og:title" content="Configuring Cisco IOS XE With YDK and OpenDaylight | Network-oriented programming">
+  <meta property="og:description" content="In the previous posts about NETCONF and RESTCONF I&rsquo;ve demonstrated how to interact with Cisco IOS XE device directly from the Linux shell of my development VM. This approach works fine in some cases, e.g. whenever I setup a new DC fabric, I would make calls directly to the devices I&rsquo;m configuring. However, it becomes impractical in the Ops world where change is constant and involves a large number of devices.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2017-02-22T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2017-02-22T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Configuring Cisco IOS XE With YDK and OpenDaylight | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Configuring Cisco IOS XE With YDK and OpenDaylight</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2017-02-22 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      22 Feb 2017
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    9 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2017/02/22/odl-ydk/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">Automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Configuring%20Cisco%20IOS%20XE%20With%20YDK%20and%20OpenDaylight&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f02%2f22%2fodl-ydk%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f02%2f22%2fodl-ydk%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f02%2f22%2fodl-ydk%2f&amp;title=Configuring%20Cisco%20IOS%20XE%20With%20YDK%20and%20OpenDaylight"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Configuring%20Cisco%20IOS%20XE%20With%20YDK%20and%20OpenDaylight&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f02%2f22%2fodl-ydk%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>In the previous posts about <a href="/blog/2017/01/25/netconf-intro/">NETCONF</a> and <a href="/blog/2017/02/15/restconf-yang/">RESTCONF</a> I&rsquo;ve demonstrated how to interact with Cisco IOS XE device directly from the Linux shell of my development VM. This approach works fine in some cases, e.g. whenever I setup a new DC fabric, I would make calls directly to the devices I&rsquo;m configuring. However, it becomes impractical in the Ops world where change is constant and involves a large number of devices. This is where centralised service orchestrators come to the fore. The prime examples of such platforms are Network Services Orchestrator from Tail-f/Cisco and open-source project OpenDaylight. In this post we&rsquo;ll concentrate on ODL and how to make it work with Cisco IOS XE. Additionally, I&rsquo;ll show how to use an open-source tool <a href="https://developer.cisco.com/site/ydk/" target="_blank">YDK</a> to generate Python bindings for native YANG models and how it compares with <strong>pyangbind</strong>.</p>
 
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-02-22T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">22/02/2017</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Configuring Cisco IOS XE With YDK and OpenDaylight
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>Now it&rsquo;s time to turn our gaze to the godfather of YANG models and one of the most famous open-source SDN controllers, OpenDaylight. In this post I&rsquo;ll show how to connect Cisco IOS XE device to ODL and use Yang Development Kit to push a simple BGP configuration through ODL&rsquo;s RESTCONF interface.</p>
-
-<!--more-->
-
-
-<hr />
-
-<p>In the previous posts about <a href="/blog/2017/01/25/netconf-intro/">NETCONF</a> and <a href="/blog/2017/02/15/restconf-yang/">RESTCONF</a> I&rsquo;ve demonstrated how to interact with Cisco IOS XE device directly from the Linux shell of my development VM. This approach works fine in some cases, e.g. whenever I setup a new DC fabric, I would make calls directly to the devices I&rsquo;m configuring. However, it becomes impractical in the Ops world where change is constant and involves a large number of devices. This is where centralised service orchestrators come to the fore. The prime examples of such platforms are Network Services Orchestrator from Tail-f/Cisco and open-source project OpenDaylight. In this post we&rsquo;ll concentrate on ODL and how to make it work with Cisco IOS XE. Additionally, I&rsquo;ll show how to use an open-source tool <a href="https://developer.cisco.com/site/ydk/">YDK</a> to generate Python bindings for native YANG models and how it compares with <strong>pyangbind</strong>.</p>
-
-<h2>OpenDaylight primer</h2>
+<h1 id="opendaylight-primer">OpenDaylight primer</h1>
 
 <p>OpenDaylight is a swiss army knife of SDN controllers. At the moment it is comprised of dozens of projects implementing all possible sorts of SDN functionality starting from Openflow controller all the way up to L3VPN orchestrator. ODL speaks most of the modern Southbound protocols like Openflow, SNMP, NETCONF and BGP. The brain of the controller is in the Service Abstraction Layer, a framework to model all network-related characteristics and properties. All logic inside SAL is modelled in YANG which is why I called it the godfather of YANG models. Towards the end users ODL exposes Java function calls for applications running on the same host and REST API for application running remotely.</p>
 
-<p><img class="center" src="/images/odl-sal.jpg"></p>
+<p><img src="/img/odl-sal.jpg" alt="" /></p>
 
 <p>OpenDaylight has several commercial offerings from companies involved in its development. Most notable ones are from Brocade and Cisco. Here I will allow myself a bit of a rant, feel free to skip it to go straight to the technical stuff.</p>
 
-<p>One thing I find interesting is that Cisco are being so secretive about their Open SDN Controller, perhaps due to the earlier market pressure to come up with a single SDN story, but still have a very large number of contributors to this open-source project. It could be the case of having an egg in each basket, but the number of Cisco&rsquo;s employees involved in ODL development is substantial. I wonder if, now that the use cases for ACI and ODL have finally formed and ACI still not showing the uptake originally expected, Cisco will change their strategy and start promoting ODL more aggressively, or at least stop hiding it deep in the bowels of <a href="cisco.com">cisco.com</a>. Or, perhaps, it will always stay in the shade of Tail-f&rsquo;s NSC and Insieme&rsquo;s ACI and will be used only for customer with unique requirements, e.g. to have both OpenStack and network devices managed through the same controller.</p>
+<p>One thing I find interesting is that Cisco are being so secretive about their Open SDN Controller, perhaps due to the earlier market pressure to come up with a single SDN story, but still have a very large number of contributors to this open-source project. It could be the case of having an egg in each basket, but the number of Cisco&rsquo;s employees involved in ODL development is substantial. I wonder if, now that the use cases for ACI and ODL have finally formed and ACI still not showing the uptake originally expected, Cisco will change their strategy and start promoting ODL more aggressively, or at least stop hiding it deep in the bowels of <a href="cisco.com" target="_blank">cisco.com</a>. Or, perhaps, it will always stay in the shade of Tail-f&rsquo;s NSC and Insieme&rsquo;s ACI and will be used only for customer with unique requirements, e.g. to have both OpenStack and network devices managed through the same controller.</p>
 
-<h2>Environment setup</h2>
+<h1 id="environment-setup">Environment setup</h1>
 
 <p>We&rsquo;ll use the same environment we&rsquo;ve setup in the <a href="/blog/2017/01/25/netconf-intro/">previous posts</a>, consisting of a CSR1K and a Linux VM connected to the same network inside my hypervisor. IOS XE device needs to have <code>netconf-yang</code> configured in order to enable the northbound NETCONF interface.</p>
 
 <p>On the same Linux VM, I&rsquo;ve downloaded and launched the latest version of ODL (Boron-SR2), and enabled NETCONF and RESTCONF plugins.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>unzip distribution-karaf-0.5.2-Boron-SR2.zip
-</span><span class='line'>mv distribution-karaf-0.5.2-Boron-SR2 odl-0.5.2
-</span><span class='line'><span class="nb">cd </span>odl-0.5.2/
-</span><span class='line'>./bin/karaf
-</span><span class='line'>opendaylight-user@root&gt;feature:install odl-netconf-connector-all
-</span><span class='line'>opendaylight-user@root&gt;feature:install odl-restconf-all
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>unzip distribution-karaf-0.5.2-Boron-SR2.zip
+mv distribution-karaf-0.5.2-Boron-SR2 odl-0.5.2
+cd odl-0.5.2/
+./bin/karaf
+opendaylight-user@root&gt;feature:install odl-netconf-connector-all
+opendaylight-user@root&gt;feature:install odl-restconf-all
+</code></pre>
 
 <p>We&rsquo;ll use NETCONF to connect to Cisco IOS XE device and RESTCONF to interact with ODL from a Linux shell.</p>
 
-<p><img class="center" src="/images/odl-ydk.png"></p>
+<p><img src="/img/odl-ydk.png" alt="" /></p>
 
 <p>It might be useful to turn on logging in karaf console to catch any errors we might encounter later:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>opendaylight-user@root&gt;log:tail
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>opendaylight-user@root&gt;log:tail
+</code></pre>
 
+<h1 id="connecting-ios-xe-to-odl">Connecting IOS XE to ODL</h1>
 
-<h2>Connecting IOS XE to ODL</h2>
+<p>According to ODL <a href="http://docs.opendaylight.org/en/stable-boron/user-guide/netconf-user-guide.html" target="_blank">NETCONF</a> user guide, in order to connect a new device to the controller, we need to create an XML document which will include the IP, port and user credentials of the IOS XE device. Here&rsquo;s the excerpt from the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1" target="_blank">full XML document</a>:</p>
 
-<p>According to ODL <a href="http://docs.opendaylight.org/en/stable-boron/user-guide/netconf-user-guide.html">NETCONF</a> user guide, in order to connect a new device to the controller, we need to create an XML document which will include the IP, port and user credentials of the IOS XE device. Here&rsquo;s the excerpt from the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1">full XML document</a>:</p>
+<pre><code class="language-xml">&lt;module xmlns=&quot;urn:opendaylight:params:xml:ns:yang:controller:config&quot;&gt;
+  &lt;type xmlns:prefix=&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;&gt;prefix:sal-netconf-connector&lt;/type&gt;
+  &lt;name&gt;CSR1K&lt;/name&gt;
+  &lt;address xmlns=&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;&gt;192.168.145.51&lt;/address&gt;
+  &lt;port xmlns=&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;&gt;830&lt;/port&gt;
+  &lt;username xmlns=&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;&gt;admin&lt;/username&gt;
+  &lt;password xmlns=&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;&gt;admin&lt;/password&gt;
+</code></pre>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='xml'><span class='line'><span class="nt">&lt;module</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:config&quot;</span><span class="nt">&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;type</span> <span class="na">xmlns:prefix=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>prefix:sal-netconf-connector<span class="nt">&lt;/type&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;name&gt;</span>CSR1K<span class="nt">&lt;/name&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;address</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>192.168.145.51<span class="nt">&lt;/address&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;port</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>830<span class="nt">&lt;/port&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;username</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>admin<span class="nt">&lt;/username&gt;</span>
-</span><span class='line'>  <span class="nt">&lt;password</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>admin<span class="nt">&lt;/password&gt;</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>Assuming this XML is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1" target="_blank">new_device.xml.1</a>, we can use <code>curl</code> to send it to ODL&rsquo;s netconf-connector plugin:</p>
 
-
-<p>Assuming this XML is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1">new_device.xml.1</a>, we can use <code>curl</code> to send it to ODL&rsquo;s netconf-connector plugin:</p>
-
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="s2">&quot;Content-Type: application/xml&quot;</span> -X POST <span class="se">\</span>
-</span><span class='line'> http://localhost:8181/restconf/config/network-topology:network-topology<span class="se">\</span>
-</span><span class='line'> /topology/topology-netconf/node/controller-config/yang-ext:mount/config:modules<span class="se">\</span>
-</span><span class='line'>  -d @new_device.xml.1
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>curl -v -k -u admin:admin -H &quot;Content-Type: application/xml&quot; -X POST \
+ http://localhost:8181/restconf/config/network-topology:network-topology\
+ /topology/topology-netconf/node/controller-config/yang-ext:mount/config:modules\
+  -d @new_device.xml.1
+</code></pre>
 
 <p>When the controller gets this information it will try to connect to the device via NETCONF and do the following three things:</p>
 
@@ -239,94 +372,60 @@
 <li>Go through all of the imports in each model and verify that they can be satisfied</li>
 </ul>
 
-
 <p>After ODL downloads all of the 260 available models (can take up to 20 minutes) we will see the following errors in the karaf console:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>Netconf device does not provide all yang models reported in hello message capabilities
-</span><span class='line'>Unable to build schema context, unsatisfied imports
-</span><span class='line'>Initialization in sal failed, disconnecting from device
-</span><span class='line'>No more sources <span class="k">for</span> schema context
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>Netconf device does not provide all yang models reported in hello message capabilities
+Unable to build schema context, unsatisfied imports
+Initialization in sal failed, disconnecting from device
+No more sources for schema context
+</code></pre>
 
+<p>Due to inconsistencies between the advertised and the available models, ODL fails to build the full device YANG schema context, which ultimately results in inability to connect the device to the controller. However, we won&rsquo;t need all of the 260 models advertised by the device. In fact, most of the configuration can be done through a single Cisco native YANG model, <code>ned</code>. With ODL it is possible to override the default capabilities advertised in the Hello message and &ldquo;pin&rdquo; only the ones that are going to be used. Assuming that ODL has downloaded most of the models at the previous step, we can simply tell it use the selected few with the following additions to the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2" target="_blank">XML document</a>:</p>
 
-<p>Due to inconsistencies between the advertised and the available models, ODL fails to build the full device YANG schema context, which ultimately results in inability to connect the device to the controller. However, we won&rsquo;t need all of the 260 models advertised by the device. In fact, most of the configuration can be done through a single Cisco native YANG model, <code>ned</code>. With ODL it is possible to override the default capabilities advertised in the Hello message and &ldquo;pin&rdquo; only the ones that are going to be used. Assuming that ODL has downloaded most of the models at the previous step, we can simply tell it use the selected few with the following additions to the <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2">XML document</a>:</p>
+<pre><code class="language-xml">&lt;yang-module-capabilities xmlns=&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;&gt;
+    &lt;override&gt;true&lt;/override&gt;
+    &lt;capability xmlns=&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;&gt;
+      urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types&amp;amp;revision=2013-07-15
+    &lt;/capability&gt;
+    &lt;capability xmlns=&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;&gt;
+      http://cisco.com/ns/yang/ned/ios?module=ned&amp;amp;revision=2016-10-24
+    &lt;/capability&gt;
+</code></pre>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='xml'><span class='line'><span class="nt">&lt;yang-module-capabilities</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
-</span><span class='line'>    <span class="nt">&lt;override&gt;</span>true<span class="nt">&lt;/override&gt;</span>
-</span><span class='line'>    <span class="nt">&lt;capability</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
-</span><span class='line'>      urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types<span class="ni">&amp;amp;</span>revision=2013-07-15
-</span><span class='line'>    <span class="nt">&lt;/capability&gt;</span>
-</span><span class='line'>    <span class="nt">&lt;capability</span> <span class="na">xmlns=</span><span class="s">&quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&quot;</span><span class="nt">&gt;</span>
-</span><span class='line'>      http://cisco.com/ns/yang/ned/ios?module=ned<span class="ni">&amp;amp;</span>revision=2016-10-24
-</span><span class='line'>    <span class="nt">&lt;/capability&gt;</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>Assuming the updated XML is saved in <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2" target="_blank">new_device.xml.2</a> file, the following command will update the current configuration of <strong>CSR1K</strong> device:</p>
 
-
-<p>Assuming the updated XML is saved in <a href="https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2">new_device.xml.2</a> file, the following command will update the current configuration of <strong>CSR1K</strong> device:</p>
-
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="s2">&quot;Content-Type: application/xml&quot;</span> -X PUT <span class="se">\</span>
-</span><span class='line'>http://localhost:8181/restconf/config/network-topology:network-topology<span class="se">\</span>
-</span><span class='line'>/topology/topology-netconf/node/controller-config<span class="se">\</span>
-</span><span class='line'>/yang-ext:mount/config:modules/module<span class="se">\</span>
-</span><span class='line'>/odl-sal-netconf-connector-cfg:sal-netconf-connector<span class="se">\</span>
-</span><span class='line'>/CSR1K -d @new_device.xml.2
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>curl -v -k -u admin:admin -H &quot;Content-Type: application/xml&quot; -X PUT \
+http://localhost:8181/restconf/config/network-topology:network-topology\
+/topology/topology-netconf/node/controller-config\
+/yang-ext:mount/config:modules/module\
+/odl-sal-netconf-connector-cfg:sal-netconf-connector\
+/CSR1K -d @new_device.xml.2
+</code></pre>
 
 <p>We can then verify that the device has been successfully mounted to the controller:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin http://localhost:8181/restconf/operational<span class="se">\</span>
-</span><span class='line'>/network-topology:network-topology/ <span class="p">|</span> python -m json.tool
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>curl -v -k -u admin:admin http://localhost:8181/restconf/operational\
+/network-topology:network-topology/ | python -m json.tool
+</code></pre>
 
 <p>The output should look similar to the following with the connection-status set to <code>connected</code> and no detected <code>unavailable-capabilities</code>:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="s2">&quot;netconf-node-topology:connection-status&quot;</span><span class="err">:</span> <span class="s2">&quot;connected&quot;</span><span class="err">,</span>
-</span><span class='line'><span class="s2">&quot;netconf-node-topology:host&quot;</span><span class="err">:</span> <span class="s2">&quot;192.168.145.51&quot;</span><span class="err">,</span>
-</span><span class='line'><span class="s2">&quot;netconf-node-topology:port&quot;</span><span class="err">:</span> <span class="mi">830</span><span class="err">,</span>
-</span><span class='line'><span class="s2">&quot;netconf-node-topology:unavailable-capabilities&quot;</span><span class="err">:</span> <span class="p">{}</span><span class="err">,</span>
-</span><span class='line'><span class="s2">&quot;node-id&quot;</span><span class="err">:</span> <span class="s2">&quot;CSR1K&quot;</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>&quot;netconf-node-topology:connection-status&quot;: &quot;connected&quot;,
+&quot;netconf-node-topology:host&quot;: &quot;192.168.145.51&quot;,
+&quot;netconf-node-topology:port&quot;: 830,
+&quot;netconf-node-topology:unavailable-capabilities&quot;: {},
+&quot;node-id&quot;: &quot;CSR1K&quot;
+</code></pre>
 
 <p>At this point we should be able to interact with IOS XE&rsquo;s native YANG model through ODL&rsquo;s RESTCONF interface using the following URL</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'> http://localhost:8181/restconf/config/network-topology:network-topology<span class="se">\</span>
-</span><span class='line'> /topology/topology-netconf/node/CSR1K/yang-ext:mount/ned:native
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code> http://localhost:8181/restconf/config/network-topology:network-topology\
+ /topology/topology-netconf/node/CSR1K/yang-ext:mount/ned:native
+</code></pre>
 
 <p>The only thing that&rsquo;s missing is the actual configuration data. To generate it, I&rsquo;ll use a new open-source tool called YDK.</p>
 
-<h2>YDK primer</h2>
+<h1 id="ydk-primer">YDK primer</h1>
 
 <p>Yang Development Kit is a suite of tools to work with NETCONF/RESTCONF interfaces of a network device. The way I see it, YDK accomplishes two things:</p>
 
@@ -335,500 +434,282 @@
 <li>Creates an abstraction layer to interact with southbound protocols (NETCONF or RESTCONF) in a uniform way</li>
 </ul>
 
-
 <p>There&rsquo;s a lot of overlap between the tools that we&rsquo;ve used <a href="/blog/2017/02/15/restconf-yang/">before</a> and YDK. Effectively YDK combines in itself the functions of a NETCONF client, a REST client, pyangbind and pyang(the latter is used internally for model verification). Since one of the main functions of YDK is API generation I thought it&rsquo;d be interesting to know how it compares to Rob Shakir&rsquo;s <strong>pyangbind</strong> plugin. The following information is what I&rsquo;ve managed to find on the Internet and from the comment of Santiago Alvarez below:</p>
 
 <table>
 <thead>
 <tr>
-<th> Feature </th>
-<th> Pyangbind </th>
-<th> YDK </th>
+<th>Feature</th>
+<th>Pyangbind</th>
+<th>YDK</th>
 </tr>
 </thead>
+
 <tbody>
 <tr>
-<td> PL support </td>
-<td> Python </td>
-<td> Python, C++ with Ruby and Go in the pipeline </td>
+<td>PL support</td>
+<td>Python</td>
+<td>Python, C++ with Ruby and Go in the pipeline</td>
 </tr>
+
 <tr>
-<td> Serialization </td>
-<td> JSON, XML </td>
-<td> only XML <a href="https://github.com/CiscoDevNet/ydk-gen/blob/master/sdk/python/core/ydk/providers/codec_provider.py#L53">at this stage</a> with JSON coming up in a few weeks </td>
+<td>Serialization</td>
+<td>JSON, XML</td>
+<td>only XML <a href="https://github.com/CiscoDevNet/ydk-gen/blob/master/sdk/python/core/ydk/providers/codec_provider.py#L53" target="_blank">at this stage</a> with JSON coming up in a few weeks</td>
 </tr>
+
 <tr>
-<td> Southbound interfaces   </td>
-<td> N/A </td>
-<td> NETCONF, RESTCONF with ODL coming up in a few weeks </td>
+<td>Southbound interfaces</td>
+<td>N/A</td>
+<td>NETCONF, RESTCONF with ODL coming up in a few weeks</td>
 </tr>
+
 <tr>
-<td> Support </td>
-<td> Cisco&rsquo;s devnet team </td>
-<td> Rob Shakir </td>
+<td>Support</td>
+<td>Cisco&rsquo;s devnet team</td>
+<td>Rob Shakir</td>
 </tr>
 </tbody>
 </table>
 
-
 <p>So it looks like YDK is a very promising alternative to <strong>pyangbind</strong>, however I, personally, would still prefer to use <strong>pyangbind</strong> due to familiarity, simplicity and the fact that I don&rsquo;t need the above extra features offered by YDK right now. However, given that YDK has been able to achieve so much in just under one year of its existence, I don&rsquo;t discount the possibility that I may switch to YDK as it becomes more mature and feature-rich.</p>
 
-<h2>Python binding generation with YDK-GEN</h2>
+<h1 id="python-binding-generation-with-ydk-gen">Python binding generation with YDK-GEN</h1>
 
-<p>One of the first things we need to do is install YDK-GEN, the tools responsible for API bindings generation, and it&rsquo;s core Python packages on the local machine. The following few commands are my version of the official <a href="https://github.com/CiscoDevNet/ydk-gen">installation procedure</a>:</p>
+<p>One of the first things we need to do is install YDK-GEN, the tools responsible for API bindings generation, and it&rsquo;s core Python packages on the local machine. The following few commands are my version of the official <a href="https://github.com/CiscoDevNet/ydk-gen" target="_blank">installation procedure</a>:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/CiscoDevNet/ydk-gen.git ~/ydk-gen
-</span><span class='line'>pip install -r ~/ydk-gen/requirements.txt
-</span><span class='line'><span class="nb">export </span><span class="nv">YDKGEN_HOME</span><span class="o">=</span>~/ydk-gen/
-</span><span class='line'>~/ydk-gen/generate.py --python --core
-</span><span class='line'>pip install ~/ydk-gen/gen-api/python/ydk/dist/ydk*.tar.gz
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>git clone https://github.com/CiscoDevNet/ydk-gen.git ~/ydk-gen
+pip install -r ~/ydk-gen/requirements.txt
+export YDKGEN_HOME=~/ydk-gen/
+~/ydk-gen/generate.py --python --core
+pip install ~/ydk-gen/gen-api/python/ydk/dist/ydk*.tar.gz
+</code></pre>
 
+<p>YDK-GEN generates Python bindings based on the so-called <strong>bundle profile</strong>. This is a simple JSON document which lists all YANG models to include in the output package. In our case we&rsquo;d need to include a <code>ned</code> model along with all its imports. The sample below shows only the model specification. Refer to my <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json" target="_blank">Github repo</a> for a complete bundle profile for Cisco IOS XE native YANG model.</p>
 
-<p>YDK-GEN generates Python bindings based on the so-called <strong>bundle profile</strong>. This is a simple JSON document which lists all YANG models to include in the output package. In our case we&rsquo;d need to include a <code>ned</code> model along with all its imports. The sample below shows only the model specification. Refer to my <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json">Github repo</a> for a complete bundle profile for Cisco IOS XE native YANG model.</p>
+<pre><code>{&quot;models&quot;:{&quot;git&quot;:[{&quot;url&quot;:&quot;https://github.com/YangModels/yang.git&quot;,
+  &quot;commits&quot;:[{&quot;commitid&quot;:&quot;6f4a025431103f8cbbf3405ce01bdc61d0811b1d&quot;,
+    &quot;file&quot;:[&quot;vendor/cisco/xe/1641/ned.yang&quot;,
+      &quot;vendor/cisco/xe/1641/tailf-common.yang&quot;,
+      &quot;vendor/cisco/xe/1641/tailf-meta-extensions.yang&quot;,
+      &quot;vendor/cisco/xe/1641/tailf-cli-extensions.yang&quot;,
+      &quot;standard/ietf/RFC/ietf-inet-types.yang&quot;,
+      &quot;standard/ietf/RFC/ietf-yang-types.yang&quot;]
+      }]}]}}
+</code></pre>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="p">{</span><span class="nt">&quot;models&quot;</span><span class="p">:{</span><span class="nt">&quot;git&quot;</span><span class="p">:[{</span><span class="nt">&quot;url&quot;</span><span class="p">:</span><span class="s2">&quot;https://github.com/YangModels/yang.git&quot;</span><span class="p">,</span>
-</span><span class='line'>  <span class="nt">&quot;commits&quot;</span><span class="p">:[{</span><span class="nt">&quot;commitid&quot;</span><span class="p">:</span><span class="s2">&quot;6f4a025431103f8cbbf3405ce01bdc61d0811b1d&quot;</span><span class="p">,</span>
-</span><span class='line'>    <span class="nt">&quot;file&quot;</span><span class="p">:[</span><span class="s2">&quot;vendor/cisco/xe/1641/ned.yang&quot;</span><span class="p">,</span>
-</span><span class='line'>      <span class="s2">&quot;vendor/cisco/xe/1641/tailf-common.yang&quot;</span><span class="p">,</span>
-</span><span class='line'>      <span class="s2">&quot;vendor/cisco/xe/1641/tailf-meta-extensions.yang&quot;</span><span class="p">,</span>
-</span><span class='line'>      <span class="s2">&quot;vendor/cisco/xe/1641/tailf-cli-extensions.yang&quot;</span><span class="p">,</span>
-</span><span class='line'>      <span class="s2">&quot;standard/ietf/RFC/ietf-inet-types.yang&quot;</span><span class="p">,</span>
-</span><span class='line'>      <span class="s2">&quot;standard/ietf/RFC/ietf-yang-types.yang&quot;</span><span class="p">]</span>
-</span><span class='line'>      <span class="p">}]}]}}</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>Assuming that the IOS XE bundle profile is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json" target="_blank">cisco-ios-xe_0_1_0.json</a>, we can use YDK to generate and install the Python binding package:</p>
 
+<pre><code>~/ydk-gen/generate.py --python --bundle cisco-ios-xe_0_1_0.json -v
+pip install ~/ydk-gen/gen-api/python/cisco_ios_xe-bundle/dist/ydk*.tar.gz
+</code></pre>
 
-<p>Assuming that the IOS XE bundle profile is saved in a file called <a href="https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json">cisco-ios-xe_0_1_0.json</a>, we can use YDK to generate and install the Python binding package:</p>
-
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>~/ydk-gen/generate.py --python --bundle cisco-ios-xe_0_1_0.json -v
-</span><span class='line'>pip install ~/ydk-gen/gen-api/python/cisco_ios_xe-bundle/dist/ydk*.tar.gz
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Configuring BGP with YDK</h2>
+<h1 id="configuring-bgp-with-ydk">Configuring BGP with YDK</h1>
 
 <p>Now we can start configuring BGP using our newly generated Python package. First, we need to create an instance of BGP configuration data:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ydk.models.cisco_ios_xe.ned</span> <span class="kn">import</span> <span class="n">Native</span>
-</span><span class='line'><span class="n">bgp</span> <span class="o">=</span> <span class="n">Native</span><span class="p">()</span><span class="o">.</span><span class="n">router</span><span class="o">.</span><span class="n">Bgp</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">from ydk.models.cisco_ios_xe.ned import Native
+bgp = Native().router.Bgp()
+</code></pre>
 
 <p>The configuration will follow the pattern defined in the original model, which is why it&rsquo;s important to understand <a href="/blog/2017/02/15/restconf-yang/">the internal structure</a> of a YANG model. YANG leafs are represented as simple instance attributes. All YANG containers need to be explicitly instantiated, just like the <code>Native</code> and <code>Bgp</code> classes in the example above. Presence containers (<code>router</code> in the above example) will be instantiated at the same time as its parent container, inside the <code>__init__</code> function of the <code>Native</code> class. Don&rsquo;t worry if this doesn&rsquo;t make sense, use <strong>iPython</strong> or any IDE with autocompletion and after a few tries, you&rsquo;ll get the hang of it.</p>
 
 <p>Let&rsquo;s see how we can set the local BGP AS number and add a new BGP peer to the neighbor list.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="mi">100</span>
-</span><span class='line'><span class="n">new_neighbor</span> <span class="o">=</span> <span class="n">bgp</span><span class="o">.</span><span class="n">Neighbor</span><span class="p">()</span>
-</span><span class='line'><span class="n">new_neighbor</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="s">&#39;2.2.2.2&#39;</span>
-</span><span class='line'><span class="n">new_neighbor</span><span class="o">.</span><span class="n">remote_as</span> <span class="o">=</span> <span class="mi">65100</span>
-</span><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">neighbor</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">new_neighbor</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">bgp.id = 100
+new_neighbor = bgp.Neighbor()
+new_neighbor.id = '2.2.2.2'
+new_neighbor.remote_as = 65100
+bgp.neighbor.append(new_neighbor)
+</code></pre>
 
 <p>At this point of time all data is stored inside the instance of a <code>Bgp</code> class. In order to get an XML representation of it, we need to use YDK&rsquo;s XML provider and encoding service:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">ydk.providers</span> <span class="kn">import</span> <span class="n">CodecServiceProvider</span>
-</span><span class='line'><span class="kn">from</span> <span class="nn">ydk.services</span> <span class="kn">import</span> <span class="n">CodecService</span>
-</span><span class='line'><span class="n">provider</span> <span class="o">=</span> <span class="n">CodecServiceProvider</span><span class="p">(</span><span class="nb">type</span><span class="o">=</span><span class="s">&quot;xml&quot;</span><span class="p">)</span>
-</span><span class='line'><span class="n">codec</span> <span class="o">=</span> <span class="n">CodecService</span><span class="p">()</span>
-</span><span class='line'><span class="n">xml_string</span> <span class="o">=</span> <span class="n">codec</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="n">provider</span><span class="p">,</span> <span class="n">bgp</span><span class="p">)</span>
-</span><span class='line'><span class="k">print</span> <span class="n">xml_string</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">from ydk.providers import CodecServiceProvider
+from ydk.services import CodecService
+provider = CodecServiceProvider(type=&quot;xml&quot;)
+codec = CodecService()
+xml_string = codec.encode(provider, bgp)
+print xml_string
+</code></pre>
 
 <p>All what we&rsquo;ve got left now is to send the data to ODL:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">requests</span>
-</span><span class='line'><span class="n">url</span> <span class="o">=</span> <span class="p">(</span><span class="s">&quot;http://localhost:8181/restconf&quot;</span>
-</span><span class='line'>       <span class="s">&quot;/config/network-topology:network-topology&quot;</span>
-</span><span class='line'>       <span class="s">&quot;/topology/topology-netconf/node&quot;</span>
-</span><span class='line'>       <span class="s">&quot;/CSR1K/yang-ext:mount/ned:native&quot;</span>
-</span><span class='line'>       <span class="s">&quot;/router&quot;</span><span class="p">)</span>
-</span><span class='line'><span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;Content-Type&#39;</span><span class="p">:</span> <span class="s">&#39;application/xml&#39;</span><span class="p">}</span>
-</span><span class='line'><span class="n">result</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;admin&#39;</span><span class="p">,</span> <span class="s">&#39;admin&#39;</span><span class="p">),</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">xml_string</span><span class="p">)</span>
-</span><span class='line'><span class="k">print</span> <span class="n">result</span><span class="o">.</span><span class="n">status_code</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">import requests
+url = (&quot;http://localhost:8181/restconf&quot;
+       &quot;/config/network-topology:network-topology&quot;
+       &quot;/topology/topology-netconf/node&quot;
+       &quot;/CSR1K/yang-ext:mount/ned:native&quot;
+       &quot;/router&quot;)
+headers = {'Content-Type': 'application/xml'}
+result = requests.post(url, auth=('admin', 'admin'), headers=headers, data=xml_string)
+print result.status_code
+</code></pre>
 
 <p>The controller should have returned the status code <code>204 No Content</code>, meaning that configuration has been changed successfully.</p>
 
-<h2>Verification</h2>
+<h1 id="verification">Verification</h1>
 
 <p>Back at the IOS XE CLI we can see the new BGP configuration that has been pushed down from the controller.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>TEST#sh run | i router
-</span><span class='line'>router bgp 100
-</span><span class='line'> bgp log-neighbor-changes
-</span><span class='line'> neighbor 2.2.2.2 remote-as 65100
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>TEST#sh run | i router
+router bgp 100
+ bgp log-neighbor-changes
+ neighbor 2.2.2.2 remote-as 65100
+</code></pre>
+
+<h1 id="more-examples">More examples</h1>
+
+<p>You can find a shorter version of the above procedure in my <a href="https://github.com/networkop/yang/tree/master/odl-101" target="_blank">ODL 101 repo</a>.</p>
+
+      </div>
+
+      
 
 
-<h2>More examples</h2>
-
-<p>You can find a shorter version of the above procedure in my <a href="https://github.com/networkop/yang/tree/master/odl-101">ODL 101 repo</a>.</p>
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/yang">YANG</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible-yang">ansible-YANG</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-02-22T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">22/02/2017</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/odl/'>odl</a> <a class='category label label-primary' href='/blog/categories/restconf/'>restconf</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2017/02/22/odl-ydk/" data-via="" data-counturl="http://networkop.github.io/blog/2017/02/22/odl-ydk/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2017/02/22/odl-ydk/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2017/02/15/restconf-yang/">Introduction to YANG Programming and RESTCONF on Cisco IOS XE</a></li>
+    
+    <li><a href="/blog/2017/01/25/netconf-intro/">Getting Started With NETCONF and YANG on Cisco IOS XE</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2017/02/15/restconf-yang/" title="Previous Post: Introduction to YANG programming and RESTCONF on Cisco IOS XE">&laquo; Introduction to YANG programming and RESTCONF on Cisco IOS XE</a></li>
-            
-            
-            <li class="next"><a href="/blog/2017/03/13/yaml-yang/" title="Next Post: Configuring Cisco IOS XE with YANG-based YAML files">Configuring Cisco IOS XE with YANG-based YAML files &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2017/02/22/odl-ydk/';
-        var disqus_url = 'http://networkop.github.io/blog/2017/02/22/odl-ydk/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

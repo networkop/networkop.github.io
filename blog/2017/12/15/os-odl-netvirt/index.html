@@ -1,165 +1,320 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>OpenStack SDN - OpenDaylight With BGP VPN - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Integration OpenDaylight-managed OpenStack with Cisco DC-GW">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="For the last 5 years OpenStack has been the training ground for a lot of emerging DC SDN solutions. OpenStack integration use case was one of the most compelling and easiest to implement thanks to the limited and suboptimal implementation of the native networking stack. Today, in 2017, features like L2 population, local ARP responder, L2 gateway integration, distributed routing and service function chaining have all become available in vanilla OpenStack and don&rsquo;t require a proprietary SDN controller anymore.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/">
-  <meta property="og:title" content="OpenStack SDN - OpenDaylight With BGP VPN - Network-oriented programming">
-  <meta property="og:description" content="Integration OpenDaylight-managed OpenStack with Cisco DC-GW">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/">
+  <meta property="og:title" content="OpenStack SDN - OpenDaylight With BGP VPN | Network-oriented programming">
+  <meta property="og:description" content="For the last 5 years OpenStack has been the training ground for a lot of emerging DC SDN solutions. OpenStack integration use case was one of the most compelling and easiest to implement thanks to the limited and suboptimal implementation of the native networking stack. Today, in 2017, features like L2 population, local ARP responder, L2 gateway integration, distributed routing and service function chaining have all become available in vanilla OpenStack and don&rsquo;t require a proprietary SDN controller anymore.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2017-12-15T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2017-12-15T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>OpenStack SDN - OpenDaylight With BGP VPN | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">OpenStack SDN - OpenDaylight With BGP VPN</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2017-12-15 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      15 Dec 2017
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    11 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/sdn">SDN</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=OpenStack%20SDN%20-%20OpenDaylight%20With%20BGP%20VPN&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f12%2f15%2fos-odl-netvirt%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f12%2f15%2fos-odl-netvirt%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f12%2f15%2fos-odl-netvirt%2f&amp;title=OpenStack%20SDN%20-%20OpenDaylight%20With%20BGP%20VPN"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=OpenStack%20SDN%20-%20OpenDaylight%20With%20BGP%20VPN&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f12%2f15%2fos-odl-netvirt%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>For the last 5 years OpenStack has been the training ground for a lot of emerging DC SDN solutions. OpenStack integration use case was one of the most compelling and easiest to implement thanks to the limited and suboptimal implementation of the native networking stack. Today, in 2017, features like <a href="/blog/2016/05/06/neutron-l2pop/">L2 population</a>, local <a href="/blog/2016/05/06/neutron-l2pop/">ARP responder</a>, <a href="/blog/2016/05/21/neutron-l2gw/">L2 gateway integration</a>, <a href="/blog/2016/10/13/os-dvr/">distributed routing</a> and <a href="/blog/2017/09/15/os-sfc-skydive/">service function chaining</a> have all become available in vanilla OpenStack and don&rsquo;t require a proprietary SDN controller anymore. Admittedly, some of the features are still not (and may never be) implemented in the most optimal way (e.g. DVR). This is where new opensource SDN controllers, the likes of <a href="/blog/2016/12/10/ovn-part2/">OVN</a> and <a href="https://docs.openstack.org/developer/dragonflow/distributed_dragonflow.html" target="_blank">Dragonflow</a>, step in to provide scalable, elegant and efficient implementation of these advanced networking features. However one major feature still remains outside of the scope of a lot of these new opensource SDN projects, and that is data centre gateway (DC-GW) integration. Let me start by explain why you would need this feature in the first place.</p>
 
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-12-15T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">15/12/2017</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        OpenStack SDN - OpenDaylight With BGP VPN
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll demonstrate how to build a simple OpenStack lab with OpenDaylight-managed virtual networking and integrate it with a Cisco IOS-XE data centre gateway using EVPN.</p>
-
-<!--more-->
-
-
-<hr />
-
-<p>For the last 5 years OpenStack has been the training ground for a lot of emerging DC SDN solutions. OpenStack integration use case was one of the most compelling and easiest to implement thanks to the limited and suboptimal implementation of the native networking stack. Today, in 2017, features like <a href="/blog/2016/05/06/neutron-l2pop/">L2 population</a>, local <a href="/blog/2016/05/06/neutron-l2pop/">ARP responder</a>, <a href="/blog/2016/05/21/neutron-l2gw/">L2 gateway integration</a>, <a href="/blog/2016/10/13/os-dvr/">distributed routing</a> and <a href="/blog/2017/09/15/os-sfc-skydive/">service function chaining</a> have all become available in vanilla OpenStack and don&rsquo;t require a proprietary SDN controller anymore. Admittedly, some of the features are still not (and may never be) implemented in the most optimal way (e.g. DVR). This is where new opensource SDN controllers, the likes of <a href="/blog/2016/12/10/ovn-part2/">OVN</a> and <a href="https://docs.openstack.org/developer/dragonflow/distributed_dragonflow.html">Dragonflow</a>, step in to provide scalable, elegant and efficient implementation of these advanced networking features. However one major feature still remains outside of the scope of a lot of these new opensource SDN projects, and that is data centre gateway (DC-GW) integration. Let me start by explain why you would need this feature in the first place.</p>
-
-<h2>Optimal forwarding of North-South traffic</h2>
+<h1 id="optimal-forwarding-of-north-south-traffic">Optimal forwarding of North-South traffic</h1>
 
 <p>OpenStack Neutron and VMware NSX, both being pure software solutions, rely on a special type of node to forward traffic between VMs and hosts outside of the data centre. This node acts as a L2/L3 gateway for all North-South traffic and is often implemented as either a VM or a network namespace. This kind of solution gives software developers greater independence from the underlying networking infrastructure which makes it easier for them to innovate and introduce new features.</p>
 
-<p><img class="center" src="/images/sdn-ns.png"></p>
+<p><img src="/img/sdn-ns.png" alt="" /></p>
 
 <p>However, from the traffic forwarding point of view, having a gateway/network node is not a good solution at all. There is no technological reason for a packet to have to go through this node when after all it ends up on a DC-GW anyway. In fact, this solution introduces additional complexity which needs to be properly managed (e.g. designed, configured and troubleshooted) and a potential bottleneck for high-throughput traffic flows.</p>
 
@@ -170,10 +325,9 @@
 <li>EVPN with VXLAN-based overlays. EVPN makes it possible to exchange both L2 and L3 information under the same AF, which means we have the flexibility of doing not only a L3 WAN integration, but also a L2 data centre interconnect with just a single protocol.</li>
 </ol>
 
-
 <p>In OpenStack specifically, BGPVPN project was created to provide a pluggable driver framework for 3rd party BGP implementations. Apart from a reference BaGPipe driver (BaGPipe is an ExaBGP fork with lightweight implementation of BGP VPNs), which relies on a default <code>openvswitch</code> ML2 mechanism driver, only Nuage, OpenDaylight and OpenContrail have contributed their drivers to this project. In this post I will focus on OpenDaylight and show how to install containerised OpenStack with OpenDaylight and integrate it with Cisco CSR using EVPN.</p>
 
-<h2>OpenDaylight integration with OpenStack</h2>
+<h1 id="opendaylight-integration-with-openstack">OpenDaylight integration with OpenStack</h1>
 
 <p>Historically, OpenDaylight has had multiple projects implementing custom OpenStack networking drivers:</p>
 
@@ -183,14 +337,13 @@
 <li><strong>NetVirt</strong> - currently a default Neutron plugin from ODL, developed jointly by Brocade (RIP), RedHat, Ericsson, Intel and many others.</li>
 </ul>
 
-
-<p>NetVirt provides several common Neutron services including L2 and L3 forwarding, ACL and NAT, as well as advanced services like L2 gateway, QoS and SFC. To do that it assumes full control over an OVS switch inside each compute node and implements the above services inside a single <code>br-int</code> OVS bridge. L2/L3 forwarding tables are built based on tenant IP/MAC addresses that have been allocated by Neutron and the current network topology. For high-level overview of NetVirt&rsquo;s forwarding pipeline you can refer to <a href="https://docs.google.com/presentation/d/15h4ZjPxblI5Pz9VWIYnzfyRcQrXYxA1uUoqJsgA53KM/edit#slide=id.g1c73ae9953_2_0">this document</a>.</p>
+<p>NetVirt provides several common Neutron services including L2 and L3 forwarding, ACL and NAT, as well as advanced services like L2 gateway, QoS and SFC. To do that it assumes full control over an OVS switch inside each compute node and implements the above services inside a single <code>br-int</code> OVS bridge. L2/L3 forwarding tables are built based on tenant IP/MAC addresses that have been allocated by Neutron and the current network topology. For high-level overview of NetVirt&rsquo;s forwarding pipeline you can refer to <a href="https://docs.google.com/presentation/d/15h4ZjPxblI5Pz9VWIYnzfyRcQrXYxA1uUoqJsgA53KM/edit#slide=id.g1c73ae9953_2_0" target="_blank">this document</a>.</p>
 
 <p>It helps to think of an ODL-managed OpenStack as a big chassis switch. NetVirt plays the role of a supervisor by managing control plane and compiling RIB based on the information received from Neutron. Each compute node running an OVS is a linecard with VMs connected to its ports. Unlike the distributed architecture of <a href="/blog/2016/12/10/ovn-part2/">OVN</a> and Dragonflow, compute nodes do not contain any control plane elements and each OVS gets its FIB programmed directly by the supervisor. DC underlay is a backplane, interconnecting all linecards and a supervisor.</p>
 
-<p><img class="center" src="/images/odl-netvirt-chassis.png"></p>
+<p><img src="/img/odl-netvirt-chassis.png" alt="" /></p>
 
-<h2>OpenDaylight BGP VPN service architecture</h2>
+<h1 id="opendaylight-bgp-vpn-service-architecture">OpenDaylight BGP VPN service architecture</h1>
 
 <p>In order to provide BGP VPN functionality, NetVirt employs the use of three service components:</p>
 
@@ -200,823 +353,456 @@
 <li><strong>VPN Manager</strong> - ties together the above two components, creates VRFs and keeps track of RD/RT values</li>
 </ul>
 
-
-<p>In order to exchange BGP updates with external DC-GW, NetVirt requires a BGP stack with EVPN and VPNV4/6 capabilities. Ideally, internal ODL BGP stack could have been used for that, however it didn&rsquo;t meet all the performance requirements (injecting/withdrawing thousand of prefixes at the same time). Instead, an external <a href="https://github.com/6WIND/quagga/tree/qthrift_mpbgp_evpn">Quagga fork</a> with EVPN add-ons is connected to BGP manager via a high-speed Apache Thrift interface. This interface defines the <a href="https://github.com/6WIND/quagga/blob/qthrift_mpbgp_evpn/qthriftd/vpnservice.thrift">format</a> of data to be exchanged between Quagga (a.k.a QBGP) and NetVirt&rsquo;s BGP Manager in order to do two things:</p>
+<p>In order to exchange BGP updates with external DC-GW, NetVirt requires a BGP stack with EVPN and VPNV4/6 capabilities. Ideally, internal ODL BGP stack could have been used for that, however it didn&rsquo;t meet all the performance requirements (injecting/withdrawing thousand of prefixes at the same time). Instead, an external <a href="https://github.com/6WIND/quagga/tree/qthrift_mpbgp_evpn" target="_blank">Quagga fork</a> with EVPN add-ons is connected to BGP manager via a high-speed Apache Thrift interface. This interface defines the <a href="https://github.com/6WIND/quagga/blob/qthrift_mpbgp_evpn/qthriftd/vpnservice.thrift" target="_blank">format</a> of data to be exchanged between Quagga (a.k.a QBGP) and NetVirt&rsquo;s BGP Manager in order to do two things:</p>
 
 <ol>
 <li>Configure BGP settings like ASN and BGP neighbors</li>
 <li>Read/Write RIB entries inside QBGP</li>
 </ol>
 
-
 <p>BGP session is established between QBGP and external DC-GW, however next-hop values installed by NetVirt and advertised by QBGP have IPs of the respective compute nodes, so that traffic is sent directly via the most optimal path.</p>
 
-<p><img class="center" src="/images/odl-netvirt.png"></p>
+<p><img src="/img/odl-netvirt.png" alt="" /></p>
 
-<h2>Demo</h2>
+<h1 id="demo">Demo</h1>
 
-<p>Enough of the theory, let&rsquo;s have a look at how to configure a L3VPN between QBGP (advertising ODL&rsquo;s distributed router subnets) and IOS-XE DC-GW using EVPN route type 5 or, more specifically, <a href="https://tools.ietf.org/html/draft-ietf-bess-evpn-prefix-advertisement-09#section-4.4.1">Interface-less IP-VRF-to-IP-VRF model</a>:</p>
+<p>Enough of the theory, let&rsquo;s have a look at how to configure a L3VPN between QBGP (advertising ODL&rsquo;s distributed router subnets) and IOS-XE DC-GW using EVPN route type 5 or, more specifically, <a href="https://tools.ietf.org/html/draft-ietf-bess-evpn-prefix-advertisement-09#section-4.4.1" target="_blank">Interface-less IP-VRF-to-IP-VRF model</a>:</p>
 
-<p><img class="center" src="/images/odl-evpn-topo.png"></p>
+<p><img src="/img/odl-evpn-topo.png" alt="" /></p>
 
-<h3>Installation</h3>
+<h2 id="installation">Installation</h2>
 
-<p>My lab environment is still based on a pair of nested VMs running containerised Kolla OpenStack I&rsquo;ve described in my <a href="/blog/2017/09/08/os-lab-docker/">earlier post</a>. A few months ago OpenDaylight role has been added to kolla-ansible so now it is possible to install OpenDaylight-intergrated OpenStack automatically. However, there is no option to install QBGP so I had to augment the default <a href="https://github.com/openstack/kolla">Kolla</a> and <a href="https://github.com/openstack/kolla-ansible">Kolla-ansible</a> repositories to include the QBGP <a href="https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_build/templates/quagga-Dockerfile.j2">Dockerfile template</a> and QBGP <a href="https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_deploy/tasks/create.yml#L90-L120">ansible role</a>. So the first step is to download my latest automated installer and make sure <code>enable_opendaylight</code> global variable is set to <code>yes</code>:</p>
+<p>My lab environment is still based on a pair of nested VMs running containerised Kolla OpenStack I&rsquo;ve described in my <a href="/blog/2017/09/08/os-lab-docker/">earlier post</a>. A few months ago OpenDaylight role has been added to kolla-ansible so now it is possible to install OpenDaylight-intergrated OpenStack automatically. However, there is no option to install QBGP so I had to augment the default <a href="https://github.com/openstack/kolla" target="_blank">Kolla</a> and <a href="https://github.com/openstack/kolla-ansible" target="_blank">Kolla-ansible</a> repositories to include the QBGP <a href="https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_build/templates/quagga-Dockerfile.j2" target="_blank">Dockerfile template</a> and QBGP <a href="https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_deploy/tasks/create.yml#L90-L120" target="_blank">ansible role</a>. So the first step is to download my latest automated installer and make sure <code>enable_opendaylight</code> global variable is set to <code>yes</code>:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/kolla-odl-bgpvpn.git <span class="o">&amp;&amp;</span> <span class="nb">cd </span>kolla-odl-bgpvpn
-</span><span class='line'>mkdir group_vars
-</span><span class='line'><span class="nb">echo</span> <span class="s2">&quot;enable_opendaylight: \&quot;yes\&quot;&quot;</span> &gt;&gt; group_vars/all.yaml
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>git clone https://github.com/networkop/kolla-odl-bgpvpn.git &amp;&amp; cd kolla-odl-bgpvpn
+mkdir group_vars
+echo &quot;enable_opendaylight: \&quot;yes\&quot;&quot; &gt;&gt; group_vars/all.yaml
+</code></pre>
 
 <p>At the time of writing I was relying on a couple of latest bug fixes inside OpenDaylight, so I had to modify the default ODL role to install the latest master-branch ODL build. Make sure the link below is pointing to the latest <code>zip</code> file in <code>0.8.0-SNAPSHOT</code> directory.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt;&gt; group_vars/all.yaml</span>
-</span><span class='line'><span class="s">odl_latest_enabled: true</span>
-</span><span class='line'><span class="s">odl_latest_url: https://nexus.opendaylight.org/content/repositories/opendaylight.snapshot/org/opendaylight/integration/netvirt/karaf/0.8.0-SNAPSHOT/karaf-0.8.0-20171106.102232-1767.zip</span>
-</span><span class='line'><span class="s">EOF</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>cat &lt;&lt; EOF &gt;&gt; group_vars/all.yaml
+odl_latest_enabled: true
+odl_latest_url: https://nexus.opendaylight.org/content/repositories/opendaylight.snapshot/org/opendaylight/integration/netvirt/karaf/0.8.0-SNAPSHOT/karaf-0.8.0-20171106.102232-1767.zip
+EOF
+</code></pre>
 
 <p>The next few steps are similar to what I&rsquo;ve described in my <a href="/blog/2017/09/08/os-lab-docker/">Kolla lab post</a>, will create a pair of VMs, build all Kolla containers, push them to a local Docker repo and finally deploy OpenStack using Kolla-ansible playbooks:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>./1-create.sh <span class="k">do</span>
-</span><span class='line'>./2-bootstrap.sh <span class="k">do</span>
-</span><span class='line'>./3-build.sh <span class="k">do</span>
-</span><span class='line'>./4-deploy.sh <span class="k">do</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>./1-create.sh do
+./2-bootstrap.sh do
+./3-build.sh do 
+./4-deploy.sh do
+</code></pre>
 
 <p>The final <code>4-deploy.sh</code> script will also create a simple <code>init.sh</code> script inside the controller VM that can be used to setup a test topology with a single VM connected to a <code>10.0.0.0/24</code> subnet:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ssh kolla-controller
-</span><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
-</span><span class='line'>./init.sh
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>ssh kolla-controller
+source /etc/kolla/admin-openrc.sh
+./init.sh
+</code></pre>
 
+<blockquote>
+<p>Of course, another option to build a lab is to follow the official <a href="https://docs.openstack.org/kolla-ansible/latest/user/quickstart.html" target="_blank">Kolla documentation</a> to create your own custom test environment.</p>
+</blockquote>
 
-<blockquote><p>Of course, another option to build a lab is to follow the official <a href="https://docs.openstack.org/kolla-ansible/latest/user/quickstart.html">Kolla documentation</a> to create your own custom test environment.</p></blockquote>
-
-<h3>Configuration</h3>
+<h2 id="configuration">Configuration</h2>
 
 <p>Assuming the test topology was setup with no issues and a test VM can ping its default gateway <code>10.0.0.1</code>, we can start configuring BGP VPNs. Unfortunately, we won&rsquo;t be able to use OpenStack BGPVPN API/CLI, since ODL requires an extra parameter (L3 VNI for symmetric IRB) which is not available in OpenStack BGPVPN API, but we still can configure everything directly through ODL&rsquo;s API. My interface of choice is always REST, since it&rsquo;s easier to build it into a fully programmatic plugin, so even though all of the below steps can be accomplished through karaf console CLI, I&rsquo;ll be using cURL to send and retrieve data from ODL&rsquo;s REST API.</p>
 
-<h4>1. Source admin credentials and setup ODL&rsquo;s REST variables</h4>
+<h3 id="1-source-admin-credentials-and-setup-odl-s-rest-variables">1. Source admin credentials and setup ODL&rsquo;s REST variables</h3>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">source</span> /etc/kolla/admin-openrc.sh
-</span><span class='line'><span class="nb">export </span><span class="nv">ODL_URL</span><span class="o">=</span><span class="s1">&#39;http://192.168.133.100:8181/restconf&#39;</span>
-</span><span class='line'><span class="nb">export </span><span class="nv">CT_JSON</span><span class="o">=</span><span class="s2">&quot;Content-Type: application/json&quot;</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>source /etc/kolla/admin-openrc.sh
+export ODL_URL='http://192.168.133.100:8181/restconf'
+export CT_JSON=&quot;Content-Type: application/json&quot;
+</code></pre>
 
+<h3 id="2-configure-local-bgp-settings-and-bgp-peering-with-dc-gw">2. Configure local BGP settings and BGP peering with DC-GW</h3>
 
-<h4>2. Configure local BGP settings and BGP peering with DC-GW</h4>
+<pre><code>cat &lt;&lt; EOF &gt; ./bgp-full.json
+{
+    &quot;bgp&quot;: {
+        &quot;as-id&quot;: {
+            &quot;announce-fbit&quot;: false,
+            &quot;local-as&quot;: 100,
+            &quot;router-id&quot;: &quot;192.168.133.100&quot;,
+            &quot;stalepath-time&quot;: 0
+        },
+        &quot;logging&quot;: {
+            &quot;file&quot;: &quot;/var/log/bgp_debug.log&quot;,
+            &quot;level&quot;: &quot;errors&quot;
+        },
+        &quot;neighbors&quot;: [
+            {
+                &quot;address&quot;: &quot;192.168.133.50&quot;,
+                &quot;remote-as&quot;: 100,
+                &quot;address-families&quot;: [
+                   {
+                     &quot;ebgp:afi&quot;: &quot;3&quot;,
+                     &quot;ebgp:peer-ip&quot;: &quot;192.168.133.50&quot;,
+                     &quot;ebgp:safi&quot;: &quot;6&quot;
+                   }
+                ]
+            }
+        ]
+    }
+}
+EOF
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./bgp-full.json</span>
-</span><span class='line'><span class="s">{</span>
-</span><span class='line'><span class="s">    &quot;bgp&quot;: {</span>
-</span><span class='line'><span class="s">        &quot;as-id&quot;: {</span>
-</span><span class='line'><span class="s">            &quot;announce-fbit&quot;: false,</span>
-</span><span class='line'><span class="s">            &quot;local-as&quot;: 100,</span>
-</span><span class='line'><span class="s">            &quot;router-id&quot;: &quot;192.168.133.100&quot;,</span>
-</span><span class='line'><span class="s">            &quot;stalepath-time&quot;: 0</span>
-</span><span class='line'><span class="s">        },</span>
-</span><span class='line'><span class="s">        &quot;logging&quot;: {</span>
-</span><span class='line'><span class="s">            &quot;file&quot;: &quot;/var/log/bgp_debug.log&quot;,</span>
-</span><span class='line'><span class="s">            &quot;level&quot;: &quot;errors&quot;</span>
-</span><span class='line'><span class="s">        },</span>
-</span><span class='line'><span class="s">        &quot;neighbors&quot;: [</span>
-</span><span class='line'><span class="s">            {</span>
-</span><span class='line'><span class="s">                &quot;address&quot;: &quot;192.168.133.50&quot;,</span>
-</span><span class='line'><span class="s">                &quot;remote-as&quot;: 100,</span>
-</span><span class='line'><span class="s">                &quot;address-families&quot;: [</span>
-</span><span class='line'><span class="s">                   {</span>
-</span><span class='line'><span class="s">                     &quot;ebgp:afi&quot;: &quot;3&quot;,</span>
-</span><span class='line'><span class="s">                     &quot;ebgp:peer-ip&quot;: &quot;192.168.133.50&quot;,</span>
-</span><span class='line'><span class="s">                     &quot;ebgp:safi&quot;: &quot;6&quot;</span>
-</span><span class='line'><span class="s">                   }</span>
-</span><span class='line'><span class="s">                ]</span>
-</span><span class='line'><span class="s">            }</span>
-</span><span class='line'><span class="s">        ]</span>
-</span><span class='line'><span class="s">    }</span>
-</span><span class='line'><span class="s">}</span>
-</span><span class='line'><span class="s">EOF</span>
-</span><span class='line'>
-</span><span class='line'>curl -X PUT -u admin:admin -k -v -H <span class="s2">&quot;$CT_JSON&quot;</span>  <span class="se">\</span>
-</span><span class='line'>     <span class="nv">$ODL_URL</span>/config/ebgp:bgp -d @bgp-full.json
-</span></code></pre></td></tr></table></div></figure>
+curl -X PUT -u admin:admin -k -v -H &quot;$CT_JSON&quot;  \
+     $ODL_URL/config/ebgp:bgp -d @bgp-full.json
+</code></pre>
 
+<h3 id="3-define-l3vpn-instance-and-associate-it-with-openstack-admin-tenant">3. Define L3VPN instance and associate it with OpenStack <code>admin</code> tenant</h3>
 
-<h4>3. Define L3VPN instance and associate it with OpenStack <code>admin</code> tenant</h4>
+<pre><code>TENANT_UUID=$(openstack project show admin -f value -c id | \
+            sed 's/\(........\)\(....\)\(....\)\(....\)\(.*\)/\1-\2-\3-\4-\5/')
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">TENANT_UUID</span><span class="o">=</span><span class="k">$(</span>openstack project show admin -f value -c id <span class="p">|</span> <span class="se">\</span>
-</span><span class='line'>            sed <span class="s1">&#39;s/\(........\)\(....\)\(....\)\(....\)\(.*\)/\1-\2-\3-\4-\5/&#39;</span><span class="k">)</span>
-</span><span class='line'>
-</span><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./l3vpn-full.json</span>
-</span><span class='line'><span class="s">{</span>
-</span><span class='line'><span class="s">   &quot;input&quot;: {</span>
-</span><span class='line'><span class="s">      &quot;l3vpn&quot;:[</span>
-</span><span class='line'><span class="s">         {</span>
-</span><span class='line'><span class="s">            &quot;id&quot;:&quot;f503fcb0-3fd9-4dee-8c3a-5034cf707fd9&quot;,</span>
-</span><span class='line'><span class="s">            &quot;name&quot;:&quot;L3EVPN&quot;,</span>
-</span><span class='line'><span class="s">            &quot;route-distinguisher&quot;: [&quot;100:100&quot;],</span>
-</span><span class='line'><span class="s">            &quot;export-RT&quot;: [&quot;100:100&quot;],</span>
-</span><span class='line'><span class="s">            &quot;import-RT&quot;: [&quot;100:100&quot;],</span>
-</span><span class='line'><span class="s">            &quot;l3vni&quot;: &quot;5000&quot;,</span>
-</span><span class='line'><span class="s">            &quot;tenant-id&quot;:&quot;${TENANT_UUID}&quot;</span>
-</span><span class='line'><span class="s">         }</span>
-</span><span class='line'><span class="s">      ]</span>
-</span><span class='line'><span class="s">   }</span>
-</span><span class='line'><span class="s">}</span>
-</span><span class='line'><span class="s">EOF</span>
-</span><span class='line'>
-</span><span class='line'>curl -X POST -u admin:admin -k -v -H <span class="s2">&quot;$CT_JSON&quot;</span>  <span class="se">\</span>
-</span><span class='line'>      <span class="nv">$ODL_URL</span>/operations/neutronvpn:createL3VPN -d @l3vpn-full.json
-</span></code></pre></td></tr></table></div></figure>
+cat &lt;&lt; EOF &gt; ./l3vpn-full.json
+{
+   &quot;input&quot;: {
+      &quot;l3vpn&quot;:[
+         {
+            &quot;id&quot;:&quot;f503fcb0-3fd9-4dee-8c3a-5034cf707fd9&quot;,
+            &quot;name&quot;:&quot;L3EVPN&quot;,
+            &quot;route-distinguisher&quot;: [&quot;100:100&quot;],
+            &quot;export-RT&quot;: [&quot;100:100&quot;],
+            &quot;import-RT&quot;: [&quot;100:100&quot;],
+            &quot;l3vni&quot;: &quot;5000&quot;,
+            &quot;tenant-id&quot;:&quot;${TENANT_UUID}&quot;
+         }
+      ]
+   }
+}
+EOF
 
+curl -X POST -u admin:admin -k -v -H &quot;$CT_JSON&quot;  \
+      $ODL_URL/operations/neutronvpn:createL3VPN -d @l3vpn-full.json
+</code></pre>
 
-<h4>4. Inject prefixes into L3VPN by associating the previously created L3VPN with a <code>demo-router</code></h4>
+<h3 id="4-inject-prefixes-into-l3vpn-by-associating-the-previously-created-l3vpn-with-a-demo-router">4. Inject prefixes into L3VPN by associating the previously created L3VPN with a <code>demo-router</code></h3>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">ROUTER_UUID</span><span class="o">=</span><span class="k">$(</span>openstack router show demo-router -f value -c id<span class="k">)</span>
-</span><span class='line'>
-</span><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./l3vpn-assoc.json</span>
-</span><span class='line'><span class="s">{</span>
-</span><span class='line'><span class="s">  &quot;input&quot;:{</span>
-</span><span class='line'><span class="s">     &quot;vpn-id&quot;:&quot;f503fcb0-3fd9-4dee-8c3a-5034cf707fd9&quot;,</span>
-</span><span class='line'><span class="s">     &quot;router-id&quot;:[ &quot;${ROUTER_UUID}&quot; ]</span>
-</span><span class='line'><span class="s">   }</span>
-</span><span class='line'><span class="s">}</span>
-</span><span class='line'><span class="s">EOF</span>
-</span><span class='line'>
-</span><span class='line'>curl -X POST -u admin:admin -k -v -H <span class="s2">&quot;$CT_JSON&quot;</span>  <span class="se">\</span>
-</span><span class='line'>     <span class="nv">$ODL_URL</span>/operations/neutronvpn:associateRouter -d @l3vpn-assoc.json
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>ROUTER_UUID=$(openstack router show demo-router -f value -c id)
 
+cat &lt;&lt; EOF &gt; ./l3vpn-assoc.json
+{
+  &quot;input&quot;:{
+     &quot;vpn-id&quot;:&quot;f503fcb0-3fd9-4dee-8c3a-5034cf707fd9&quot;,
+     &quot;router-id&quot;:[ &quot;${ROUTER_UUID}&quot; ]
+   }
+}
+EOF
 
-<h4>5. Configure DC-GW VTEP IP</h4>
+curl -X POST -u admin:admin -k -v -H &quot;$CT_JSON&quot;  \
+     $ODL_URL/operations/neutronvpn:associateRouter -d @l3vpn-assoc.json
+</code></pre>
+
+<h3 id="5-configure-dc-gw-vtep-ip">5. Configure DC-GW VTEP IP</h3>
 
 <p>ODL cannot automatically extract VTEP IP from updates received from DC-GW, so we need to explicitly configure it:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>cat <span class="s">&lt;&lt; EOF &gt; ./tep.json</span>
-</span><span class='line'><span class="s">{</span>
-</span><span class='line'><span class="s">  &quot;input&quot;: {</span>
-</span><span class='line'><span class="s">    &quot;destination-ip&quot;: &quot;1.1.1.1&quot;,</span>
-</span><span class='line'><span class="s">    &quot;tunnel-type&quot;: &quot;odl-interface:tunnel-type-vxlan&quot;</span>
-</span><span class='line'><span class="s">  }</span>
-</span><span class='line'><span class="s">}</span>
-</span><span class='line'><span class="s">EOF</span>
-</span><span class='line'>curl -X POST -u admin:admin -k -v -H <span class="s2">&quot;$CT_JSON&quot;</span>  <span class="se">\</span>
-</span><span class='line'>     <span class="nv">$ODL_URL</span>/operations/itm-rpc:add-external-tunnel-endpoint -d @tep.json
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>cat &lt;&lt; EOF &gt; ./tep.json
+{
+  &quot;input&quot;: {
+    &quot;destination-ip&quot;: &quot;1.1.1.1&quot;,
+    &quot;tunnel-type&quot;: &quot;odl-interface:tunnel-type-vxlan&quot;
+  }
+}
+EOF
+curl -X POST -u admin:admin -k -v -H &quot;$CT_JSON&quot;  \
+     $ODL_URL/operations/itm-rpc:add-external-tunnel-endpoint -d @tep.json
+</code></pre>
 
-
-<h4>6. DC-GW configuration</h4>
+<h3 id="6-dc-gw-configuration">6. DC-GW configuration</h3>
 
 <p>That is all what needs to be configured on ODL. Although I would consider this to be outside of the scope of the current post, for the sake of completeness I&rsquo;m including the relevant configuration from the DC-GW:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-<span class='line-number'>36</span>
-<span class='line-number'>37</span>
-<span class='line-number'>38</span>
-<span class='line-number'>39</span>
-<span class='line-number'>40</span>
-<span class='line-number'>41</span>
-<span class='line-number'>42</span>
-<span class='line-number'>43</span>
-<span class='line-number'>44</span>
-<span class='line-number'>45</span>
-<span class='line-number'>46</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>!
-</span><span class='line'>vrf definition ODL
-</span><span class='line'> rd 100:100
-</span><span class='line'> route-target <span class="nb">export </span>100:100
-</span><span class='line'> route-target import 100:100
-</span><span class='line'> !
-</span><span class='line'> address-family ipv4
-</span><span class='line'>  route-target <span class="nb">export </span>100:100 stitching
-</span><span class='line'>  route-target import 100:100 stitching
-</span><span class='line'> <span class="nb">exit</span>-address-family
-</span><span class='line'>!
-</span><span class='line'>bridge-domain <span class="m">5000</span>
-</span><span class='line'> member vni 5000
-</span><span class='line'>!
-</span><span class='line'>interface Loopback0
-</span><span class='line'> ip address 1.1.1.1 255.255.255.255
-</span><span class='line'>!
-</span><span class='line'>interface GigabitEthernet1
-</span><span class='line'> ip address 192.168.133.50 255.255.255.0
-</span><span class='line'>!
-</span><span class='line'>interface nve1
-</span><span class='line'> no ip address
-</span><span class='line'> <span class="nb">source</span>-interface Loopback0
-</span><span class='line'> host-reachability protocol bgp
-</span><span class='line'> member vni <span class="m">5000</span> vrf ODL
-</span><span class='line'>!
-</span><span class='line'>interface BDI5000
-</span><span class='line'> vrf forwarding ODL
-</span><span class='line'> ip address 8.8.8.8 255.255.255.0
-</span><span class='line'> encapsulation dot1Q 500
-</span><span class='line'>!
-</span><span class='line'>router bgp 100
-</span><span class='line'> bgp log-neighbor-changes
-</span><span class='line'> no bgp default ipv4-unicast
-</span><span class='line'> neighbor 192.168.133.100 remote-as 100
-</span><span class='line'> !
-</span><span class='line'> address-family l2vpn evpn
-</span><span class='line'>  import vpnv4 unicast
-</span><span class='line'>  neighbor 192.168.133.100 activate
-</span><span class='line'> <span class="nb">exit</span>-address-family
-</span><span class='line'> !
-</span><span class='line'> address-family ipv4 vrf ODL
-</span><span class='line'>  advertise l2vpn evpn
-</span><span class='line'>  redistribute connected
-</span><span class='line'> <span class="nb">exit</span>-address-family
-</span><span class='line'>!
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>!
+vrf definition ODL
+ rd 100:100
+ route-target export 100:100
+ route-target import 100:100
+ !        
+ address-family ipv4
+  route-target export 100:100 stitching
+  route-target import 100:100 stitching
+ exit-address-family
+!
+bridge-domain 5000 
+ member vni 5000
+!
+interface Loopback0
+ ip address 1.1.1.1 255.255.255.255
+!
+interface GigabitEthernet1
+ ip address 192.168.133.50 255.255.255.0
+!
+interface nve1
+ no ip address
+ source-interface Loopback0
+ host-reachability protocol bgp
+ member vni 5000 vrf ODL
+!
+interface BDI5000
+ vrf forwarding ODL
+ ip address 8.8.8.8 255.255.255.0
+ encapsulation dot1Q 500
+!
+router bgp 100
+ bgp log-neighbor-changes
+ no bgp default ipv4-unicast
+ neighbor 192.168.133.100 remote-as 100
+ !
+ address-family l2vpn evpn
+  import vpnv4 unicast
+  neighbor 192.168.133.100 activate
+ exit-address-family
+ !
+ address-family ipv4 vrf ODL
+  advertise l2vpn evpn
+  redistribute connected
+ exit-address-family
+!
+</code></pre>
 
+<p>For detailed explanation of how EVPN RT5 is configured on Cisco CSR refer to the <a href="https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/cether/configuration/xe-16/ce-xe-16-book/evpn-vxlan-l3.html" target="_blank">following guide</a>.</p>
 
-<p>For detailed explanation of how EVPN RT5 is configured on Cisco CSR refer to the <a href="https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/cether/configuration/xe-16/ce-xe-16-book/evpn-vxlan-l3.html">following guide</a>.</p>
-
-<h3>Verification</h3>
+<h2 id="verification">Verification</h2>
 
 <p>There are several things that can be checked to verify that the DC-GW integration is working. One of the first steps would be to check if BGP session with CSR is up.
 This can be done from the CSR side, however it&rsquo;s also possible to check this from the QBGP side. First we need to get into the QBGP&rsquo;s interactive shell from the controller node:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>centos@controller-1 ~<span class="o">]</span><span class="nv">$ </span>sudo docker <span class="nb">exec</span> -it quagga /opt/quagga/bin/vtysh
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>[centos@controller-1 ~]$ sudo docker exec -it quagga /opt/quagga/bin/vtysh
+</code></pre>
 
 <p>From here, we can check that the BGP session has been established:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>controller-1# sh bgp neighbors 192.168.133.50
-</span><span class='line'>BGP neighbor is 192.168.133.50, remote AS 100, <span class="nb">local </span>AS 100, internal link
-</span><span class='line'>  BGP version 4, remote router ID 1.1.1.1
-</span><span class='line'>  BGP <span class="nv">state</span> <span class="o">=</span> Established, up <span class="k">for</span> 00:03:05
-</span><span class='line'>&lt;snip&gt;
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>controller-1# sh bgp neighbors 192.168.133.50     
+BGP neighbor is 192.168.133.50, remote AS 100, local AS 100, internal link
+  BGP version 4, remote router ID 1.1.1.1
+  BGP state = Established, up for 00:03:05
+&lt;snip&gt;
+</code></pre>
 
 <p>We can also check the contents of EVPN RIB compiled by QBGP</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>controller-1# sh bgp evpn rd 100:100
-</span><span class='line'>BGP table version is 0, <span class="nb">local </span>router ID is 192.168.133.100
-</span><span class='line'>Status codes: s suppressed, d damped, h <span class="nb">history</span>, * valid, &gt; best, i - internal
-</span><span class='line'>Origin codes: i - IGP, e - EGP, ? - incomplete
-</span><span class='line'>
-</span><span class='line'>   Network          Next Hop            Metric LocPrf Weight Path
-</span><span class='line'>Route Distinguisher: as2 100:100
-</span><span class='line'>*&gt; <span class="o">[</span>0<span class="o">][</span>fa:16:3e:37:42:d8/48<span class="o">][</span>10.0.0.2/32<span class="o">]</span>
-</span><span class='line'>                    192.168.133.100         <span class="m">0</span>          <span class="m">32768</span> i
-</span><span class='line'>*&gt; <span class="o">[</span>0<span class="o">][</span>fa:16:3e:dc:77:65/48<span class="o">][</span>10.0.0.3/32<span class="o">]</span>
-</span><span class='line'>                    192.168.133.101         <span class="m">0</span>          <span class="m">32768</span> i
-</span><span class='line'>*&gt;i8.8.8.0/24       1.1.1.1         <span class="m">0</span>     <span class="m">100</span>       <span class="m">0</span> ?
-</span><span class='line'>*&gt; 10.0.0.0/24      192.168.133.100         <span class="m">0</span>          <span class="m">32768</span> i
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>controller-1# sh bgp evpn rd 100:100
+BGP table version is 0, local router ID is 192.168.133.100
+Status codes: s suppressed, d damped, h history, * valid, &gt; best, i - internal
+Origin codes: i - IGP, e - EGP, ? - incomplete
 
+   Network          Next Hop            Metric LocPrf Weight Path
+Route Distinguisher: as2 100:100
+*&gt; [0][fa:16:3e:37:42:d8/48][10.0.0.2/32]
+                    192.168.133.100         0          32768 i
+*&gt; [0][fa:16:3e:dc:77:65/48][10.0.0.3/32]
+                    192.168.133.101         0          32768 i
+*&gt;i8.8.8.0/24       1.1.1.1         0     100       0 ?
+*&gt; 10.0.0.0/24      192.168.133.100         0          32768 i
+</code></pre>
 
 <p>Finally, we can verify that the prefix <code>8.8.8.0/24</code> advertised from DC-GW is being passed by QBGP and accepted by NetVirt&rsquo;s FIB Manager:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>curl -u admin:admin -k -v  <span class="nv">$ODL_URL</span>/config/odl-fib:fibEntries/<span class="se">\</span>
-</span><span class='line'>  vrfTables/100%3A100/vrfEntry/8.8.8.0%2F24 <span class="p">|</span> python -m json.tool
-</span><span class='line'><span class="o">{</span>
-</span><span class='line'>    <span class="s2">&quot;vrfEntry&quot;</span>: <span class="o">[</span>
-</span><span class='line'>        <span class="o">{</span>
-</span><span class='line'>            <span class="s2">&quot;destPrefix&quot;</span>: <span class="s2">&quot;8.8.8.0/24&quot;</span>,
-</span><span class='line'>            <span class="s2">&quot;encap-type&quot;</span>: <span class="s2">&quot;vxlan&quot;</span>,
-</span><span class='line'>            <span class="s2">&quot;gateway_mac_address&quot;</span>: <span class="s2">&quot;00:1e:49:69:24:bf&quot;</span>,
-</span><span class='line'>            <span class="s2">&quot;l3vni&quot;</span>: 5000,
-</span><span class='line'>            <span class="s2">&quot;origin&quot;</span>: <span class="s2">&quot;b&quot;</span>,
-</span><span class='line'>            <span class="s2">&quot;route-paths&quot;</span>: <span class="o">[</span>
-</span><span class='line'>                <span class="o">{</span>
-</span><span class='line'>                    <span class="s2">&quot;nexthop-address&quot;</span>: <span class="s2">&quot;1.1.1.1&quot;</span>
-</span><span class='line'>                <span class="o">}</span>
-</span><span class='line'>            <span class="o">]</span>
-</span><span class='line'>        <span class="o">}</span>
-</span><span class='line'>    <span class="o">]</span>
-</span><span class='line'><span class="o">}</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>$ curl -u admin:admin -k -v  $ODL_URL/config/odl-fib:fibEntries/\
+  vrfTables/100%3A100/vrfEntry/8.8.8.0%2F24 | python -m json.tool
+{
+    &quot;vrfEntry&quot;: [
+        {
+            &quot;destPrefix&quot;: &quot;8.8.8.0/24&quot;,
+            &quot;encap-type&quot;: &quot;vxlan&quot;,
+            &quot;gateway_mac_address&quot;: &quot;00:1e:49:69:24:bf&quot;,
+            &quot;l3vni&quot;: 5000,
+            &quot;origin&quot;: &quot;b&quot;,
+            &quot;route-paths&quot;: [
+                {
+                    &quot;nexthop-address&quot;: &quot;1.1.1.1&quot;
+                }
+            ]
+        }
+    ]
+}
+</code></pre>
 
 <p>The last output confirms that the prefix is being received and accepted by ODL. To do a similar check on CSR side we can run the following command:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>CSR1k#show bgp l2vpn evpn
-</span><span class='line'>&lt;snip&gt;
-</span><span class='line'>     Network          Next Hop            Metric LocPrf Weight Path
-</span><span class='line'>Route Distinguisher: 100:100 <span class="o">(</span>default <span class="k">for</span> vrf ODL<span class="o">)</span>
-</span><span class='line'> *&gt;i  <span class="o">[</span>2<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>48<span class="o">][</span>FA163E3742D8<span class="o">][</span>32<span class="o">][</span>10.0.0.2<span class="o">]</span>/24
-</span><span class='line'>                      192.168.133.100          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
-</span><span class='line'> *&gt;i  <span class="o">[</span>2<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>48<span class="o">][</span>FA163EDC7765<span class="o">][</span>32<span class="o">][</span>10.0.0.3<span class="o">]</span>/24
-</span><span class='line'>                      192.168.133.101          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
-</span><span class='line'> *&gt;   <span class="o">[</span>5<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>24<span class="o">][</span>8.8.8.0<span class="o">]</span>/17
-</span><span class='line'>                      0.0.0.0                  <span class="m">0</span>         <span class="m">32768</span> ?
-</span><span class='line'> *&gt;i  <span class="o">[</span>5<span class="o">][</span>100:100<span class="o">][</span>0<span class="o">][</span>24<span class="o">][</span>10.0.0.0<span class="o">]</span>/17
-</span><span class='line'>                      192.168.133.100          <span class="m">0</span>    <span class="m">100</span>      <span class="m">0</span> i
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>CSR1k#show bgp l2vpn evpn 
+&lt;snip&gt;
+     Network          Next Hop            Metric LocPrf Weight Path
+Route Distinguisher: 100:100 (default for vrf ODL)
+ *&gt;i  [2][100:100][0][48][FA163E3742D8][32][10.0.0.2]/24
+                      192.168.133.100          0    100      0 i
+ *&gt;i  [2][100:100][0][48][FA163EDC7765][32][10.0.0.3]/24
+                      192.168.133.101          0    100      0 i
+ *&gt;   [5][100:100][0][24][8.8.8.0]/17
+                      0.0.0.0                  0         32768 ?
+ *&gt;i  [5][100:100][0][24][10.0.0.0]/17
+                      192.168.133.100          0    100      0 i
+</code></pre>
 
 <p>This confirms that the control plane information has been successfully exchanged between NetVirt and Cisco CSR.</p>
 
-<blockquote><p>At the time of writing, there was an <a href="https://git.opendaylight.org/gerrit/#/c/63324/">open bug</a> in ODL master branch that prevented the forwarding entries from being installed in OVS datapath. Once the bug is fixed I will update this post with the dataplance verification, a.k.a ping</p></blockquote>
+<blockquote>
+<p>At the time of writing, there was an <a href="https://git.opendaylight.org/gerrit/#/c/63324/" target="_blank">open bug</a> in ODL master branch that prevented the forwarding entries from being installed in OVS datapath. Once the bug is fixed I will update this post with the dataplance verification, a.k.a ping</p>
+</blockquote>
 
-<h2>Conclusion</h2>
+<h1 id="conclusion">Conclusion</h1>
 
 <p>OpenDaylight is a pretty advanced OpenStack SDN platform. Its functionality includes clustering, site-to-site federation (without EVPN) and L2/L3 EVPN DC-GW integration for both IPv4 and IPv6. It is yet another example of how an open-source platform can match even the most advanced proprietary SDN solutions from incumbent vendors. This is all thanks to the companies involved in OpenDaylight development. I also want to say special thanks to Vyshakh Krishnan, Kiran N Upadhyaya and Dayavanti Gopal Kamath from Ericsson for helping me clear up some of the questions I posted on netvirt-dev mailing list.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/openstack-sdn">OpenStack-SDN</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/odl">ODL</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-12-15T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">15/12/2017</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/" data-via="" data-counturl="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2017/11/23/os-nfv-mano/">OpenStack SDN - NFV Management and Orchestration</a></li>
+    
+    <li><a href="/blog/2017/09/15/os-sfc-skydive/">OpenStack SDN - Skydiving Into Service Function Chaining</a></li>
+    
+    <li><a href="/blog/2017/09/08/os-lab-docker/">OpenStack SDN - Building a Containerized OpenStack Lab</a></li>
+    
+    <li><a href="/blog/2016/12/10/ovn-part2/">OpenStack SDN With OVN (Part 2) - Network Engineering Analysis</a></li>
+    
+    <li><a href="/blog/2016/11/27/ovn-part1/">OpenStack SDN With OVN (Part 1) - Build and Install</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2017/11/23/os-nfv-mano/" title="Previous Post: Openstack SDN - NFV Management and Orchestration">&laquo; Openstack SDN - NFV Management and Orchestration</a></li>
-            
-            
-            <li class="next"><a href="/blog/2018/01/02/os-contrail/" title="Next Post: Openstack SDN - OpenContrail with BGP VPN">Openstack SDN - OpenContrail with BGP VPN &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item active" href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/';
-        var disqus_url = 'http://networkop.github.io/blog/2017/12/15/os-odl-netvirt/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

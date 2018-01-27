@@ -1,161 +1,318 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>OpenStack SDN With OVN (Part 1) - Build and Install - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Integrating OVN with RDO OpenStack">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Vanilla OpenStack networking has many functional, performance and scaling limitations. Projects like L2 population, local ARP responder, L2 Gateway and DVR were conceived to address those issues. However good a job these projects do, they still remain a collection of separate projects, each with its own limitations, configuration options and sets of dependencies. That led to an effort outside of OpenStack to develop a special-purpose OVS-only SDN controller that would address those issues in a centralised and consistent manner.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2016/11/27/ovn-part1/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/11/27/ovn-part1/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2016/11/27/ovn-part1/">
-  <meta property="og:title" content="OpenStack SDN With OVN (Part 1) - Build and Install - Network-oriented programming">
-  <meta property="og:description" content="Integrating OVN with RDO OpenStack">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2016/11/27/ovn-part1/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2016/11/27/ovn-part1/">
+  <meta property="og:title" content="OpenStack SDN With OVN (Part 1) - Build and Install | Network-oriented programming">
+  <meta property="og:description" content="Vanilla OpenStack networking has many functional, performance and scaling limitations. Projects like L2 population, local ARP responder, L2 Gateway and DVR were conceived to address those issues. However good a job these projects do, they still remain a collection of separate projects, each with its own limitations, configuration options and sets of dependencies. That led to an effort outside of OpenStack to develop a special-purpose OVS-only SDN controller that would address those issues in a centralised and consistent manner.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2016-11-27T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2016-11-27T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>OpenStack SDN With OVN (Part 1) - Build and Install | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">OpenStack SDN With OVN (Part 1) - Build and Install</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
-        
+    <time datetime="2016-11-27 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      27 Nov 2016
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
 
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    8 min read
+  </span>
+  
 
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2016/11/27/ovn-part1/#disqus_thread"></a>
+  
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-11-27T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">27/11/2016</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
     
+    <a href="/categories/sdn">SDN</a
+    >
     
-    <h1 class="entry-title" itemprop="name headline">
-        OpenStack SDN With OVN (Part 1) - Build and Install
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=OpenStack%20SDN%20With%20OVN%20%28Part%201%29%20-%20Build%20and%20Install&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f11%2f27%2fovn-part1%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f11%2f27%2fovn-part1%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f11%2f27%2fovn-part1%2f&amp;title=OpenStack%20SDN%20With%20OVN%20%28Part%201%29%20-%20Build%20and%20Install"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=OpenStack%20SDN%20With%20OVN%20%28Part%201%29%20-%20Build%20and%20Install&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f11%2f27%2fovn-part1%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>This is a first of a two-post series dedicated to project OVN. In this post I&rsquo;ll show how to build, install and configure OVN to work with a 3-node RDO OpenStack lab.</p>
-
-<!--more-->
-
 
 <p>Vanilla OpenStack networking has many functional, performance and scaling limitations. Projects like <a href="/blog/2016/05/06/neutron-l2pop/">L2 population</a>, <a href="/blog/2016/05/06/neutron-l2pop/">local ARP responder</a>, <a href="/blog/2016/05/21/neutron-l2gw/">L2 Gateway</a> and <a href="/blog/2016/10/13/os-dvr/">DVR</a> were conceived to address those issues. However good a job these projects do, they still remain a collection of separate projects, each with its own limitations, configuration options and sets of dependencies. That led to an effort outside of OpenStack to develop a special-purpose OVS-only SDN controller that would address those issues in a centralised and consistent manner. This post will be about one such SDN controller, coming directly from the people responsible for OpenvSwitch, Open Virtual Network (OVN).</p>
 
-<h2>OVN quick introduction</h2>
+<h1 id="ovn-quick-introduction">OVN quick introduction</h1>
 
-<p>OVN is a distributed SDN controller implementing virtual networks with the help OVS. Even though it is positioned as a <abbr title="Cloud Management System">CMS</abbr>-independent controller, the main use case is still OpenStack. OVN was designed to address the following limitations of vanilla OpenStack networking:</p>
+<p>OVN is a distributed SDN controller implementing virtual networks with the help OVS. Even though it is positioned as a <a href="abbr:Cloud Management System" target="_blank">CMS</a>-independent controller, the main use case is still OpenStack. OVN was designed to address the following limitations of vanilla OpenStack networking:</p>
 
 <ul>
 <li>Security groups could not be implemented directly on OVS ports and, therefore, required a dedicated Linux bridge between the VM and the OVS integration bridge.</li>
@@ -163,657 +320,373 @@
 <li>NAT was implemented using a combination of network namespaces, iptables and proxy-ARP.</li>
 </ul>
 
-
 <p>OVN implements security groups, distributed virtual routing, NAT and distributed DHCP server all inside a single OVS bridge. This dramatically improves performance by reducing the number of inter-process packet handling and ensures that all flows can benefit from kernel fast-path switching.</p>
 
 <p>At a high level, OVN consists of 3 main components:</p>
 
 <ol>
 <li>OVN ML2 Plugin - performs translation between Neutron data model and OVN logical data model stored in Northbound DB.</li>
-<li>OVN northd - the brains of OVN, translates the high level networking abstractions (logical switches, routers and ports) into logical flows. These <a href="https://blog.russellbryant.net/2016/11/11/ovn-logical-flows-and-ovn-trace/">logical flows</a> are not yet OpenFlow flows but similar in concept and a very powerful abstraction. All translated information is stored in Southbound DB.</li>
+<li>OVN northd - the brains of OVN, translates the high level networking abstractions (logical switches, routers and ports) into logical flows. These <a href="https://blog.russellbryant.net/2016/11/11/ovn-logical-flows-and-ovn-trace/" target="_blank">logical flows</a> are not yet OpenFlow flows but similar in concept and a very powerful abstraction. All translated information is stored in Southbound DB.</li>
 <li>OVN controllers - located on each compute node, receive identical copies of logical flows (centralised network view) and exchange logical port to overlay IP binding information via the central Southbound DB. This information is used to perform logical flow translation into OpenFlow which are then programmed into the local OVS instance.</li>
 </ol>
 
+<p><img src="/img/ovn-arch.png" alt="" /></p>
 
-<p><img class="center" src="/images/ovn-arch.png"></p>
+<p>If you want to learn more about OVN architecture and use cases, <a href="http://docs.openstack.org/developer/networking-ovn/readme.html" target="_blank">OpenStack OVN page</a> has an excellent collection of resources for further reading.</p>
 
-<p>If you want to learn more about OVN architecture and use cases, <a href="http://docs.openstack.org/developer/networking-ovn/readme.html">OpenStack OVN page</a> has an excellent collection of resources for further reading.</p>
-
-<h2>OpenStack installation</h2>
+<h1 id="openstack-installation">OpenStack installation</h1>
 
 <p>I&rsquo;ll use RDO packstack to help me build a 1 controller and 2 compute nodes OpenStack lab on CentOS7. I&rsquo;ll use the master trunk to deploy the latest OpenStack Ocata packages. This is required since at the time of writing (Nov 2016) some of the OVN features were not available in OpenStack Newton.</p>
 
-<figure class='code'><figcaption><span>Install latest RDO repositories on all 3 nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nb">cd</span> /etc/yum.repos.d/
-</span><span class='line'>wget http://trunk.rdoproject.org/centos7/delorean-deps.repo
-</span><span class='line'>wget https://trunk.rdoproject.org/centos7-master/current/delorean.repo
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>cd /etc/yum.repos.d/
+wget http://trunk.rdoproject.org/centos7/delorean-deps.repo
+wget https://trunk.rdoproject.org/centos7-master/current/delorean.repo
+</code></pre>
 
+<p>On the controller node, generate a sample answer file and modify settings to match the IPs of individual nodes. Optionally, you can disable some of the unused components like Nagios and Ceilometer similar to how I did it in my <a href="http://networkop.co.uk/blog/2016/04/18/os-unl-lab/" target="_blank">earlier post</a>.</p>
 
-<p>On the controller node, generate a sample answer file and modify settings to match the IPs of individual nodes. Optionally, you can disable some of the unused components like Nagios and Ceilometer similar to how I did it in my <a href="http://networkop.co.uk/blog/2016/04/18/os-unl-lab/">earlier post</a>.</p>
-
-<figure class='code'><figcaption><span>Modify answer file and deploy OpenStack</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum install -y openstack-packstack crudini
-</span><span class='line'>packstack --gen-answer-file<span class="o">=</span>/root/packstack.answer
-</span><span class='line'>crudini --set --existing defautl CONFIG_COMPUTE_HOSTS 169.254.0.12,169.254.0.13
-</span><span class='line'>crudini --set --existing defautl CONFIG_CONTROLLER_HOST 169.254.0.11
-</span><span class='line'>crudini --set --existing defautl CONFIG_NETWORK_HOSTS 169.254.0.11
-</span><span class='line'>packstack --answer-file<span class="o">=</span>/root/packstack.answer
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>yum install -y openstack-packstack crudini
+packstack --gen-answer-file=/root/packstack.answer
+crudini --set --existing defautl CONFIG_COMPUTE_HOSTS 169.254.0.12,169.254.0.13
+crudini --set --existing defautl CONFIG_CONTROLLER_HOST 169.254.0.11
+crudini --set --existing defautl CONFIG_NETWORK_HOSTS 169.254.0.11
+packstack --answer-file=/root/packstack.answer
+</code></pre>
 
 <p>After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about <a href="/blog/2016/08/26/os-lab-p1/">OpenStack</a> and <a href="/blog/2016/09/09/os-lab-p2/">underlay Leaf-Spine fabric</a> build using Chef.</p>
 
-<p><img class="center" src="/images/ovn-openstack.png"></p>
+<p><img src="/img/ovn-openstack.png" alt="" /></p>
 
-<h2>OVN Build</h2>
+<h1 id="ovn-build">OVN Build</h1>
 
 <p>OVN can be built directly from OVS source code. Instead of building and installing OVS on each of the OpenStack nodes individually, I&rsquo;ll build a set of RPM&rsquo;s on the Controller and will use them to install and upgrade OVS/OVN components on the remaining nodes.</p>
 
 <p>Part of OVN build process includes building an OVS kernel module. In order to be able to use kmod RPM on all nodes we need to make sure all nodes use the same version of Linux kernel. The easiest way would be to fetch the latest updates from CentOS repos and reboot the nodes. This step should result in same kernel version on all nodes, which can be checked with <code>uname -r</code> command.</p>
 
-<figure class='code'><figcaption><span>Upgrade kernel on all nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum -y update kernel
-</span><span class='line'>reboot
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>yum -y update kernel
+reboot
+</code></pre>
 
+<p>The official <a href="https://github.com/openvswitch/ovs/blob/master/INSTALL.Fedora.rst" target="_blank">OVS installation procedure for CentOS7</a> is pretty accurate and requires only a few modifications to account for the packages missing in the minimal CentOS image I&rsquo;ve used as a base OS.</p>
 
-<p>The official <a href="https://github.com/openvswitch/ovs/blob/master/INSTALL.Fedora.rst">OVS installation procedure for CentOS7</a> is pretty accurate and requires only a few modifications to account for the packages missing in the minimal CentOS image I&rsquo;ve used as a base OS.</p>
+<pre><code>yum install rpm-build autoconf automake libtool systemd-units openssl openssl-devel python python-twisted-core python-zope-interface python-six desktop-file-utils groff graphviz procps-ng libcap-ng libcap-ng-devel
 
-<figure class='code'><figcaption><span>OVS build procedure</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum install rpm-build autoconf automake libtool systemd-units openssl openssl-devel python python-twisted-core python-zope-interface python-six desktop-file-utils groff graphviz procps-ng libcap-ng libcap-ng-devel
-</span><span class='line'>yum install selinux-policy-devel kernel-devel-<span class="sb">`</span>uname -r<span class="sb">`</span> git
-</span><span class='line'>git clone https://github.com/openvswitch/ovs.git
-</span><span class='line'><span class="nb">cd </span>ovs
-</span><span class='line'>./boot.sh
-</span><span class='line'>./configure
-</span><span class='line'>make rpm-fedora <span class="nv">RPMBUILD_OPT</span><span class="o">=</span><span class="s2">&quot;--without check&quot;</span>
-</span><span class='line'>make rpm-fedora-kmod
-</span></code></pre></td></tr></table></div></figure>
+yum install selinux-policy-devel kernel-devel-`uname -r` git
 
+git clone https://github.com/openvswitch/ovs.git &amp;&amp; cd ovs
+./boot.sh
+./configure
+make rpm-fedora RPMBUILD_OPT=&quot;--without check&quot;
+make rpm-fedora-kmod
+</code></pre>
 
 <p>At the end of the process we should have a set of rpms inside the <code>ovs/rpm/rpmbuild/RPMS/</code> directory.</p>
 
-<h2>OVN Install</h2>
+<h1 id="ovn-install">OVN Install</h1>
 
 <p>Before we can begin installing OVN, we need to prepare the existing OpenStack environment by disabling and removing legacy Neutron OpenvSwitch agents. Since OVN natively implements L2 and L3 forwarding, DHCP and NAT, we won&rsquo;t need L3 and DHCP agents on any of the Compute nodes. Network node that used to provide North-South connectivity will no longer be needed.</p>
 
-<h3>OpenStack preparation</h3>
+<h2 id="openstack-preparation">OpenStack preparation</h2>
 
 <p>First, we need to make sure all Compute nodes have a bridge that would provide access to external provider networks. In my case, I&rsquo;ll move the <code>eth1</code> interface under the OVS <code>br-ex</code> on all Compute nodes.</p>
 
-<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/ifcfg-eth1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">DEVICE</span><span class="o">=</span>eth1
-</span><span class='line'><span class="nv">NAME</span><span class="o">=</span>eth1
-</span><span class='line'><span class="nv">DEVICETYPE</span><span class="o">=</span>ovs
-</span><span class='line'><span class="nv">TYPE</span><span class="o">=</span>OVSPort
-</span><span class='line'><span class="nv">OVS_BRIDGE</span><span class="o">=</span>br-ex
-</span><span class='line'><span class="nv">ONBOOT</span><span class="o">=</span>yes
-</span><span class='line'><span class="nv">BOOTPROTO</span><span class="o">=</span>none
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>DEVICE=eth1
+NAME=eth1
+DEVICETYPE=ovs
+TYPE=OVSPort
+OVS_BRIDGE=br-ex
+ONBOOT=yes
+BOOTPROTO=none
+</code></pre>
 
 <p>IP address needs to be moved to <code>br-ex</code> interface. Below example is for Compute node #2:</p>
 
-<figure class='code'><figcaption><span>/etc/sysconfig/network-scripts/ifcfg-br-ex</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">ONBOOT</span><span class="o">=</span>yes
-</span><span class='line'><span class="nv">DEFROUTE</span><span class="o">=</span>yes
-</span><span class='line'><span class="nv">IPADDR</span><span class="o">=</span>169.254.0.12
-</span><span class='line'><span class="nv">PREFIX</span><span class="o">=</span>24
-</span><span class='line'><span class="nv">GATEWAY</span><span class="o">=</span>169.254.0.1
-</span><span class='line'><span class="nv">DNS1</span><span class="o">=</span>8.8.8.8
-</span><span class='line'><span class="nv">DEVICE</span><span class="o">=</span>br-ex
-</span><span class='line'><span class="nv">NAME</span><span class="o">=</span>br-ex
-</span><span class='line'><span class="nv">DEVICETYPE</span><span class="o">=</span>ovs
-</span><span class='line'><span class="nv">OVSBOOTPROTO</span><span class="o">=</span>none
-</span><span class='line'><span class="nv">TYPE</span><span class="o">=</span>OVSBridge
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>ONBOOT=yes
+DEFROUTE=yes
+IPADDR=169.254.0.12
+PREFIX=24
+GATEWAY=169.254.0.1
+DNS1=8.8.8.8
+DEVICE=br-ex
+NAME=br-ex
+DEVICETYPE=ovs
+OVSBOOTPROTO=none
+TYPE=OVSBridge
+</code></pre>
 
 <p>At the same time OVS configuration on Network/Controller node will need to be completely wiped out. Once that&rsquo;s done, we can remove the Neutron OVS package from all nodes.</p>
 
-<figure class='code'><figcaption><span>Remove legacy Neutron OVS agents</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum remove openstack-neutron-openvswitch
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>yum remove openstack-neutron-openvswitch
+</code></pre>
 
-
-<h3>OVS packages installation</h3>
+<h2 id="ovs-packages-installation">OVS packages installation</h2>
 
 <p>Now everything is ready for OVN installation. First step is to install the kernel module and upgrade the existing OVS package. Reboot may be needed in order for the correct kernel module to be loaded.</p>
 
-<figure class='code'><figcaption><span>Upgrade OVS on all nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>rpm -i openvswitch-kmod-2.6.90-1.el7.centos.x86_64.rpm
-</span><span class='line'>rpm -U openvswitch-2.6.90-1.el7.centos.x86_64.rpm
-</span><span class='line'>reboot
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>rpm -i openvswitch-kmod-2.6.90-1.el7.centos.x86_64.rpm
+rpm -U openvswitch-2.6.90-1.el7.centos.x86_64.rpm
+reboot
+</code></pre>
 
 <p>Now we can install OVN. Controllers will be running the <code>ovn-northd</code> process which can be installed as follows:</p>
 
-<figure class='code'><figcaption><span>Install OVN on the Controller</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>rpm -i openvswitch-ovn-common-*.x86_64.rpm
-</span><span class='line'>rpm -i openvswitch-ovn-central-*.x86_64.rpm
-</span><span class='line'>systemctl start ovn-northd
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>rpm -i openvswitch-ovn-common-*.x86_64.rpm
+rpm -i openvswitch-ovn-central-*.x86_64.rpm
+systemctl start ovn-northd
+</code></pre>
 
 <p>The following packages install the <code>ovn-controller</code> on all Compute nodes:</p>
 
-<figure class='code'><figcaption><span>Install OVN on Compute nodes</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>rpm -i openvswitch-ovn-common-*.x86_64.rpm
-</span><span class='line'>rpm -i openvswitch-ovn-host-*.x86_64.rpm
-</span><span class='line'>systemctl start ovn-controller
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>rpm -i openvswitch-ovn-common-*.x86_64.rpm
+rpm -i openvswitch-ovn-host-*.x86_64.rpm
+systemctl start ovn-controller
+</code></pre>
 
+<p>The last thing is to install the OVN ML2 plugin, a python library that allows Neutron server to talk to OVN Northbound database.</p>
 
-<p>The last thing is to install the OVN ML2 plugin, a python library that allows Neutron to talk to OVN Northbound database.</p>
+<pre><code>yum install python-networking-ovn
+</code></pre>
 
-<figure class='code'><figcaption><span>Install OVN ML2 plugin on the Controller</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>yum install python-networking-ovn
-</span></code></pre></td></tr></table></div></figure>
+<h1 id="ovn-configuration">OVN Configuration</h1>
 
+<p>Now that we have all the required packages in place, it&rsquo;s time to reconfigure Neutron to start using OVN instead of a default openvswitch plugin. The installation procedure is described in the official <a href="http://docs.openstack.org/developer/networking-ovn/index.html" target="_blank">Neutron integration guide</a>. At the end, once we&rsquo;ve restarted <code>ovn-northd</code> on the controller and <code>ovn-controller</code> on the compute nodes, we should see the following output on the controller node:</p>
 
-<h2>OVN Configuration</h2>
-
-<p>Now that we have all the required packages in place, it&rsquo;s time to reconfigure Neutron to start using OVN instead of a default openvswitch plugin. The installation procedure is described in the official <a href="http://docs.openstack.org/developer/networking-ovn/index.html">Neutron integration guide</a>. At the end, once we&rsquo;ve restarted <code>ovn-northd</code> on the controller and <code>ovn-controller</code> on the compute nodes, we should see the following output on the controller node:</p>
-
-<figure class='code'><figcaption><span>ovs-sbctl show</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>Chassis <span class="s2">&quot;d03bdd51-e687-4078-aa54-0ff8007db0b5&quot;</span>
-</span><span class='line'>    hostname: <span class="s2">&quot;compute-3&quot;</span>
-</span><span class='line'>    Encap geneve
-</span><span class='line'>        ip: <span class="s2">&quot;10.0.0.4&quot;</span>
-</span><span class='line'>        options: <span class="o">{</span><span class="nv">csum</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="o">}</span>
-</span><span class='line'>    Encap vxlan
-</span><span class='line'>        ip: <span class="s2">&quot;10.0.0.4&quot;</span>
-</span><span class='line'>        options: <span class="o">{</span><span class="nv">csum</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="o">}</span>
-</span><span class='line'>Chassis <span class="s2">&quot;b89b8683-7c74-43df-8ac6-1d57ddefec77&quot;</span>
-</span><span class='line'>    hostname: <span class="s2">&quot;compute-2&quot;</span>
-</span><span class='line'>    Encap vxlan
-</span><span class='line'>        ip: <span class="s2">&quot;10.0.0.2&quot;</span>
-</span><span class='line'>        options: <span class="o">{</span><span class="nv">csum</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="o">}</span>
-</span><span class='line'>    Encap geneve
-</span><span class='line'>        ip: <span class="s2">&quot;10.0.0.2&quot;</span>
-</span><span class='line'>        options: <span class="o">{</span><span class="nv">csum</span><span class="o">=</span><span class="s2">&quot;true&quot;</span><span class="o">}</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>$ ovs-sbctl show
+Chassis &quot;d03bdd51-e687-4078-aa54-0ff8007db0b5&quot;
+    hostname: &quot;compute-3&quot;
+    Encap geneve
+        ip: &quot;10.0.0.4&quot;
+        options: {csum=&quot;true&quot;}
+    Encap vxlan
+        ip: &quot;10.0.0.4&quot;
+        options: {csum=&quot;true&quot;}
+Chassis &quot;b89b8683-7c74-43df-8ac6-1d57ddefec77&quot;
+    hostname: &quot;compute-2&quot;
+    Encap vxlan
+        ip: &quot;10.0.0.2&quot;
+        options: {csum=&quot;true&quot;}
+    Encap geneve
+        ip: &quot;10.0.0.2&quot;
+        options: {csum=&quot;true&quot;}
+</code></pre>
 
 <p>This means that all instances of a distributed OVN controller located on each compute node have successfully registered with Southbound OVSDB and provided information about their physical overlay addresses and supported encapsulation types.</p>
 
-<h2>(Optional) Automating everything with Chef</h2>
+<h1 id="optional-automating-everything-with-chef">(Optional) Automating everything with Chef</h1>
 
 <p>At this point of time there&rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my <a href="/blog/2016/08/26/os-lab-p1/">earlier post</a>. Optionally, you can automate the build of underlay network as well by following my <a href="/blog/2016/09/09/os-lab-p2/">other post</a>. Once you&rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>git clone https://github.com/networkop/chef-unl-os.git
-</span><span class='line'><span class="nb">cd </span>chef-unl-os
-</span><span class='line'>chef-client -z -E lab ovn.rb
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>git clone https://github.com/networkop/chef-unl-os.git
+cd chef-unl-os
+chef-client -z -E lab ovn.rb
+</code></pre>
 
-
-<h2>Test topology setup</h2>
+<h1 id="test-topology-setup">Test topology setup</h1>
 
 <p>Now we should be able to create a test topology with two tenant subnets and an external network interconnected by a virtual router.</p>
 
-<figure class='code'><figcaption><span>Creating a test topology</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>neutron net-create NET-RED
-</span><span class='line'>neutron net-create NET-BLUE
-</span><span class='line'>neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24
-</span><span class='line'>neutron subnet-create --name SUB-RED NET-RED 20.0.0.0/24
-</span><span class='line'>neutron net-create NET-EXT --provider:network_type flat <span class="se">\</span>
-</span><span class='line'>                           --provider:physical_network extnet <span class="se">\</span>
-</span><span class='line'>                           --router:external --shared
-</span><span class='line'>neutron subnet-create --name SUB-EXT --enable_dhcp<span class="o">=</span>False <span class="se">\</span>
-</span><span class='line'>                      --allocation-pool<span class="o">=</span><span class="nv">start</span><span class="o">=</span>169.254.0.50,end<span class="o">=</span>169.254.0.99 <span class="se">\</span>
-</span><span class='line'>                      --gateway<span class="o">=</span>169.254.0.1 NET-EXT 169.254.0.0/24
-</span><span class='line'>neutron router-create R1
-</span><span class='line'>neutron router-interface-add R1 SUB-BLUE
-</span><span class='line'>neutron router-interface-add R1 SUB-RED
-</span><span class='line'>neutron router-gateway-set R1 NET-EXT
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>neutron net-create NET-RED
+neutron net-create NET-BLUE
+neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24
+neutron subnet-create --name SUB-RED NET-RED 20.0.0.0/24
+neutron net-create NET-EXT --provider:network_type flat \
+                           --provider:physical_network extnet \
+                           --router:external --shared
+neutron subnet-create --name SUB-EXT --enable_dhcp=False \
+                      --allocation-pool=start=169.254.0.50,end=169.254.0.99 \
+                      --gateway=169.254.0.1 NET-EXT 169.254.0.0/24
+neutron router-create R1
+neutron router-interface-add R1 SUB-BLUE
+neutron router-interface-add R1 SUB-RED
+neutron router-gateway-set R1 NET-EXT
+</code></pre>
 
 <p>When we attach a few test VMs to each subnet we should be able to successfully ping between the VMs, assuming the security groups are setup to allow ICMP/ND.</p>
 
-<figure class='code'><figcaption><span>Create VMs</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img <span class="p">|</span> glance <span class="se">\</span>
-</span><span class='line'>image-create --name<span class="o">=</span><span class="s1">&#39;IMG-CIRROS&#39;</span> <span class="se">\</span>
-</span><span class='line'>  --visibility<span class="o">=</span>public <span class="se">\</span>
-</span><span class='line'>  --container-format<span class="o">=</span>bare <span class="se">\</span>
-</span><span class='line'>  --disk-format<span class="o">=</span>qcow2
-</span><span class='line'>nova aggregate-create AGG-RED AZ-RED
-</span><span class='line'>nova aggregate-create AGG-BLUE AZ-BLUE
-</span><span class='line'>nova aggregate-add-host AGG-BLUE compute-2
-</span><span class='line'>nova aggregate-add-host AGG-RED compute-3
-</span><span class='line'>nova boot --flavor m1.tiny --image <span class="s1">&#39;IMG-CIRROS&#39;</span> <span class="se">\</span>
-</span><span class='line'>  --nic net-name<span class="o">=</span>NET-BLUE <span class="se">\</span>
-</span><span class='line'>  --availability-zone AZ-BLUE <span class="se">\</span>
-</span><span class='line'>  VM1
-</span><span class='line'>
-</span><span class='line'>nova boot --flavor m1.tiny --image <span class="s1">&#39;IMG-CIRROS&#39;</span> <span class="se">\</span>
-</span><span class='line'>  --nic net-name<span class="o">=</span>NET-RED <span class="se">\</span>
-</span><span class='line'>  --availability-zone AZ-RED <span class="se">\</span>
-</span><span class='line'>  VM2
-</span><span class='line'>nova boot --flavor m1.tiny --image <span class="s1">&#39;IMG-CIRROS&#39;</span> <span class="se">\</span>
-</span><span class='line'>  --nic net-name<span class="o">=</span>NET-BLUE <span class="se">\</span>
-</span><span class='line'>  --availability-zone AZ-RED <span class="se">\</span>
-</span><span class='line'>  VM3
-</span><span class='line'>openstack floating ip create NET-EXT
-</span><span class='line'>openstack server add floating ip VM3 169.254.0.53
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
+image-create --name='IMG-CIRROS' \
+  --visibility=public \
+  --container-format=bare \
+  --disk-format=qcow2
+nova aggregate-create AGG-RED AZ-RED
+nova aggregate-create AGG-BLUE AZ-BLUE
+nova aggregate-add-host AGG-BLUE compute-2
+nova aggregate-add-host AGG-RED compute-3
+nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
+  --nic net-name=NET-BLUE \
+  --availability-zone AZ-BLUE \
+  VM1
 
+nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
+  --nic net-name=NET-RED \
+  --availability-zone AZ-RED \
+  VM2
+nova boot --flavor m1.tiny --image 'IMG-CIRROS' \
+  --nic net-name=NET-BLUE \
+  --availability-zone AZ-RED \
+  VM3
+openstack floating ip create NET-EXT
+openstack server add floating ip VM3 169.254.0.53
+</code></pre>
 
-<p><img class="center" src="/images/ovn-topo.png"></p>
+<p><img src="/img/ovn-topo.png" alt="" /></p>
 
 <p>In the next post we will use the above virtual topology to explore the dataplane packet flow inside an OVN-managed OpenvSwitch and how it uses the new encapsulation protocol GENEVE to optimise egress forwarding lookups on remote compute nodes.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/openstack-sdn">OpenStack-SDN</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ovn">OVN</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-11-27T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">27/11/2016</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/ovn/'>ovn</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/11/27/ovn-part1/" data-via="" data-counturl="http://networkop.github.io/blog/2016/11/27/ovn-part1/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/11/27/ovn-part1/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2016/10/13/os-dvr/">OpenStack SDN - Distributed Virtual Routing</a></li>
+    
+    <li><a href="/blog/2016/09/09/os-lab-p2/">Automating the Build of OpenStack Lab (Part 2)</a></li>
+    
+    <li><a href="/blog/2016/08/26/os-lab-p1/">Automating the Build of OpenStack Lab (Part 1)</a></li>
+    
+    <li><a href="/blog/2016/05/21/neutron-l2gw/">OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway</a></li>
+    
+    <li><a href="/blog/2016/05/11/neutron-routed-extnet/">OpenStack SDN - Extending a L2 Provider Network Over a L3 Fabric</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2016/10/26/qfx-unl/" title="Previous Post: Type-2 and Type-5 EPVN on vQFX 10k in UnetLab">&laquo; Type-2 and Type-5 EPVN on vQFX 10k in UnetLab</a></li>
-            
-            
-            <li class="next"><a href="/blog/2016/12/10/ovn-part2/" title="Next Post: OpenStack SDN with OVN (Part 2) - Network Engineering Analysis">OpenStack SDN with OVN (Part 2) - Network Engineering Analysis &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2016/11/27/ovn-part1/';
-        var disqus_url = 'http://networkop.github.io/blog/2016/11/27/ovn-part1/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

@@ -1,157 +1,316 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>REST for Network Engineers Part 2 - Basic Operations With UnetLab - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Making first steps with UNetLab REST API">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="REST SDK Design As it is with networks, design is a very crucial part of programming. I won&rsquo;t pretend to be an expert in that field and merely present the way I&rsquo;ve built REST SDK. Fortunately, a lot of design will mimic the objects and their relationship on the server side. I&rsquo;ll slightly enhance it to improve code re-use and portability. Here are the basic objects:
+ RestServer - implements basic application-agnostic HTTP CRUD logic UnlServer - an extension of a RestServer with specific authentication method (cookie-based) and several additional methods Device - an instance of a network device with specific attributes like type, image name, number of CPUs UnlLab - a lab instance existing inside a UnlServer UnlNode - a node instance existing inside a UnlLab UnlNet - a network instance also existing inside a UnlLab object  All these objects and their relationships are depicted on the following simplified UML diagram.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/01/06/rest-basic-operations/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">
-  <meta property="og:title" content="REST for Network Engineers Part 2 - Basic Operations With UnetLab - Network-oriented programming">
-  <meta property="og:description" content="Making first steps with UNetLab REST API">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2016/01/06/rest-basic-operations/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2016/01/06/rest-basic-operations/">
+  <meta property="og:title" content="REST for Network Engineers Part 2 - Basic Operations With UnetLab | Network-oriented programming">
+  <meta property="og:description" content="REST SDK Design As it is with networks, design is a very crucial part of programming. I won&rsquo;t pretend to be an expert in that field and merely present the way I&rsquo;ve built REST SDK. Fortunately, a lot of design will mimic the objects and their relationship on the server side. I&rsquo;ll slightly enhance it to improve code re-use and portability. Here are the basic objects:
+ RestServer - implements basic application-agnostic HTTP CRUD logic UnlServer - an extension of a RestServer with specific authentication method (cookie-based) and several additional methods Device - an instance of a network device with specific attributes like type, image name, number of CPUs UnlLab - a lab instance existing inside a UnlServer UnlNode - a node instance existing inside a UnlLab UnlNet - a network instance also existing inside a UnlLab object  All these objects and their relationships are depicted on the following simplified UML diagram.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2016-01-06T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2016-01-06T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>REST for Network Engineers Part 2 - Basic Operations With UnetLab | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">REST for Network Engineers Part 2 - Basic Operations With UnetLab</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2016-01-06 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      6 Jan 2016
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    9 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2016/01/06/rest-basic-operations/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=REST%20for%20Network%20Engineers%20Part%202%20-%20Basic%20Operations%20With%20UnetLab&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f01%2f06%2frest-basic-operations%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f01%2f06%2frest-basic-operations%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f01%2f06%2frest-basic-operations%2f&amp;title=REST%20for%20Network%20Engineers%20Part%202%20-%20Basic%20Operations%20With%20UnetLab"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=REST%20for%20Network%20Engineers%20Part%202%20-%20Basic%20Operations%20With%20UnetLab&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f01%2f06%2frest-basic-operations%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
-
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-01-06T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">06/01/2016</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        REST for Network Engineers Part 2 - Basic Operations With UnetLab
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll show how to build REST SDK to authenticate, create labs and nodes in <a href="http://www.unetlab.com/">UnetLab</a>. I&rsquo;ll briefly cover the difference between composition and inheritance design patterns and demonstrate how to use test-driven development.</p>
-
-<!--more-->
-
-
-<h2>REST SDK Design</h2>
+<h1 id="rest-sdk-design">REST SDK Design</h1>
 
 <p>As it is with networks, design is a very crucial part of programming. I won&rsquo;t pretend to be an expert in that field and merely present the way I&rsquo;ve built REST SDK. Fortunately, a lot of design will mimic the objects and their relationship on the server side. I&rsquo;ll slightly enhance it to improve code re-use and portability. Here are the basic objects:</p>
 
@@ -164,167 +323,101 @@
 <li>UnlNet - a network instance also existing inside a UnlLab object</li>
 </ol>
 
+<p>All these objects and their relationships are depicted on the following simplified <a href="abbr:Unified Modeling Language" target="_blank">UML</a> diagram. If you&rsquo;re interested in what different connections mean you can read <a href="http://www.codeproject.com/Articles/618/OOP-and-UML" target="_blank">this guide</a>.</p>
 
-<p>All these objects and their relationships are depicted on the following simplified <abbr title="Unified Modeling Language">UML</abbr> diagram. If you&rsquo;re interested in what different connections mean you can read <a href="http://www.codeproject.com/Articles/618/OOP-and-UML">this guide</a>.</p>
-
-<p><img class="centre" src="/images/rest-oop-design.png" title="REST SDK UML Diagram" ></p>
+<p><img src="/img/rest-oop-design.png" alt="REST SDK UML Diagram" /></p>
 
 <p>Here I&rsquo;ve used inheritance to <em>extend</em> RestServer functionality to make a UnlServer. This makes sense because UnlServer object will re-use a lot of the methods from the RestServer. I could have combined them in a single object but I&rsquo;ve decided to split the application-agnostic bit into a separate component to allow it to be re-used by other RESTful clients in the future.</p>
 
 <p>The other objects are aggregated and interact through code composition, where Lab holds a pointer to the UnlServer where it was created, Nodes and Nets point to the Lab in which they live. Composition creates loose coupling between objects, while still allowing method delegation and code re-use.</p>
 
-<p>For additional information about Composition vs Inheritance you can go <a href="http://learnpythonthehardway.org/book/ex44.html">here</a>, <a href="http://lgiordani.com/blog/2014/08/20/python-3-oop-part-3-delegation-composition-and-inheritance/">here</a> or <a href="http://python-textbok.readthedocs.org/en/latest/Object_Oriented_Programming.html#avoiding-inheritance">here</a>.</p>
+<p>For additional information about Composition vs Inheritance you can go <a href="http://learnpythonthehardway.org/book/ex44.html" target="_blank">here</a>, <a href="http://lgiordani.com/blog/2014/08/20/python-3-oop-part-3-delegation-composition-and-inheritance/" target="_blank">here</a> or <a href="http://python-textbok.readthedocs.org/en/latest/Object_Oriented_Programming.html#avoiding-inheritance" target="_blank">here</a>.</p>
 
-<h2>REST SDK Implementation</h2>
+<h1 id="rest-sdk-implementation">REST SDK Implementation</h1>
 
-<blockquote><p>Throughout this post I&rsquo;ll be omitting a lot of the non-important code. For full working code refer to the link at the end of this post.</p></blockquote>
+<blockquote>
+<p>Throughout this post I&rsquo;ll be omitting a lot of the non-important code. For full working code refer to the link at the end of this post.</p>
+</blockquote>
 
-<h3>RestServer implementation</h3>
+<h2 id="restserver-implementation">RestServer implementation</h2>
 
 <p>When RestServer object is created, <code>__init__()</code> function takes the server IP address and constructs a <code>base_url</code>, a common prefix for all API calls. The 4 CRUD actions are encoded into names of the methods implementing them, for example to send an Update one would need to call <code>.update_object()</code>. This convention will make the implementation of UnlServer a lot more readable. Each of the 4 CRUD methods call <code>_send_request()</code> with correct HTTP verb preset (the leading underscore means that this method is private and should only be called from within the RestServer class).</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/server.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">RestServer</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">cookies</span> <span class="o">=</span> <span class="bp">None</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">base_url</span> <span class="o">=</span> <span class="s">&#39;/&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="s">&#39;http:/&#39;</span><span class="p">,</span> <span class="n">address</span><span class="p">,</span> <span class="s">&#39;api&#39;</span><span class="p">])</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">_send_request</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">method</span><span class="p">,</span> <span class="n">path</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">response</span> <span class="o">=</span> <span class="bp">None</span>
-</span><span class='line'>        <span class="n">url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">base_url</span> <span class="o">+</span> <span class="n">path</span>
-</span><span class='line'>        <span class="k">try</span><span class="p">:</span>
-</span><span class='line'>            <span class="n">response</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">request</span><span class="p">(</span><span class="n">method</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span>  <span class="n">json</span><span class="o">=</span><span class="n">data</span><span class="p">,</span> <span class="n">cookies</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">cookies</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">except</span> <span class="n">requests</span><span class="o">.</span><span class="n">exceptions</span><span class="o">.</span><span class="n">RequestException</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span class='line'>            <span class="k">print</span><span class="p">(</span><span class="s">&#39;*** Error calling </span><span class="si">%s</span><span class="s">: </span><span class="si">%s</span><span class="s">&#39;</span><span class="p">,</span> <span class="n">url</span><span class="p">,</span> <span class="n">e</span><span class="o">.</span><span class="n">message</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">response</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">get_object</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send_request</span><span class="p">(</span><span class="s">&#39;GET&#39;</span><span class="p">,</span> <span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">add_object</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send_request</span><span class="p">(</span><span class="s">&#39;POST&#39;</span><span class="p">,</span> <span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">update_object</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send_request</span><span class="p">(</span><span class="s">&#39;PUT&#39;</span><span class="p">,</span> <span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">del_object</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="bp">None</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_send_request</span><span class="p">(</span><span class="s">&#39;DELETE&#39;</span><span class="p">,</span> <span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">set_cookies</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">cookie</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">cookies</span> <span class="o">=</span> <span class="n">cookie</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">class RestServer(object):
 
+    def __init__(self, address):
+        self.cookies = None
+        self.base_url = '/'.join(['http:/', address, 'api'])
+    
+    def _send_request(self, method, path, data=None):
+        response = None
+        url = self.base_url + path
+        try:
+            response = requests.request(method, url,  json=data, cookies=self.cookies)
+        except requests.exceptions.RequestException as e:
+            print('*** Error calling %s: %s', url, e.message)
+        return response
+
+    def get_object(self, api_call, data=None):
+        return self._send_request('GET', api_call, data)
+
+    def add_object(self, api_call, data=None):
+        return self._send_request('POST', api_call, data)
+
+    def update_object(self, api_call, data=None):
+        return self._send_request('PUT', api_call, data)
+
+    def del_object(self, api_call, data=None):
+        return self._send_request('DELETE', api_call, data)
+
+    def set_cookies(self, cookie):
+        self.cookies = cookie
+</code></pre>
 
 <p>At this stage RestServer does very simple exception and no HTTP response error handling. I&rsquo;ll show how to extend it to do authentication error handling in the future posts.</p>
 
-<h3>UnlServer implementation</h3>
+<h2 id="unlserver-implementation">UnlServer implementation</h2>
 
-<p>At the very top of the <code>unetlab.py</code> file we have a <code>REST_SCHEMA</code> global variable providing mapping between actions and their respective <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">API calls</a>. This improves code readability (at least to me) and makes future upgrades to API easier to implement.<br/>
+<p>At the very top of the <code>unetlab.py</code> file we have a <code>REST_SCHEMA</code> global variable providing mapping between actions and their respective <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/" target="_blank">API calls</a>. This improves code readability (at least to me) and makes future upgrades to API easier to implement.<br />
 UnlServer class is extending the functionality of a RestServer by implementing UNetLab-specific methods. For example, <code>login()</code> sends username and password using the <code>add_object()</code> method of the parent class and sets the cookies extracted from the response to allow all subsequent methods to be authenticated.</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-<span class='line-number'>36</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">REST_SCHEMA</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>    <span class="s">&#39;login&#39;</span><span class="p">:</span> <span class="s">&#39;/auth/login&#39;</span><span class="p">,</span>
-</span><span class='line'>    <span class="s">&#39;logout&#39;</span><span class="p">:</span> <span class="s">&#39;/auth/logout&#39;</span><span class="p">,</span>
-</span><span class='line'>    <span class="s">&#39;status&#39;</span><span class="p">:</span> <span class="s">&#39;/status&#39;</span><span class="p">,</span>
-</span><span class='line'>    <span class="s">&#39;list_templates&#39;</span><span class="p">:</span> <span class="s">&#39;/list/templates/&#39;</span>
-</span><span class='line'><span class="p">}</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnlServer</span><span class="p">(</span><span class="n">RestServer</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">address</span><span class="p">):</span>
-</span><span class='line'>        <span class="nb">super</span><span class="p">(</span><span class="n">UnlServer</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">__init__</span><span class="p">(</span><span class="n">address</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">login</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">user</span><span class="p">,</span> <span class="n">pwd</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;login&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>            <span class="s">&quot;username&quot;</span><span class="p">:</span> <span class="n">user</span><span class="p">,</span>
-</span><span class='line'>            <span class="s">&quot;password&quot;</span><span class="p">:</span> <span class="n">pwd</span>
-</span><span class='line'>        <span class="p">}</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">add_object</span><span class="p">(</span><span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">set_cookies</span><span class="p">(</span><span class="n">resp</span><span class="o">.</span><span class="n">cookies</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">resp</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">logout</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;logout&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_object</span><span class="p">(</span><span class="n">api_call</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">resp</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">get_status</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;status&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_object</span><span class="p">(</span><span class="n">api_call</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">resp</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">get_templates</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;list_templates&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_object</span><span class="p">(</span><span class="n">api_call</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">resp</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">REST_SCHEMA = {
+    'login': '/auth/login',
+    'logout': '/auth/logout',
+    'status': '/status',
+    'list_templates': '/list/templates/'
+}
 
+class UnlServer(RestServer):
+
+    def __init__(self, address):
+        super(UnlServer, self).__init__(address)
+
+    def login(self, user, pwd):
+        api_call = REST_SCHEMA['login']
+        payload = {
+            &quot;username&quot;: user,
+            &quot;password&quot;: pwd
+        }
+        resp = self.add_object(api_call, data=payload)
+        self.set_cookies(resp.cookies)
+        return resp
+
+    def logout(self):
+        api_call = REST_SCHEMA['logout']
+        resp = self.get_object(api_call)
+        return resp
+
+    def get_status(self):
+        api_call = REST_SCHEMA['status']
+        resp = self.get_object(api_call)
+        return resp
+
+    def get_templates(self):
+        api_call = REST_SCHEMA['list_templates']
+        resp = self.get_object(api_call)
+        return resp
+</code></pre>
 
 <p>As you can see all methods follow the same pattern:</p>
 
@@ -334,159 +427,95 @@ UnlServer class is extending the functionality of a RestServer by implementing U
 <li>Return the response</li>
 </ol>
 
-
 <p>Now let&rsquo;s see how we can use TDD approach to build out the rest of the code.</p>
 
-<h2>Test-driven development</h2>
+<h1 id="test-driven-development">Test-driven development</h1>
 
-<p>The easiest way to test RESTful application is by observing the status code of the returned HTTP response. If it is 200 or 201 then it can be considered successful. The biggest challenge is to make sure each test case is independent from one another. One option is to include all the code required by a test case inside the function that implements it. This, however, may lead to long and unwieldy spaghetti-code and breaks the <abbr title="Do Not Repeat Yourself">DRY</abbr> principle.<br/>
-To help avoid that, TDD frameworks often have <code>fixtures</code> - functions that are run before and after every test case, designed to setup and cleanup the test environment. In our case we can use fixtures to login before each test case is run and logoff after it&rsquo;s finished. Let&rsquo;s see how we can use Python&rsquo;s built-in <a href="https://docs.python.org/2/library/unittest.html">unittest</a> framework to drive the REST SDK development process.<br/>
+<p>The easiest way to test RESTful application is by observing the status code of the returned HTTP response. If it is 200 or 201 then it can be considered successful. The biggest challenge is to make sure each test case is independent from one another. One option is to include all the code required by a test case inside the function that implements it. This, however, may lead to long and unwieldy spaghetti-code and breaks the <a href="abbr:Do Not Repeat Yourself" target="_blank">DRY</a> principle.<br />
+To help avoid that, TDD frameworks often have <code>fixtures</code> - functions that are run before and after every test case, designed to setup and cleanup the test environment. In our case we can use fixtures to login before each test case is run and logoff after it&rsquo;s finished. Let&rsquo;s see how we can use Python&rsquo;s built-in <a href="https://docs.python.org/2/library/unittest.html" target="_blank">unittest</a> framework to drive the REST SDK development process.<br />
 First let&rsquo;s define our base class <code>UnlTests</code> who&rsquo;s sole purpose will be to implement authentication fixtures. All the test cases will go into child classes that can either reuse and extend these fixtures. This is how test cases for the already existing code look like:</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/tests/test_unl.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">UnlTests</span><span class="p">(</span><span class="n">unittest</span><span class="o">.</span><span class="n">TestCase</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span> <span class="o">=</span> <span class="n">UnlServer</span><span class="p">(</span><span class="n">UNETLAB_ADDRESS</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="n">USERNAME</span><span class="p">,</span> <span class="n">PASSWORD</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">logout</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">BasicUnlTests</span><span class="p">(</span><span class="n">UnlTests</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_status</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">get_status</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_templates</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">get_templates</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">
+class UnlTests(unittest.TestCase):
 
+    def setUp(self):
+        self.unl = UnlServer(UNETLAB_ADDRESS)
+        resp = self.unl.login(USERNAME, PASSWORD)
+        self.assertEqual(200, resp.status_code)
 
-<p>At this point if you add all the necessary import statements and populate global variables with correct IP addresses and credentials all tests should pass. Now let&rsquo;s add another test case to retrieve <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc2">user information</a> from UNL:</p>
+    def tearDown(self):
+        resp = self.unl.logout()
+        self.assertEqual(200, resp.status_code)
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/tests/test_unl.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">BasicUnlTests</span><span class="p">(</span><span class="n">UnlTests</span><span class="p">):</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_user_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">get_user_info</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+class BasicUnlTests(UnlTests):
 
+    def test_status(self):
+        resp = self.unl.get_status()
+        self.assertEqual(200, resp.status_code)
+
+    def test_templates(self):
+        resp = self.unl.get_templates()
+        self.assertEqual(200, resp.status_code)
+</code></pre>
+
+<p>At this point if you add all the necessary import statements and populate global variables with correct IP addresses and credentials all tests should pass. Now let&rsquo;s add another test case to retrieve <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc2" target="_blank">user information</a> from UNL:</p>
+
+<pre><code class="language-python">
+class BasicUnlTests(UnlTests):
+    ...
+
+    def test_user_info(self):
+        resp = self.unl.get_user_info()
+        self.assertEqual(200, resp.status_code)
+</code></pre>
 
 <p>Rerun the tests and watch the last one fail saying <code>'UnlServer' object has no attribute 'get_user_info'</code>. Now let&rsquo;s go back to our UNL SDK code and add that attribute:</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">REST_SCHEMA</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>    <span class="o">...</span> <span class="p">,</span>
-</span><span class='line'>    <span class="s">&#39;get_user_info&#39;</span><span class="p">:</span> <span class="s">&#39;/auth&#39;</span>
-</span><span class='line'><span class="p">}</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnetLab</span><span class="p">(</span><span class="n">RestServer</span><span class="p">):</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">get_user_info</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;get_user_info&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get_object</span><span class="p">(</span><span class="n">api_call</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">resp</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">REST_SCHEMA = {
+    ... ,
+    'get_user_info': '/auth'
+}
 
+class UnetLab(RestServer):
+    ...
 
-<p>Rerun the <code>test_unl.py</code> now and watch all tests succeed again. The same iterative approach can be used to add any number of new methods at the same time making sure none of the existing functionality is affected.<br/>
+    def get_user_info(self):
+        api_call = REST_SCHEMA['get_user_info']
+        resp = self.get_object(api_call)
+        return resp
+</code></pre>
+
+<p>Rerun the <code>test_unl.py</code> now and watch all tests succeed again. The same iterative approach can be used to add any number of new methods at the same time making sure none of the existing functionality is affected.<br />
 Note that these are very simple tests and they only verify the response code and not its contents. The better approach would be to look inside the payload and verify, for example, that username is <code>admin</code>.</p>
 
-<h3>UnlLab and UnlNode implementation</h3>
+<h2 id="unllab-and-unlnode-implementation">UnlLab and UnlNode implementation</h2>
 
 <p>Now let&rsquo;s revert back to normal coding style for a second and create classes for Labs and Nodes. As per the design, these should be separate objects but they should contain a pointer to the context in which they exist. Therefore, it makes sense to instantiate a Lab inside a UnlServer, a Node inside a Lab and pass in the <code>self</code> (UnlServer or Lab) as an argument. For example, here is how a lab will be created:</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">REST_SCHEMA</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>    <span class="o">...</span> <span class="p">,</span>
-</span><span class='line'>    <span class="s">&#39;create_lab&#39;</span><span class="p">:</span> <span class="s">&#39;/labs&#39;</span>
-</span><span class='line'><span class="p">}</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnlServer</span><span class="p">(</span><span class="n">RestServer</span><span class="p">):</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">create_lab</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">UnlLab</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnlLab</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">unl</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;create_lab&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>           <span class="s">&quot;path&quot;</span><span class="p">:</span> <span class="s">&quot;/&quot;</span><span class="p">,</span>
-</span><span class='line'>           <span class="s">&quot;name&quot;</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span>
-</span><span class='line'>           <span class="s">&quot;version&quot;</span><span class="p">:</span> <span class="s">&quot;1&quot;</span>
-</span><span class='line'>        <span class="p">}</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">name</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span> <span class="o">=</span> <span class="n">unl</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">add_object</span><span class="p">(</span><span class="n">api_call</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">REST_SCHEMA = {
+    ... ,
+    'create_lab': '/labs'
+}
 
+class UnlServer(RestServer):
+    ...
+
+    def create_lab(self, name):
+        return UnlLab(self, name)
+
+class UnlLab(object):
+
+    def __init__(self, unl, name):
+        api_call = REST_SCHEMA['create_lab']
+        payload = {
+           &quot;path&quot;: &quot;/&quot;,
+           &quot;name&quot;: name,
+           &quot;version&quot;: &quot;1&quot;
+        }
+        self.name = name
+        self.unl = unl
+        self.resp = self.unl.add_object(api_call, data=payload)
+</code></pre>
 
 <p>So to create a Lab we need to issue a <code>.create_lab()</code> call on UnlServer object and give it a labname. That function will return a new Lab object with the following attributes preset:</p>
 
@@ -496,59 +525,36 @@ Note that these are very simple tests and they only verify the response code and
 <li>HTTP response returned by the server after the Create CRUD action - <code>self.resp</code></li>
 </ul>
 
+<p>The latter can be used to check if the creation was successful (and potentially throw an error if it wasn&rsquo;t). The structure of the payload can be found in <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc30" target="_blank">API docs</a>.</p>
 
-<p>The latter can be used to check if the creation was successful (and potentially throw an error if it wasn&rsquo;t). The structure of the payload can be found in <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc30">API docs</a>.</p>
+<p>Nodes will be created in a similar way with a little exception. Apart from the name, Node also needs to know about the particulars of the device it will represent (like device type, image name etc.). That&rsquo;s where Device class comes in. The implementation details are very easy and can be found on <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/device.py" target="_blank">Github</a> so I won&rsquo;t provide them here. The only function of a Device at this stage is to create a dictionary that can be used as a payload in <code>create_node</code> <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc34" target="_blank">API request</a>.</p>
 
-<p>Nodes will be created in a similar way with a little exception. Apart from the name, Node also needs to know about the particulars of the device it will represent (like device type, image name etc.). That&rsquo;s where Device class comes in. The implementation details are very easy and can be found on <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/device.py">Github</a> so I won&rsquo;t provide them here. The only function of a Device at this stage is to create a dictionary that can be used as a payload in <code>create_node</code> <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/#toc34">API request</a>.</p>
+<pre><code class="language-python">REST_SCHEMA = {
+    ... ,
+    'create_node': '/labs/{lab_name}/nodes',
+}
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">REST_SCHEMA</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>    <span class="o">...</span> <span class="p">,</span>
-</span><span class='line'>    <span class="s">&#39;create_node&#39;</span><span class="p">:</span> <span class="s">&#39;/labs/{lab_name}/nodes&#39;</span><span class="p">,</span>
-</span><span class='line'><span class="p">}</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnlLab</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">create_node</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">device</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">UnlNode</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">device</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnlNode</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lab</span><span class="p">,</span> <span class="n">device</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span> <span class="o">=</span> <span class="n">lab</span><span class="o">.</span><span class="n">unl</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">lab</span> <span class="o">=</span> <span class="n">lab</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">device</span> <span class="o">=</span> <span class="n">device</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;create_node&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">api_url</span> <span class="o">=</span> <span class="n">api_call</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">api_call</span><span class="p">,</span> <span class="n">lab_name</span><span class="o">=</span><span class="n">append_unl</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
-</span><span class='line'>        <span class="n">payload</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">to_json</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">add_object</span><span class="p">(</span><span class="n">api_url</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+class UnlLab(object):
+    ...
 
+    def create_node(self, device):
+        return UnlNode(self, device)
 
-<p>Take a quick look at how the <code>api_url</code> is created. We&rsquo;re using <code>.format()</code> method (built-into <code>string</code> module) to substitute a named variable <code>{format}</code> with the actual name of the lab (<code>self.lab.name</code>). That labname gets appended with an extension by a helper function <code>append_unl</code>. That helper function, along with the others we&rsquo;ll define in the future, can also be found on <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/helper.py">Github</a>.</p>
+class UnlNode(object):
 
-<h2>Back to TDD</h2>
+    def __init__(self, lab, device):
+        self.unl = lab.unl
+        self.lab = lab
+        self.device = device
+        api_call = REST_SCHEMA['create_node']
+        api_url = api_call.format(api_call, lab_name=append_unl(self.lab.name))
+        payload = self.device.to_json()
+        self.resp = self.unl.add_object(api_url, data=payload)
+</code></pre>
+
+<p>Take a quick look at how the <code>api_url</code> is created. We&rsquo;re using <code>.format()</code> method (built-into <code>string</code> module) to substitute a named variable <code>{format}</code> with the actual name of the lab (<code>self.lab.name</code>). That labname gets appended with an extension by a helper function <code>append_unl</code>. That helper function, along with the others we&rsquo;ll define in the future, can also be found on <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/helper.py" target="_blank">Github</a>.</p>
+
+<h1 id="back-to-tdd">Back to TDD</h1>
 
 <p>Let&rsquo;s use TDD again to add the last two actions we&rsquo;ll cover in this post.</p>
 
@@ -557,411 +563,210 @@ Note that these are very simple tests and they only verify the response code and
 <li>Delete a lab</li>
 </ul>
 
+<pre><code class="language-python">class BasicUnlLabTest(UnlTests):
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/tests/test_unl.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">BasicUnlLabTest</span><span class="p">(</span><span class="n">UnlTests</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_create_lab</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">delete_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">create_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span><span class="o">.</span><span class="n">resp</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">delete_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_delete_lab</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">create_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">delete_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_get_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">lab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">create_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="n">lab</span><span class="o">.</span><span class="n">get_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">delete_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+    def test_create_lab(self):     
+        self.unl.delete_lab(LAB_NAME)
+        resp = self.unl.create_lab(LAB_NAME).resp
+        self.unl.delete_lab(LAB_NAME)
+        self.assertEqual(200, resp.status_code)
 
+    def test_delete_lab(self):
+        self.unl.create_lab(LAB_NAME)
+        resp = self.unl.delete_lab(LAB_NAME)
+        self.assertEqual(200, resp.status_code)
 
-<p>As a challenge, try implementing the SDK logic for the last two failing methods yourself using <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">UNL API</a> as a reference. You can always refer the the link at the end of the post if you run into any problems.</p>
+    def test_get_nodes(self):
+        lab = self.unl.create_lab(LAB_NAME)
+        resp = lab.get_nodes()
+        self.unl.delete_lab(LAB_NAME)
+        self.assertEqual(200, resp.status_code)   
+</code></pre>
 
-<h2>Simple App</h2>
+<p>As a challenge, try implementing the SDK logic for the last two failing methods yourself using <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/" target="_blank">UNL API</a> as a reference. You can always refer the the link at the end of the post if you run into any problems.</p>
+
+<h1 id="simple-app">Simple App</h1>
 
 <p>So far we&rsquo;ve created and deleted objects with REST API but haven&rsquo;t seen the actual result. Let&rsquo;s start writing an app that we&rsquo;ll continue to expand in the next post. In this post we&rsquo;ll simply login and create a lab containing a single node.</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/samples/app-1.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">from</span> <span class="nn">restunl.unetlab</span> <span class="kn">import</span> <span class="n">UnlServer</span>
-</span><span class='line'><span class="kn">from</span> <span class="nn">restunl.device</span> <span class="kn">import</span> <span class="n">Router</span>
-</span><span class='line'>
-</span><span class='line'><span class="n">LAB_NAME</span> <span class="o">=</span> <span class="s">&#39;test_1&#39;</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">def</span> <span class="nf">app_1</span><span class="p">():</span>
-</span><span class='line'>    <span class="n">unl</span> <span class="o">=</span> <span class="n">UnlServer</span><span class="p">(</span><span class="s">&#39;192.168.247.20&#39;</span><span class="p">)</span>
-</span><span class='line'>    <span class="n">unl</span><span class="o">.</span><span class="n">login</span><span class="p">(</span><span class="s">&#39;admin&#39;</span><span class="p">,</span> <span class="s">&#39;unl&#39;</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">print</span> <span class="p">(</span><span class="s">&quot;*** CONNECTED TO UNL&quot;</span><span class="p">)</span>
-</span><span class='line'>    <span class="n">lab</span> <span class="o">=</span> <span class="n">unl</span><span class="o">.</span><span class="n">create_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">print</span> <span class="p">(</span><span class="s">&quot;*** CREATED LAB&quot;</span><span class="p">)</span>
-</span><span class='line'>    <span class="n">node_1</span> <span class="o">=</span> <span class="n">lab</span><span class="o">.</span><span class="n">create_node</span><span class="p">(</span><span class="n">Router</span><span class="p">(</span><span class="s">&#39;R1&#39;</span><span class="p">))</span>
-</span><span class='line'>    <span class="k">print</span> <span class="p">(</span><span class="s">&quot;*** CREATED NODE&quot;</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">if</span> <span class="n">__name__</span> <span class="o">==</span> <span class="s">&#39;__main__&#39;</span><span class="p">:</span>
-</span><span class='line'>    <span class="n">app_1</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">from restunl.unetlab import UnlServer
+from restunl.device import Router
+
+LAB_NAME = 'test_1'
+
+def app_1():
+    unl = UnlServer('192.168.247.20')
+    unl.login('admin', 'unl')
+    print (&quot;*** CONNECTED TO UNL&quot;)
+    lab = unl.create_lab(LAB_NAME)
+    print (&quot;*** CREATED LAB&quot;)
+    node_1 = lab.create_node(Router('R1'))
+    print (&quot;*** CREATED NODE&quot;)
+
+if __name__ == '__main__':
+    app_1()
+</code></pre>
+
+<p>Run this once, then login the UNL web GUI and navigate to <code>test_1</code> lab. Examine how node <strong>R1</strong> is configured and compare it to the defaults set in a <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/device.py" target="_blank">Device module</a>.</p>
+
+<h1 id="source-code">Source code</h1>
+
+<p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/c72f7bdc11427ac5efe9ec18401f0d63c57221ba" target="_blank">public repository on Github</a></p>
+
+      </div>
+
+      
 
 
-<p>Run this once, then login the UNL web GUI and navigate to <code>test_1</code> lab. Examine how node <strong>R1</strong> is configured and compare it to the defaults set in a <a href="https://github.com/networkop/rest-blog-unl-client/blob/c72f7bdc11427ac5efe9ec18401f0d63c57221ba/restunl/device.py">Device module</a>.</p>
-
-<h2>Source code</h2>
-
-<p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/c72f7bdc11427ac5efe9ec18401f0d63c57221ba">public repository on Github</a></p>
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/rest-api">REST-API</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-01-06T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">06/01/2016</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/rest/'>rest</a> <a class='category label label-primary' href='/blog/categories/unetlab/'>unetlab</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/" data-via="" data-counturl="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2016/01/03/dev-env-setup-rest/">REST for Network Engineers Part 1 - Development Environment Setup</a></li>
+    
+    <li><a href="/blog/2016/01/01/rest-for-neteng/">REST API for Network Engineers</a></li>
+    
+    <li><a href="/blog/2015/11/13/automating-flexvpn-config/">Automating the Build of a FlexVPN Network</a></li>
+    
+    <li><a href="/blog/2015/09/03/automating-bgp-config/">Automating New Network Build - Part 2 (BGP)</a></li>
+    
+    <li><a href="/blog/2015/08/26/automating-network-build-p1/">Automating New Network Build - Part 1</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2016/01/03/dev-env-setup-rest/" title="Previous Post: REST for Network Engineers Part 1 - Development Environment Setup">&laquo; REST for Network Engineers Part 1 - Development Environment Setup</a></li>
-            
-            
-            <li class="next"><a href="/blog/2016/01/17/rest-unl-advanced/" title="Next Post: REST for Network Engineers Part 3 - Advanced operations with UnetLab">REST for Network Engineers Part 3 - Advanced operations with UnetLab &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2016/01/06/rest-basic-operations/';
-        var disqus_url = 'http://networkop.github.io/blog/2016/01/06/rest-basic-operations/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

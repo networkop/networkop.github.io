@@ -1,157 +1,316 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>IP Address Information Collection With Custom Ansible Modules - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Writing Ansible modules to parse text">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Ansible has a very neat feature called &ldquo;fact gathering&rdquo;, which collects useful information from hosts prior to executing any of the tasks and makes this information available for use within those tasks. Unfortunately, this also relies on Python being available on the remote machine which doesn&rsquo;t work for Cisco IOS. In this post I&rsquo;ll show how to write a simple module which will collect IP address information from remote devices and store it in global variable for future use.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2015/07/03/parser-modules/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2015/07/03/parser-modules/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2015/07/03/parser-modules/">
-  <meta property="og:title" content="IP Address Information Collection With Custom Ansible Modules - Network-oriented programming">
-  <meta property="og:description" content="Writing Ansible modules to parse text">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2015/07/03/parser-modules/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2015/07/03/parser-modules/">
+  <meta property="og:title" content="Developing Custom Ansible Modules | Network-oriented programming">
+  <meta property="og:description" content="Ansible has a very neat feature called &ldquo;fact gathering&rdquo;, which collects useful information from hosts prior to executing any of the tasks and makes this information available for use within those tasks. Unfortunately, this also relies on Python being available on the remote machine which doesn&rsquo;t work for Cisco IOS. In this post I&rsquo;ll show how to write a simple module which will collect IP address information from remote devices and store it in global variable for future use.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2015-07-03T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2015-07-03T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Developing Custom Ansible Modules | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Developing Custom Ansible Modules</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2015-07-03 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      3 Jul 2015
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    9 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2015/07/03/parser-modules/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Developing%20Custom%20Ansible%20Modules&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f07%2f03%2fparser-modules%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f07%2f03%2fparser-modules%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f07%2f03%2fparser-modules%2f&amp;title=Developing%20Custom%20Ansible%20Modules"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Developing%20Custom%20Ansible%20Modules&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f07%2f03%2fparser-modules%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>Ansible has a very neat feature called &ldquo;fact gathering&rdquo;, which collects useful information from hosts prior to executing any of the tasks and makes this information available for use within those tasks. Unfortunately, this also relies on Python being available on the remote machine which doesn&rsquo;t work for Cisco IOS. In this post I&rsquo;ll show how to write a simple module which will collect IP address information from remote devices and store it in global variable for future use. I&rsquo;ll also show how to write a module which will convert our human-readable TDD scenarios into YAML structures. As always, full code repository is available on <a href="https://github.com/networkop/simple-cisco-tdd" target="_blank">Github</a></p>
 
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-07-03T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">03/07/2015</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        IP Address Information Collection With Custom Ansible Modules
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>Ansible has a very neat feature called &ldquo;fact gathering&rdquo;, which collects useful information from hosts prior to executing any of the tasks and makes this information available for use within those tasks. Unfortunately, this also relies on Python being available on the remote machine which doesn&rsquo;t work for Cisco IOS. In this post I&rsquo;ll show how to write a simple module which will collect IP address information from remote devices and store it in global variable for future use. I&rsquo;ll also show how to write a module which will convert our human-readable TDD scenarios into YAML structures. As always, full code repository is available on <a href="https://github.com/networkop/simple-cisco-tdd">Github</a></p>
-
-<!--more-->
-
-
-<h2>Cisco IOS IP fact gathering</h2>
+<h1 id="cisco-ios-ip-fact-gathering">Cisco IOS IP fact gathering</h1>
 
 <p>In order to recognise that a traceroute has traversed a certain device, without relying on DNS, we need to populate a local database mapping IP addresses to their respective devices. The resulting database (or YAML dictionary) needs to be stored in a file so that it can be read and used again by Ansible tasks doing the traceroute verification. In order to make it happen, we need to answer the following questions:</p>
 
@@ -159,24 +318,27 @@
 <li>How to get IP address information from each device?</li>
 </ul>
 
-
-<blockquote><p>The most straight-forward way is to capture the result of running something like <code>show ip interface brief</code> and parse the output. The assumption is that all devices are living in a non-overlapping IP address space (however it is possible to modify the examples to be vrf-aware).</p></blockquote>
+<blockquote>
+<p>The most straight-forward way is to capture the result of running something like <code>show ip interface brief</code> and parse the output. The assumption is that all devices are living in a non-overlapping IP address space (however it is possible to modify the examples to be vrf-aware).</p>
+</blockquote>
 
 <ul>
 <li>Where to store the information?</li>
 </ul>
 
-
-<blockquote><p>Ideally, we would need a hash-like data structure (e.g. python dictionary) which will return a hostname when given a certain IP address. This data structure needs to be available to all hosts, however most of the variables in Ansible are host-specific. The only way to simulate a global variable in Ansible is to store all data in <code>group_vars/all.yml</code> file which is exactly what our module will do.</p></blockquote>
+<blockquote>
+<p>Ideally, we would need a hash-like data structure (e.g. python dictionary) which will return a hostname when given a certain IP address. This data structure needs to be available to all hosts, however most of the variables in Ansible are host-specific. The only way to simulate a global variable in Ansible is to store all data in <code>group_vars/all.yml</code> file which is exactly what our module will do.</p>
+</blockquote>
 
 <ul>
 <li>How will multiple processes write into a single file at the same time?</li>
 </ul>
 
+<blockquote>
+<p>That&rsquo;s where Ansible&rsquo;s concurrency feature bites back. This is a well known computer science problem and the solution to this is to use <code>mutex</code>, however that&rsquo;s beyond what Ansible can do. In order to overcome that, I&rsquo;ll make Ansible do the tasks sequentially, which will dramatically slow things down for bigger environments. However, this task only needs to be run once, to collect the data, while all the other tasks can be run in parallel, in separate playbooks.</p>
+</blockquote>
 
-<blockquote><p>That&rsquo;s where Ansible&rsquo;s concurrency feature bites back. This is a well known computer science problem and the solution to this is to use <code>mutex</code>, however that&rsquo;s beyond what Ansible can do. In order to overcome that, I&rsquo;ll make Ansible do the tasks sequentially, which will dramatically slow things down for bigger environments. However, this task only needs to be run once, to collect the data, while all the other tasks can be run in parallel, in separate playbooks.</p></blockquote>
-
-<h2>Developing Ansible playbook</h2>
+<h1 id="developing-ansible-playbook">Developing Ansible playbook</h1>
 
 <p>Our Ansible playbook will need to accomplish the following tasks:</p>
 
@@ -186,847 +348,442 @@
 <li>Save the output in a <code>group_vars/all.yml</code> file</li>
 </ol>
 
-
 <p>All these tasks will need to be run sequentially on every host from <code>cisco-devices</code> group. To get the output from a Cisco device we&rsquo;ll use the <code>raw</code> module again. The other two tasks don&rsquo;t require connection to remote device and will be run on a localhost by the virtue of a <code>delegate_to: 127.0.0.1</code> option.</p>
 
-<figure class='code'><figcaption><span>~/tdd_ansible/cisco-ip-collect.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Collect IP address data</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco-devices</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">remote_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">serial</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">capture show ip interface brief</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">raw</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">show ip interface brief | exclude unassigned</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">register</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">siib_text</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">parse the output of &quot;show ip interface brief&quot;</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">cisco_ip_intf_facts_collect</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">output_text=&quot;{{ siib_text.stdout }}&quot;</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">delegate_to</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">127.0.0.1</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">combine ip address facts and save as a global variable</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">cisco_ip_intf_facts_combine</span><span class="p-Indicator">:</span>
-</span><span class='line'>        <span class="l-Scalar-Plain">ipTable=&quot;{{ IPs }}&quot;</span>
-</span><span class='line'>        <span class="l-Scalar-Plain">hostname=&quot;{{ inventory_hostname }}&quot;</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">delegate_to</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">127.0.0.1</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">tags</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">collect</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-yaml">---
+- name: Collect IP address data
+  hosts: cisco-devices
+  gather_facts: false
+  remote_user: cisco
+  serial: 1
 
+  tasks:
 
-<h2>Writing a custom Ansible module</h2>
+    - name: capture show ip interface brief
+      raw: show ip interface brief | exclude unassigned
+      register: siib_text
 
-<p>Ansible has an <a href="http://docs.ansible.com/developing_modules.html">official guide</a> on module development. A typical module will contain a header with license information along with module documentation and usage examples, a <code>main()</code> function processing the arguments passed to this module from Ansible and, of course, the actual code that implements module&rsquo;s logic. For the sake of brevity I will omit the header and some of the less important details in the code.</p>
+    - name: parse the output of &quot;show ip interface brief&quot;
+      cisco_ip_intf_facts_collect: output_text=&quot;{{ siib_text.stdout }}&quot;
+      delegate_to: 127.0.0.1
 
-<h2>Ansible module to parse command output</h2>
+    - name: combine ip address facts and save as a global variable
+      cisco_ip_intf_facts_combine:
+        ipTable=&quot;{{ IPs }}&quot;
+        hostname=&quot;{{ inventory_hostname }}&quot;
+      delegate_to: 127.0.0.1
 
-<p>This ansible module needs to extract IP address and, optionally, interface name from the output of <code>show ip interface brief</code> and store it in a python dictionary. The right way to examine the module code is from <code>main()</code> function. This function will contain a <code>module</code> variable (instance of AnsibleModule) which specifies all the arguments expected by this module and their type (the type will be converted to the appropriate python type). Text parser is implemented with a <code>SIIBparse</code> class whose only public method <code>parse()</code> will traverse the text line by line looking for interfaces with Line Protocol in <code>up</code> state, extract IP address (1st column), interface name (2nd column) and store the result in a python dictionary with IP address as the key and interface name as it&rsquo;s value.</p>
+  tags:
+    - collect
+</code></pre>
 
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_ip_intf_facts_collect.py </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">SIIBparse</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">output_text</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;output_text&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">parse</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">output_text</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&quot;</span><span class="se">\n</span><span class="s">&quot;</span><span class="p">):</span>
-</span><span class='line'>            <span class="n">row</span> <span class="o">=</span> <span class="n">line</span><span class="o">.</span><span class="n">split</span><span class="p">()</span>
-</span><span class='line'>            <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">row</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="ow">and</span> <span class="n">row</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="s">&#39;up&#39;</span><span class="p">:</span>
-</span><span class='line'>                <span class="n">ipAddress</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span>
-</span><span class='line'>                <span class="n">intfName</span> <span class="o">=</span> <span class="n">row</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
-</span><span class='line'>                <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span><span class="p">[</span><span class="n">ipAddress</span><span class="p">]</span> <span class="o">=</span> <span class="n">intfName</span>
-</span><span class='line'>        <span class="n">result</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>            <span class="s">&quot;IPs&quot;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span>
-</span><span class='line'>        <span class="p">}</span>
-</span><span class='line'>        <span class="n">rc</span> <span class="o">=</span> <span class="mi">0</span> <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">0</span> <span class="k">else</span> <span class="mi">1</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">rc</span><span class="p">,</span> <span class="n">result</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
-</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span>
-</span><span class='line'>        <span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
-</span><span class='line'>            <span class="n">output_text</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="p">)</span>
-</span><span class='line'>    <span class="p">)</span>
-</span><span class='line'>    <span class="n">siib</span> <span class="o">=</span> <span class="n">SIIBparse</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
-</span><span class='line'>    <span class="n">rc</span><span class="p">,</span> <span class="n">result</span> <span class="o">=</span> <span class="n">siib</span><span class="o">.</span><span class="n">parse</span><span class="p">()</span>
-</span><span class='line'>    <span class="k">if</span> <span class="n">rc</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
-</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">fail_json</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s">&quot;Failed to parse. Incorrect input.&quot;</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">else</span><span class="p">:</span>
-</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">,</span> <span class="n">ansible_facts</span><span class="o">=</span><span class="n">result</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="c"># import module snippets</span>
-</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
-</span><span class='line'><span class="n">main</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure>
+<h1 id="writing-a-custom-ansible-module">Writing a custom Ansible module</h1>
 
+<p>Ansible has an <a href="http://docs.ansible.com/developing_modules.html" target="_blank">official guide</a> on module development. A typical module will contain a header with license information along with module documentation and usage examples, a <code>main()</code> function processing the arguments passed to this module from Ansible and, of course, the actual code that implements module&rsquo;s logic. For the sake of brevity I will omit the header and some of the less important details in the code.</p>
+
+<h1 id="ansible-module-to-parse-command-output">Ansible module to parse command output</h1>
+
+<p>This ansible module (<code>~/tdd_ansible/library/cisco_ip_intf_facts_collect.py</code>) needs to extract IP address and, optionally, interface name from the output of <code>show ip interface brief</code> and store it in a python dictionary. The right way to examine the module code is from <code>main()</code> function. This function will contain a <code>module</code> variable (instance of AnsibleModule) which specifies all the arguments expected by this module and their type (the type will be converted to the appropriate python type). Text parser is implemented with a <code>SIIBparse</code> class whose only public method <code>parse()</code> will traverse the text line by line looking for interfaces with Line Protocol in <code>up</code> state, extract IP address (1st column), interface name (2nd column) and store the result in a python dictionary with IP address as the key and interface name as it&rsquo;s value.</p>
+
+<pre><code class="language-python">class SIIBparse(object):
+
+    def __init__(self, module):
+        self.output_text = module.params['output_text']
+        self.ip2intf = dict()
+
+    def parse(self):
+        for line in self.output_text.split(&quot;\n&quot;):
+            row = line.split()
+            if len(row) &gt; 0 and row[-1] == 'up':
+                ipAddress = row[1]
+                intfName = row[0]
+                self.ip2intf[ipAddress] = intfName
+        result = {
+            &quot;IPs&quot;: self.ip2intf
+        }
+        rc = 0 if len(self.ip2intf) &gt; 0 else 1
+        return rc, result
+
+def main():
+    module = AnsibleModule(
+        argument_spec=dict(
+            output_text=dict(required=True, type='str')
+        )
+    )
+    siib = SIIBparse(module)
+    rc, result = siib.parse()
+    if rc != 0:
+        module.fail_json(msg=&quot;Failed to parse. Incorrect input.&quot;)
+    else:
+        module.exit_json(changed=False, ansible_facts=result)
+
+# import module snippets
+from ansible.module_utils.basic import *
+main()
+</code></pre>
 
 <p>If information passed to the module in the argument was invalid, the module must fail with a meaningful message passed inside a <code>fail_json</code> method call. When parsing is complete, our module exits and the resulting data structure is passed back to Ansible variables with <code>ansible_facts</code> argument. Now all hosts can access it through variable called <code>IPs</code>.</p>
 
-<h2>Ansible module to save IP address information</h2>
+<h1 id="ansible-module-to-save-ip-address-information">Ansible module to save IP address information</h1>
 
-<p>The task of this module is to get all the information collected inside each hosts' <code>IPs</code> variables, combine it with devices' hostnames and save it in the <code>group_vars/all.yml</code> file. This module makes use of <a href="http://pyyaml.org/wiki/PyYAMLDocumentation">Python&rsquo;s yaml library</a>. Built-in class <code>FactUpdater</code> can read(), update() the contents and write() the global variable file defined in a <code>FILENAME</code> variable.</p>
+<p>The task of this module is to get all the information collected inside each hosts&rsquo; <code>IPs</code> variables, combine it with devices&rsquo; hostnames and save it in the <code>group_vars/all.yml</code> file. This module (<code>~/tdd_ansible/library/cisco_ip_intf_facts_combine.py</code>) makes use of <a href="http://pyyaml.org/wiki/PyYAMLDocumentation" target="_blank">Python&rsquo;s yaml library</a>. Built-in class <code>FactUpdater</code> can read(), update() the contents and write() the global variable file defined in a <code>FILENAME</code> variable.</p>
 
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_ip_intf_facts_combine.py </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-<span class='line-number'>36</span>
-<span class='line-number'>37</span>
-<span class='line-number'>38</span>
-<span class='line-number'>39</span>
-<span class='line-number'>40</span>
-<span class='line-number'>41</span>
-<span class='line-number'>42</span>
-<span class='line-number'>43</span>
-<span class='line-number'>44</span>
-<span class='line-number'>45</span>
-<span class='line-number'>46</span>
-<span class='line-number'>47</span>
-<span class='line-number'>48</span>
-<span class='line-number'>49</span>
-<span class='line-number'>50</span>
-<span class='line-number'>51</span>
-<span class='line-number'>52</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">yaml</span>
-</span><span class='line'><span class="n">FILENAME</span><span class="o">=</span><span class="s">&quot;group_vars/all.yml&quot;</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">FactUpdater</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">module</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;ipTable&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">hostname</span> <span class="o">=</span> <span class="n">module</span><span class="o">.</span><span class="n">params</span><span class="p">[</span><span class="s">&#39;hostname&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;ip2host&#39;</span><span class="p">:{}}</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">try</span><span class="p">:</span>
-</span><span class='line'>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">FILENAME</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
-</span><span class='line'>                <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">fileObj</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">except</span><span class="p">:</span>
-</span><span class='line'>            <span class="c"># in case there is no file - create it</span>
-</span><span class='line'>            <span class="nb">open</span><span class="p">(</span><span class="n">FILENAME</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">FILENAME</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
-</span><span class='line'>            <span class="n">yaml</span><span class="o">.</span><span class="n">safe_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">,</span> <span class="n">fileObj</span><span class="p">,</span> <span class="n">explicit_start</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">allow_unicode</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">if</span> <span class="ow">not</span> <span class="s">&#39;ip2host&#39;</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">:</span>
-</span><span class='line'>            <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">[</span><span class="s">&#39;ip2host&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">ip</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span><span class="p">:</span>
-</span><span class='line'>            <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">[</span><span class="s">&#39;ip2host&#39;</span><span class="p">][</span><span class="n">ip</span><span class="p">]</span> <span class="o">=</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">hostname</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">ip2intf</span><span class="p">[</span><span class="n">ip</span><span class="p">]]</span>
-</span><span class='line'>
-</span><span class='line'>
-</span><span class='line'>
-</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
-</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span>
-</span><span class='line'>        <span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span>
-</span><span class='line'>            <span class="n">ipTable</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;dict&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="n">hostname</span><span class="o">=</span><span class="nb">dict</span><span class="p">(</span><span class="n">required</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="nb">type</span><span class="o">=</span><span class="s">&#39;str&#39;</span><span class="p">),</span>
-</span><span class='line'>        <span class="p">)</span>
-</span><span class='line'>    <span class="p">)</span>
-</span><span class='line'>    <span class="n">result</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
-</span><span class='line'>    <span class="n">factUpdater</span> <span class="o">=</span> <span class="n">FactUpdater</span><span class="p">(</span><span class="n">module</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">try</span><span class="p">:</span>
-</span><span class='line'>        <span class="n">factUpdater</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">factUpdater</span><span class="o">.</span><span class="n">update</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">factUpdater</span><span class="o">.</span><span class="n">write</span><span class="p">()</span>
-</span><span class='line'>    <span class="k">except</span> <span class="ne">IOError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">fail_json</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s">&quot;Unexpected error: &quot;</span> <span class="o">+</span> <span class="nb">str</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="c"># import module snippets</span>
-</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
-</span><span class='line'><span class="n">main</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">import yaml 
+FILENAME=&quot;group_vars/all.yml&quot;
 
+class FactUpdater(object):
+
+    def __init__(self, module):
+        self.ip2intf = module.params['ipTable']
+        self.hostname = module.params['hostname']
+        self.file_content = {'ip2host':{}}
+
+    def read(self):
+        try:
+            with open(FILENAME, 'r') as fileObj:
+                self.file_content = yaml.load(fileObj)
+        except:
+            # in case there is no file - create it
+            open(FILENAME, 'w').close()
+
+    def write(self):
+        with open(FILENAME, 'w') as fileObj:
+            yaml.safe_dump(self.file_content, fileObj, explicit_start=True, indent=2, allow_unicode=True)
+
+
+    def update(self):
+        if not 'ip2host' in self.file_content:
+            self.file_content['ip2host'] = dict()
+        for ip in self.ip2intf:
+            self.file_content['ip2host'][ip] = [self.hostname, self.ip2intf[ip]]
+
+
+
+def main():
+    module = AnsibleModule(
+        argument_spec=dict(
+            ipTable=dict(required=True, type='dict'),
+            hostname=dict(required=True, type='str'),
+        )
+    )
+    result = ''
+    factUpdater = FactUpdater(module)
+    try:
+        factUpdater.read()
+        factUpdater.update()
+        factUpdater.write()
+    except IOError as e:
+        module.fail_json(msg=&quot;Unexpected error: &quot; + str(e))
+
+    module.exit_json(changed=False)
+
+# import module snippets
+from ansible.module_utils.basic import *
+main()
+</code></pre>
 
 <p>This module only performs actions on local file and does not provide any output back to Ansible.</p>
 
-<h2>Read and parse TDD scenarios</h2>
+<h1 id="read-and-parse-tdd-scenarios">Read and parse TDD scenarios</h1>
 
-<p>Finally, since we&rsquo;re modifying Ansible global variable file, it would make sense to also update it with testing scenarios information. Technically, this steps doesn&rsquo;t need to be done in Ansible and could be done simply using Python or Bash scripts, but I&rsquo;ll still show it here to demonstrate two additional Ansible features. The first one is <code>local_action: module_name</code> which is a shorthand for specifying <code>module</code> with <code>delegate_to</code> option (see above). Second feature is <code>tags</code>, it allows to specify which play to run in playbook containing many of them. In our case one file <code>cisco-ip-collect.yml</code> will have two plays defined and will run both of them by default unless <code>--tag=scenario</code> or <code>--tag=collect</code> specifies the exact play.</p>
+<p>Finally, since we&rsquo;re modifying Ansible global variable file, it would make sense to also update it with testing scenarios information. Technically, this steps doesn&rsquo;t need to be done in Ansible and could be done simply using Python or Bash scripts, but I&rsquo;ll still show it here to demonstrate two additional Ansible features. The first one is <code>local_action: module_name</code> which is a shorthand for specifying <code>module</code> with <code>delegate_to</code> option (see above). Second feature is <code>tags</code>, it allows to specify which play to run in playbook containing many of them. In our case one file <code>~/tdd_ansible/cisco-ip-collect.yml</code> will have two plays defined and will run both of them by default unless <code>--tag=scenario</code> or <code>--tag=collect</code> specifies the exact play.</p>
 
-<figure class='code'><figcaption><span>~/tdd_ansible/cisco-ip-collect.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Parse and save scenarios</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">localhost</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">parse scenario file and save it in group_vars/all.yml</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">local_action</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco_scenarios_convert</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">tags</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">scenario</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-yaml">- name: Parse and save scenarios
+  hosts: localhost
+  gather_facts: false
 
+  tasks:
+
+    - name: parse scenario file and save it in group_vars/all.yml
+      local_action: cisco_scenarios_convert
+
+  tags:
+    - scenario
+</code></pre>
 
 <p>This play has a single task which runs a single custom module. Before we proceed to the module let&rsquo;s see how a typical testing scenario file looks like.</p>
 
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/scenarios/all.txt </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>1. Testing of Primary Link
-</span><span class='line'>1.1 From R1 to R3 via R2
-</span><span class='line'>1.2 From R1 to R4 via R2, R3
-</span><span class='line'>2. Testing of Backup Link
-</span><span class='line'>2.1 From R1 to R3 via R4
-</span><span class='line'>2.2 From R1 to R2 via R4,R3
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>1. Testing of Primary Link
+1.1 From R1 to R3 via R2
+1.2 From R1 to R4 via R2, R3
+2. Testing of Backup Link
+2.1 From R1 to R3 via R4
+2.2 From R1 to R2 via R4,R3
+</code></pre>
 
+<p>The file should be stored in a <code>scenarios/</code> directory and should have a name <code>all.txt</code>. This file contains a list of scenarios, each with its own name, and a list of test steps that need to be performed to validate a particular scenario. The parser for this file is a custom Python module <code>~/tdd_ansible/library/cisco_scenarios_convert.py</code> which opens and reads the contents of <code>group_vars/all.yml</code> file, parses the scenarios file with the help of some ugly-looking regular expressions, and, finally, updates and saves the contents of Ansible group variable back to file.</p>
 
-<p>The file should be stored in a <code>scenarios/</code> directory and should have a name <code>all.txt</code>. This file contains a list of scenarios, each with its own name, and a list of test steps that need to be performed to validate a particular scenario. The parser for this file is a custom Python module which opens and reads the contents of <code>group_vars/all.yml</code> file, parses the scenarios file with the help of some ugly-looking regular expressions, and, finally, updates and saves the contents of Ansible group variable back to file.</p>
+<pre><code>import yaml
+import re
+SCENARIO_FILE = &quot;scenarios/all.txt&quot;
+GROUP_VAR_FILE = &quot;group_vars/all.yml&quot;
 
-<figure class='code panel panel-default'><figcaption class='panel-heading'><h3 class='panel-title'>~/tdd_ansible/library/cisco_scenarios_convert.py </h3></figcaption>
-<div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-<span class='line-number'>36</span>
-<span class='line-number'>37</span>
-<span class='line-number'>38</span>
-<span class='line-number'>39</span>
-<span class='line-number'>40</span>
-<span class='line-number'>41</span>
-<span class='line-number'>42</span>
-<span class='line-number'>43</span>
-<span class='line-number'>44</span>
-<span class='line-number'>45</span>
-<span class='line-number'>46</span>
-<span class='line-number'>47</span>
-<span class='line-number'>48</span>
-<span class='line-number'>49</span>
-<span class='line-number'>50</span>
-<span class='line-number'>51</span>
-<span class='line-number'>52</span>
-<span class='line-number'>53</span>
-<span class='line-number'>54</span>
-<span class='line-number'>55</span>
-<span class='line-number'>56</span>
-<span class='line-number'>57</span>
-<span class='line-number'>58</span>
-<span class='line-number'>59</span>
-<span class='line-number'>60</span>
-<span class='line-number'>61</span>
-<span class='line-number'>62</span>
-<span class='line-number'>63</span>
-<span class='line-number'>64</span>
-<span class='line-number'>65</span>
-<span class='line-number'>66</span>
-<span class='line-number'>67</span>
-<span class='line-number'>68</span>
-<span class='line-number'>69</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">yaml</span>
-</span><span class='line'><span class="kn">import</span> <span class="nn">re</span>
-</span><span class='line'><span class="n">SCENARIO_FILE</span> <span class="o">=</span> <span class="s">&quot;scenarios/all.txt&quot;</span>
-</span><span class='line'><span class="n">GROUP_VAR_FILE</span> <span class="o">=</span> <span class="s">&quot;group_vars/all.yml&quot;</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">ScenarioParser</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">rc</span> <span class="o">=</span> <span class="mi">0</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">storage</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">open</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>       <span class="k">try</span><span class="p">:</span>
-</span><span class='line'>            <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">GROUP_VAR_FILE</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
-</span><span class='line'>                <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span> <span class="o">=</span> <span class="n">yaml</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">fileObj</span><span class="p">)</span>
-</span><span class='line'>       <span class="k">except</span><span class="p">:</span>
-</span><span class='line'>           <span class="nb">open</span><span class="p">(</span><span class="n">GROUP_VAR_FILE</span><span class="p">,</span> <span class="s">&#39;w&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">read</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">scenario_number</span> <span class="o">=</span> <span class="mi">0</span>
-</span><span class='line'>        <span class="n">scenario_step</span>   <span class="o">=</span> <span class="mi">0</span>
-</span><span class='line'>        <span class="n">scenario_name</span>   <span class="o">=</span> <span class="s">&#39;&#39;</span>
-</span><span class='line'>        <span class="n">name_pattern</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;^(\d+)\.?\s+(.*)&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">step_pattern</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="s">r&#39;.*[Ff][Rr][Oo][Mm]\s+([\d\w]+)\s+[Tt][Oo]\s+([\d\w]+)\s+[Vv][Ii][Aa]\s+([\d\w]+,*\s*[\d\w]+)*&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">SCENARIO_FILE</span><span class="p">,</span> <span class="s">&#39;r&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
-</span><span class='line'>            <span class="k">for</span> <span class="n">line</span> <span class="ow">in</span> <span class="n">fileObj</span><span class="p">:</span>
-</span><span class='line'>                <span class="k">if</span> <span class="ow">not</span> <span class="n">line</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s">&#39;#&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="n">line</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">3</span><span class="p">:</span>
-</span><span class='line'>                    <span class="n">name_match</span> <span class="o">=</span> <span class="n">name_pattern</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
-</span><span class='line'>                    <span class="n">step_match</span> <span class="o">=</span> <span class="n">step_pattern</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">line</span><span class="p">)</span>
-</span><span class='line'>                    <span class="k">if</span> <span class="n">name_match</span><span class="p">:</span>
-</span><span class='line'>                        <span class="n">scenario_number</span> <span class="o">=</span> <span class="n">name_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span class='line'>                        <span class="n">scenario_name</span>   <span class="o">=</span> <span class="n">name_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
-</span><span class='line'>                        <span class="n">scenario_steps</span>  <span class="o">=</span> <span class="p">[</span><span class="n">scenario_name</span><span class="p">,</span> <span class="p">{}]</span>
-</span><span class='line'>                        <span class="k">if</span> <span class="ow">not</span> <span class="n">scenario_number</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">storage</span><span class="p">:</span>
-</span><span class='line'>                            <span class="bp">self</span><span class="o">.</span><span class="n">storage</span><span class="p">[</span><span class="n">scenario_number</span><span class="p">]</span> <span class="o">=</span> <span class="n">scenario_steps</span>
-</span><span class='line'>                        <span class="k">else</span><span class="p">:</span>
-</span><span class='line'>                            <span class="n">scenario_steps</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">storage</span><span class="p">[</span><span class="n">scenario_number</span><span class="p">]</span>
-</span><span class='line'>                    <span class="k">elif</span> <span class="n">step_match</span><span class="p">:</span>
-</span><span class='line'>                        <span class="n">from_device</span> <span class="o">=</span> <span class="n">step_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
-</span><span class='line'>                        <span class="n">to_device</span> <span class="o">=</span> <span class="n">step_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span>
-</span><span class='line'>                        <span class="n">via</span> <span class="o">=</span> <span class="n">step_match</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">3</span><span class="p">)</span>
-</span><span class='line'>                        <span class="n">via_devices</span> <span class="o">=</span> <span class="p">[</span><span class="n">device_name</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="k">for</span> <span class="n">device_name</span> <span class="ow">in</span> <span class="n">via</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s">&#39;,&#39;</span><span class="p">)]</span>
-</span><span class='line'>                        <span class="k">if</span> <span class="ow">not</span> <span class="n">scenario_number</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">scenario_name</span><span class="p">:</span>
-</span><span class='line'>                            <span class="k">if</span> <span class="ow">not</span> <span class="n">from_device</span> <span class="ow">in</span> <span class="n">scenario_steps</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
-</span><span class='line'>                                <span class="n">scenario_steps</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="n">from_device</span><span class="p">]</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
-</span><span class='line'>                            <span class="n">scenario_steps</span><span class="p">[</span><span class="mi">1</span><span class="p">][</span><span class="n">from_device</span><span class="p">][</span><span class="n">to_device</span><span class="p">]</span> <span class="o">=</span> <span class="n">via_devices</span>
-</span><span class='line'>                    <span class="k">else</span><span class="p">:</span>
-</span><span class='line'>                        <span class="bp">self</span><span class="o">.</span><span class="n">rc</span> <span class="o">=</span> <span class="mi">1</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">write</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>       <span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">[</span><span class="s">&#39;scenarios&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">storage</span>
-</span><span class='line'>       <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">rc</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-</span><span class='line'>           <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">GROUP_VAR_FILE</span><span class="p">,</span> <span class="s">&#39;w+&#39;</span><span class="p">)</span> <span class="k">as</span> <span class="n">fileObj</span><span class="p">:</span>
-</span><span class='line'>               <span class="n">yaml</span><span class="o">.</span><span class="n">safe_dump</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">file_content</span><span class="p">,</span> <span class="n">fileObj</span><span class="p">,</span> <span class="n">explicit_start</span><span class="o">=</span><span class="bp">True</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span> <span class="n">allow_unicode</span><span class="o">=</span><span class="bp">True</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">def</span> <span class="nf">main</span><span class="p">():</span>
-</span><span class='line'>    <span class="n">module</span> <span class="o">=</span> <span class="n">AnsibleModule</span><span class="p">(</span><span class="n">argument_spec</span><span class="o">=</span><span class="nb">dict</span><span class="p">())</span>
-</span><span class='line'>    <span class="n">parser</span> <span class="o">=</span> <span class="n">ScenarioParser</span><span class="p">()</span>
-</span><span class='line'>    <span class="n">parser</span><span class="o">.</span><span class="n">open</span><span class="p">()</span>
-</span><span class='line'>    <span class="n">parser</span><span class="o">.</span><span class="n">read</span><span class="p">()</span>
-</span><span class='line'>    <span class="n">parser</span><span class="o">.</span><span class="n">write</span><span class="p">()</span>
-</span><span class='line'>    <span class="k">if</span> <span class="ow">not</span> <span class="n">parser</span><span class="o">.</span><span class="n">rc</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
-</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">fail_json</span><span class="p">(</span><span class="n">msg</span><span class="o">=</span><span class="s">&quot;Failed to parse. Incorrect input.&quot;</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">else</span><span class="p">:</span>
-</span><span class='line'>        <span class="n">module</span><span class="o">.</span><span class="n">exit_json</span><span class="p">(</span><span class="n">changed</span><span class="o">=</span><span class="bp">False</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'><span class="kn">from</span> <span class="nn">ansible.module_utils.basic</span> <span class="kn">import</span> <span class="o">*</span>
-</span><span class='line'><span class="n">main</span><span class="p">()</span>
-</span></code></pre></td></tr></table></div></figure>
+class ScenarioParser(object):
 
+    def __init__(self):
+        self.rc = 0
+        self.storage = dict()
+        self.file_content = dict()
+
+    def open(self):
+       try:
+            with open(GROUP_VAR_FILE, 'r') as fileObj:
+                self.file_content = yaml.load(fileObj)
+       except:
+           open(GROUP_VAR_FILE, 'w').close()
+
+    def read(self):
+        scenario_number = 0
+        scenario_step   = 0
+        scenario_name   = ''
+        name_pattern = re.compile(r'^(\d+)\.?\s+(.*)')
+        step_pattern = re.compile(r'.*[Ff][Rr][Oo][Mm]\s+([\d\w]+)\s+[Tt][Oo]\s+([\d\w]+)\s+[Vv][Ii][Aa]\s+([\d\w]+,*\s*[\d\w]+)*')
+        with open(SCENARIO_FILE, 'r') as fileObj:
+            for line in fileObj:
+                if not line.startswith('#') and len(line) &gt; 3:
+                    name_match = name_pattern.match(line)
+                    step_match = step_pattern.match(line)
+                    if name_match:
+                        scenario_number = name_match.group(1)
+                        scenario_name   = name_match.group(2)
+                        scenario_steps  = [scenario_name, {}]
+                        if not scenario_number in self.storage:
+                            self.storage[scenario_number] = scenario_steps
+                        else:
+                            scenario_steps = self.storage[scenario_number]
+                    elif step_match:
+                        from_device = step_match.group(1)
+                        to_device = step_match.group(2)
+                        via = step_match.group(3)
+                        via_devices = [device_name.strip() for device_name in via.split(',')]
+                        if not scenario_number == 0 or not scenario_name:
+                            if not from_device in scenario_steps[1]:
+                                scenario_steps[1][from_device] = dict()
+                            scenario_steps[1][from_device][to_device] = via_devices
+                    else:
+                        self.rc = 1
+
+    def write(self):
+       self.file_content['scenarios'] = self.storage
+       if self.rc == 0:
+           with open(GROUP_VAR_FILE, 'w+') as fileObj:
+               yaml.safe_dump(self.file_content, fileObj, explicit_start=True, indent=3, allow_unicode=True)
+
+def main():
+    module = AnsibleModule(argument_spec=dict())
+    parser = ScenarioParser()
+    parser.open()
+    parser.read()
+    parser.write()
+    if not parser.rc == 0:
+        module.fail_json(msg=&quot;Failed to parse. Incorrect input.&quot;)
+    else:
+        module.exit_json(changed=False)
+
+from ansible.module_utils.basic import *
+main()
+</code></pre>
 
 <p>The biggest portion of code is the read() method of the parser which does the following:</p>
 
 <ul>
 <li>scans text file line by line ignoring lines starting with <code>#</code> and whose length is not enough to contain either a scenario name or scenario step</li>
-<li>matches each line against pre-compiled regular expressions for scenario name or for scenario step (<a href="https://regex101.com/">a very helpful tool for regex testing</a>)</li>
+<li>matches each line against pre-compiled regular expressions for scenario name or for scenario step (<a href="https://regex101.com/" target="_blank">a very helpful tool for regex testing</a>)</li>
 <li>attempts to save the data in a Python dictionary whose keys are scenario numbers and whose values is a list consisting of a scenario name (1st element) and a dictionary with scenario steps (2nd element)</li>
 </ul>
 
+<p>The end result of running both ip address collection and scenarios conversion plays is Ansible group variable file <code>~/tdd_ansible/library/group_vars/all.yml</code> that looks like this:</p>
 
-<p>The end result of running both ip address collection and scenarios conversion plays is Ansible group variable file that looks like this:</p>
-
-<figure class='code'><figcaption><span>~/tdd_ansible/library/group_vars/all.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="l-Scalar-Plain">ip2host</span><span class="p-Indicator">:</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">10.0.0.1</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R1</span><span class="p-Indicator">,</span> <span class="nv">Loopback0</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">10.0.0.2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">,</span> <span class="nv">Loopback0</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">10.0.0.3</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R3</span><span class="p-Indicator">,</span> <span class="nv">Loopback0</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">10.0.0.4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">,</span> <span class="nv">Loopback0</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">12.12.12.1</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R1</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/0</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">12.12.12.2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/0</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">14.14.14.1</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R1</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/1</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">14.14.14.4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/1</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">192.168.247.25</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R1</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/2</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">23.23.23.2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R3</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/0</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">34.34.34.3</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R3</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/1</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="l-Scalar-Plain">34.34.34.4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">,</span> <span class="nv">Ethernet0/0</span><span class="p-Indicator">]</span>
-</span><span class='line'><span class="l-Scalar-Plain">scenarios</span><span class="p-Indicator">:</span>
-</span><span class='line'>   <span class="s">&#39;1&#39;</span><span class="p-Indicator">:</span>
-</span><span class='line'>   <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Testing of Primary Link</span>
-</span><span class='line'>   <span class="p-Indicator">-</span>  <span class="l-Scalar-Plain">R1</span><span class="p-Indicator">:</span>
-</span><span class='line'>         <span class="l-Scalar-Plain">R2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">]</span>
-</span><span class='line'>         <span class="l-Scalar-Plain">R3</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">]</span>
-</span><span class='line'>         <span class="l-Scalar-Plain">R4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R2</span><span class="p-Indicator">,</span> <span class="nv">R3</span><span class="p-Indicator">]</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">R2</span><span class="p-Indicator">:</span>
-</span><span class='line'>         <span class="l-Scalar-Plain">R4</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R3</span><span class="p-Indicator">]</span>
-</span><span class='line'>   <span class="s">&#39;2&#39;</span><span class="p-Indicator">:</span>
-</span><span class='line'>   <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Testing of Backup Link</span>
-</span><span class='line'>   <span class="p-Indicator">-</span>  <span class="l-Scalar-Plain">R1</span><span class="p-Indicator">:</span>
-</span><span class='line'>         <span class="l-Scalar-Plain">R2</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">,</span> <span class="nv">R3</span><span class="p-Indicator">]</span>
-</span><span class='line'>         <span class="l-Scalar-Plain">R3</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">]</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">R3</span><span class="p-Indicator">:</span>
-</span><span class='line'>         <span class="l-Scalar-Plain">R1</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">R4</span><span class="p-Indicator">]</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-yaml">---
+ip2host:
+   10.0.0.1: [R1, Loopback0]
+   10.0.0.2: [R2, Loopback0]
+   10.0.0.3: [R3, Loopback0]
+   10.0.0.4: [R4, Loopback0]
+   12.12.12.1: [R1, Ethernet0/0]
+   12.12.12.2: [R2, Ethernet0/0]
+   14.14.14.1: [R1, Ethernet0/1]
+   14.14.14.4: [R4, Ethernet0/1]
+   192.168.247.25: [R1, Ethernet0/2]
+   23.23.23.2: [R3, Ethernet0/0]
+   34.34.34.3: [R3, Ethernet0/1]
+   34.34.34.4: [R4, Ethernet0/0]
+scenarios:
+   '1':
+   - Testing of Primary Link
+   -  R1:
+         R2: [R2]
+         R3: [R2]
+         R4: [R2, R3]
+      R2:
+         R4: [R3]
+   '2':
+   - Testing of Backup Link
+   -  R1:
+         R2: [R4, R3]
+         R3: [R4]
+      R3:
+         R1: [R4]
+</code></pre>
 
 <hr />
 
 <p>The next post, final in a series, will show how to write an Ansible play to validate TDD scenarios and produce a meaningful error message in case it fails.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-tdd">network-TDD</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible">Ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-07-03T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">03/07/2015</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/ansible/'>ansible</a> <a class='category label label-primary' href='/blog/categories/cisco/'>cisco</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/07/03/parser-modules/" data-via="" data-counturl="http://networkop.github.io/blog/2015/07/03/parser-modules/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2015/07/03/parser-modules/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2015/06/24/ansible-intro/">Getting Started With Ansible for Cisco IOS</a></li>
+    
+    <li><a href="/blog/2015/06/17/dev-env-setup/">Development Environment Setup</a></li>
+    
+    <li><a href="/blog/2015/06/15/simple-tdd-framework/">Building a Simple Network TDD Framework</a></li>
+    
+    <li><a href="/blog/2015/06/22/dev-file-sync/">Windows-Linux File Synchronisation</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2015/06/24/ansible-intro/" title="Previous Post: Getting started with Ansible for Cisco IOS">&laquo; Getting started with Ansible for Cisco IOS</a></li>
-            
-            
-            <li class="next"><a href="/blog/2015/07/10/test-verification/" title="Next Post: Verifying TDD scenarios">Verifying TDD scenarios &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2015/07/03/parser-modules/';
-        var disqus_url = 'http://networkop.github.io/blog/2015/07/03/parser-modules/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

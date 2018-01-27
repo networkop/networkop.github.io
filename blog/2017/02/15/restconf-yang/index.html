@@ -1,277 +1,420 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Introduction to YANG Programming and RESTCONF on Cisco IOS XE - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Modifying existing configuration with RESTCONF and building a YANG model from scratch">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="In the previous post I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard IETF model. In this post I&rsquo;ll show how to use Cisco&rsquo;s native YANG model to modify static IP routes. To make things even more interesting I&rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.
+RESTCONF primer RESTCONF is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2017/02/15/restconf-yang/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2017/02/15/restconf-yang/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2017/02/15/restconf-yang/">
-  <meta property="og:title" content="Introduction to YANG Programming and RESTCONF on Cisco IOS XE - Network-oriented programming">
-  <meta property="og:description" content="Modifying existing configuration with RESTCONF and building a YANG model from scratch">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2017/02/15/restconf-yang/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2017/02/15/restconf-yang/">
+  <meta property="og:title" content="Introduction to YANG Programming and RESTCONF on Cisco IOS XE | Network-oriented programming">
+  <meta property="og:description" content="In the previous post I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard IETF model. In this post I&rsquo;ll show how to use Cisco&rsquo;s native YANG model to modify static IP routes. To make things even more interesting I&rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.
+RESTCONF primer RESTCONF is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2017-02-15T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2017-02-15T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Introduction to YANG Programming and RESTCONF on Cisco IOS XE | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Introduction to YANG Programming and RESTCONF on Cisco IOS XE</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2017-02-15 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      15 Feb 2017
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    10 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2017/02/15/restconf-yang/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">Automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Introduction%20to%20YANG%20Programming%20and%20RESTCONF%20on%20Cisco%20IOS%20XE&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f02%2f15%2frestconf-yang%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f02%2f15%2frestconf-yang%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f02%2f15%2frestconf-yang%2f&amp;title=Introduction%20to%20YANG%20Programming%20and%20RESTCONF%20on%20Cisco%20IOS%20XE"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Introduction%20to%20YANG%20Programming%20and%20RESTCONF%20on%20Cisco%20IOS%20XE&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f02%2f15%2frestconf-yang%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>In the <a href="/blog/2017/01/25/netconf-intro/">previous post</a> I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard <strong>IETF</strong> model. In this post I&rsquo;ll show how to use Cisco&rsquo;s <strong>native</strong> YANG model to modify static IP routes. To make things even more interesting I&rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.</p>
 
+<h1 id="restconf-primer">RESTCONF primer</h1>
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-02-15T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">15/02/2017</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Introduction to YANG Programming and RESTCONF on Cisco IOS XE
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>The sheer size of some of the YANG models can scare away even the bravest of network engineers. However, as it is with any programming language, the complexity is built out of a finite set of simple concepts. In this post we&rsquo;ll learn some of these concepts by building our own YANG model to program static IP routes on Cisco IOS XE.</p>
-
-<!--more-->
-
-
-<hr />
-
-<p>  In the <a href="/blog/2017/01/25/netconf-intro/">previous post</a> I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard <strong>IETF</strong> model. In this post I&rsquo;ll show how to use Cisco&rsquo;s <strong>native</strong> YANG model to modify static IP routes. To make things even more interesting I&rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.</p>
-
-<h2>RESTCONF primer</h2>
-
-<p><a href="https://www.rfc-editor.org/rfc/rfc8040.txt">RESTCONF</a> is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON. RESTCONF borrows the idea of Create-Read-Update-Delete operations on resources from <a href="/blog/2016/01/01/rest-for-neteng/">REST</a> and maps them to YANG models and datastores. There is a direct relationship between NETCONF operations and RESTCONF HTTP verbs:</p>
+<p><a href="https://www.rfc-editor.org/rfc/rfc8040.txt" target="_blank">RESTCONF</a> is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON. RESTCONF borrows the idea of Create-Read-Update-Delete operations on resources from <a href="/blog/2016/01/01/rest-for-neteng/">REST</a> and maps them to YANG models and datastores. There is a direct relationship between NETCONF operations and RESTCONF HTTP verbs:</p>
 
 <table>
 <thead>
 <tr>
-<th> HTTP VERB </th>
-<th> NETCONF OPERATION </th>
+<th>HTTP VERB</th>
+<th>NETCONF OPERATION</th>
 </tr>
 </thead>
+
 <tbody>
 <tr>
-<td> POST      </td>
-<td> create            </td>
+<td>POST</td>
+<td>create</td>
 </tr>
+
 <tr>
-<td> PUT       </td>
-<td> replace           </td>
+<td>PUT</td>
+<td>replace</td>
 </tr>
+
 <tr>
-<td> PATCH     </td>
-<td> merge             </td>
+<td>PATCH</td>
+<td>merge</td>
 </tr>
+
 <tr>
-<td> DELETE    </td>
-<td> delete            </td>
+<td>DELETE</td>
+<td>delete</td>
 </tr>
+
 <tr>
-<td> GET       </td>
-<td> get/get-config    </td>
+<td>GET</td>
+<td>get/get-config</td>
 </tr>
 </tbody>
 </table>
 
-
 <p>Both RESTfullness and the ability to encode data as JSON make RESTCONF a very attractive choice for application developers. In this post, for the sake of simplicity, we&rsquo;ll use Python CLI and <code>curl</code> to interact with RESTCONF API. In the upcoming posts I&rsquo;ll show how to implement the same functionality inside a simple Python library.</p>
 
-<h2>Environment setup</h2>
+<h1 id="environment-setup">Environment setup</h1>
 
 <p>We&rsquo;ll pick up from where we left our environment in the <a href="/blog/2017/01/25/netconf-intro/">previous post</a> right after we&rsquo;ve configured a network interface. The following IOS CLI command enables RESTCONF&rsquo;s root URL at <code>http://192.168.145.51/restconf/api/</code></p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>CSR1k(config)#restconf
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>CSR1k(config)#restconf
+</code></pre>
 
 <p>You can start exploring the structure of RESTCONF interface starting at the root URL by specifying resource names separated by &ldquo;/&rdquo;. For example, the following command will return all configuration from Cisco&rsquo;s native datastore.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>curl -v -k admin:admin http://192.168.145.51/restconfi/api/config/native?deep
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>curl -v -k admin:admin http://192.168.145.51/restconfi/api/config/native?deep
+</code></pre>
 
 <p>In order to get JSON instead of the default XML output the client should specify JSON media type <code>application/vnd.yang.datastore+json</code> and pass it in the <code>Accept</code> header.</p>
 
-<h2>Writing a YANG model</h2>
+<h1 id="writing-a-yang-model">Writing a YANG model</h1>
 
-<p><a href="/blog/2017/01/25/netconf-intro/">Normally</a>, you would expect to download the YANG model from the device itself. However IOS XE&rsquo;s NETCONF and RESTCONF support is so new that not all of the models are available. Specifically, Cisco&rsquo;s native YANG model for static routing cannot be found in either <a href="https://github.com/YangModels">Yang Github Repo</a> or the device itself (via <code>get_schema</code> RPC), which makes it a very good candidate for this post.</p>
+<p><a href="/blog/2017/01/25/netconf-intro/">Normally</a>, you would expect to download the YANG model from the device itself. However IOS XE&rsquo;s NETCONF and RESTCONF support is so new that not all of the models are available. Specifically, Cisco&rsquo;s native YANG model for static routing cannot be found in either <a href="https://github.com/YangModels" target="_blank">Yang Github Repo</a> or the device itself (via <code>get_schema</code> RPC), which makes it a very good candidate for this post.</p>
 
-<blockquote><p><strong>Update 13-02-2017</strong>: As it turned out, the model was right under my nose the whole time. It&rsquo;s called <code>ned</code> and encapsulates the whole of Cisco&rsquo;s native datastore. So think of everything that&rsquo;s to follow as a simple learning exercise, however the point I raise in the closing paragraph still stands.</p></blockquote>
+<blockquote>
+<p><strong>Update 13-02-2017</strong>: As it turned out, the model was right under my nose the whole time. It&rsquo;s called <code>ned</code> and encapsulates the whole of Cisco&rsquo;s native datastore. So think of everything that&rsquo;s to follow as a simple learning exercise, however the point I raise in the closing paragraph still stands.</p>
+</blockquote>
 
 <p>The first thing we need to do is get an understanding of the structure and naming convention of the YANG model. The simplest way to do that would be to make a change on the CLI and observe the result via RESTCONF.</p>
 
-<h3>Retrieving running configuration data</h3>
+<h2 id="retrieving-running-configuration-data">Retrieving running configuration data</h2>
 
 <p>Let&rsquo;s start by adding the following static route to the IOS XE device:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>ip route 2.2.2.2 255.255.255.255 GigabitEthernet2
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>ip route 2.2.2.2 255.255.255.255 GigabitEthernet2
+</code></pre>
 
 <p>Now we can view the configured static route via RESTCONF:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="s2">&quot;Accept: application/vnd.yang.data+json&quot;</span> <span class="se">\</span>
-</span><span class='line'> http://192.168.145.51/restconf/api/config/native/ip/route?deep
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>curl -v -k -u admin:admin -H &quot;Accept: application/vnd.yang.data+json&quot; \
+ http://192.168.145.51/restconf/api/config/native/ip/route?deep
+</code></pre>
 
 <p>The returned output should look something like this:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="p">{</span> <span class="nt">&quot;ned:route&quot;</span><span class="p">:</span> <span class="p">{</span>
-</span><span class='line'>    <span class="nt">&quot;ip-route-interface-forwarding-list&quot;</span><span class="p">:</span> <span class="p">[</span>
-</span><span class='line'>      <span class="p">{</span> <span class="nt">&quot;prefix&quot;</span><span class="p">:</span> <span class="s2">&quot;2.2.2.2&quot;</span><span class="p">,</span>
-</span><span class='line'>        <span class="nt">&quot;mask&quot;</span><span class="p">:</span> <span class="s2">&quot;255.255.255.255&quot;</span><span class="p">,</span>
-</span><span class='line'>        <span class="nt">&quot;fwd-list&quot;</span><span class="p">:</span> <span class="p">[</span> <span class="p">{</span> <span class="nt">&quot;fwd&quot;</span><span class="p">:</span> <span class="s2">&quot;GigabitEthernet2&quot;</span> <span class="p">}</span> <span class="p">]</span>
-</span><span class='line'>      <span class="p">}</span>
-</span><span class='line'>    <span class="p">]</span>
-</span><span class='line'>  <span class="p">}</span>
-</span><span class='line'><span class="p">}</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-json">{ &quot;ned:route&quot;: {
+    &quot;ip-route-interface-forwarding-list&quot;: [
+      { &quot;prefix&quot;: &quot;2.2.2.2&quot;,
+        &quot;mask&quot;: &quot;255.255.255.255&quot;,
+        &quot;fwd-list&quot;: [ { &quot;fwd&quot;: &quot;GigabitEthernet2&quot; } ]
+      }
+    ]
+  }
+}
+</code></pre>
 
 <p>This JSON object gives us a good understanding of how the YANG model should look like. The root element <code>route</code> contains a list of IP prefixes, called <code>ip-route-interface-forwarding-list</code>. Each element of this list contains values for IP network and mask as well as the list of next-hops called <code>fwd-list</code>. Let&rsquo;s see how we can map this to YANG model concepts.</p>
 
-<h3>Building a simple YANG model</h3>
+<h2 id="building-a-simple-yang-model">Building a simple YANG model</h2>
 
-<p>YANG <a href="https://tools.ietf.org/html/rfc6020">RFC</a> defines a number of data structures to model an XML tree. Let&rsquo;s first concentrate on the three most fundamental data structures that constitute the biggest part of any YANG model:</p>
+<p>YANG <a href="https://tools.ietf.org/html/rfc6020" target="_blank">RFC</a> defines a number of data structures to model an XML tree. Let&rsquo;s first concentrate on the three most fundamental data structures that constitute the biggest part of any YANG model:</p>
 
 <ul>
 <li><strong>Container</strong> is a node of a tree with a unique name which encloses a set of child elements. In JSON it is mapped to a name/object pair <code>'name': {...}</code></li>
 <li><strong>Leaf</strong> is a node which contains a value and does not contain any child elements. In JSON leaf is mapped to a single key/value pair <code>'name': 'value'</code></li>
 <li><strong>List</strong> can be thought of as a table that contains a set rows (list entries). Each list entry can contain Leafs, Containers and other elements and can be uniquely identified by at least one Leaf element called a <code>key</code>. In JSON lists are encoded as name/arrays pairs containing JSON objects <code>'name': [{...}, {...}]</code></li>
 </ul>
-
 
 <p>Now let&rsquo;s see how we can describe the received data in terms of the above data structures:</p>
 
@@ -280,610 +423,332 @@
 <li>The value of <code>ip-route-interface-forwarding-list</code> is an array of JSON objects, therefore it must be a list.</li>
 <li>The only entry of this list contains <code>prefix</code> and <code>mask</code> key/value pairs. Since they don&rsquo;t contain any child elements and their values are strings they can only be mapped to YANG leafs.</li>
 <li>The third element, <code>fwd-list</code>, is another YANG list and so far contains a single next-hop value inside a YANG leaf called <code>fwd</code>.</li>
-<li>Finally, since <code>fwd</code> is the only leaf in the <code>fwd-list</code> list, it must be that lists' key. The <code>ip-route-interface-forwarding-list</code> list will have both <code>prefix</code> and <code>mask</code> as its key values since their combination represents a unique IP destination.</li>
+<li>Finally, since <code>fwd</code> is the only leaf in the <code>fwd-list</code> list, it must be that lists&rsquo; key. The <code>ip-route-interface-forwarding-list</code> list will have both <code>prefix</code> and <code>mask</code> as its key values since their combination represents a unique IP destination.<br /></li>
 </ul>
-
 
 <p>With all that in mind, this is how a skeleton of our YANG model will look like:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">module</span> <span class="err">cisco-route-static</span> <span class="p">{</span>
-</span><span class='line'>  <span class="err">namespace</span> <span class="nt">&quot;http://cisco.com/ns/yang/ned/ios&quot;</span><span class="err">;</span>
-</span><span class='line'>  <span class="err">prefix</span> <span class="err">ned;</span>
-</span><span class='line'>  <span class="err">container</span> <span class="err">route</span> <span class="p">{</span>
-</span><span class='line'>    <span class="err">list</span> <span class="err">ip-route-interface-forwarding-list</span> <span class="err">{</span>
-</span><span class='line'>      <span class="err">key</span> <span class="nt">&quot;prefix mask&quot;</span><span class="err">;</span>
-</span><span class='line'>      <span class="err">leaf</span> <span class="err">prefix</span> <span class="p">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
-</span><span class='line'>      <span class="err">leaf</span> <span class="err">mask</span> <span class="p">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
-</span><span class='line'>      <span class="err">list</span> <span class="err">fwd-list</span> <span class="p">{</span>
-</span><span class='line'>        <span class="err">key</span> <span class="nt">&quot;fwd&quot;</span><span class="err">;</span>
-</span><span class='line'>        <span class="err">leaf</span> <span class="err">fwd</span> <span class="p">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
-</span><span class='line'>      <span class="p">}</span>
-</span><span class='line'>    <span class="p">}</span>
-</span><span class='line'>  <span class="p">}</span>
-</span><span class='line'><span class="err">}</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-json">module cisco-route-static {
+  namespace &quot;http://cisco.com/ns/yang/ned/ios&quot;;
+  prefix ned;
+  container route {
+    list ip-route-interface-forwarding-list {
+      key &quot;prefix mask&quot;;
+      leaf prefix { type string; }
+      leaf mask { type string; }
+      list fwd-list {
+        key &quot;fwd&quot;;
+        leaf fwd { type string; }
+      }
+    }
+  }
+}
+</code></pre>
 
 <p>YANG&rsquo;s syntax is pretty light-weight and looks very similar to JSON. The topmost <code>module</code> defines the model&rsquo;s name and encloses all other elements. The first two statements are used to define XML namespace and prefix that I&rsquo;ve described in my <a href="/blog/2017/01/25/netconf-intro/">previous post</a>.</p>
 
-<h3>Refactoring a YANG model</h3>
+<h2 id="refactoring-a-yang-model">Refactoring a YANG model</h2>
 
 <p>At this stage the model can already be instantiated by <strong>pyang</strong> and <strong>pyangbind</strong>, however there&rsquo;s a couple of very important changes and additions that I wanted to make to demonstrate some of the other features of YANG.</p>
 
 <p>The first of them is common IETF data types. So far in our model we&rsquo;ve assumed that prefix and mask can take <strong>any</strong> value in string format. But what if we wanted to check that the values we use are, in fact, the correctly-formatted IPv4 addresses and netmasks before sending them to the device? That is where IETF common data types come to the rescue. All what we need to do is add an import statement to define which model to use and we can start referencing them in our type definitions:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">...</span>
-</span><span class='line'><span class="err">import</span> <span class="err">ietf-yang-types</span> <span class="p">{</span> <span class="err">prefix</span> <span class="nt">&quot;yang&quot;</span><span class="err">;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">import</span> <span class="err">ietf-inet-types</span> <span class="p">{</span> <span class="err">prefix</span> <span class="nt">&quot;inet&quot;</span><span class="err">;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">...</span>
-</span><span class='line'><span class="err">leaf</span> <span class="err">prefix</span> <span class="p">{</span> <span class="err">type</span> <span class="err">inet:ipv4-address;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">leaf</span> <span class="err">mask</span> <span class="p">{</span> <span class="err">type</span> <span class="err">yang:dotted-quad;</span> <span class="p">}</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-json">...
+import ietf-yang-types { prefix &quot;yang&quot;; }
+import ietf-inet-types { prefix &quot;inet&quot;; }
+...
+leaf prefix { type inet:ipv4-address; }
+leaf mask { type yang:dotted-quad; }
+</code></pre>
 
 <p>This solves the problem for the prefix part of a static route but how about its next-hop? Next-hops can be defined as either strings (representing an interface name) or IPv4 addresses. To make sure we can use either of these two types in the <code>fwd</code> leaf node we can define its type as a <code>union</code>. This built-in type is literally a union, a logical OR, of all its member elements. This is how we can change the <code>fwd</code> leaf definition:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">...</span>
-</span><span class='line'><span class="err">typedef</span> <span class="err">ip-next-hop</span> <span class="p">{</span>
-</span><span class='line'>  <span class="err">type</span> <span class="err">union</span> <span class="err">{</span>
-</span><span class='line'>    <span class="err">type</span> <span class="err">inet:ipv4-address;</span>
-</span><span class='line'>    <span class="err">type</span> <span class="err">string;</span>
-</span><span class='line'>  <span class="p">}</span>
-</span><span class='line'><span class="err">}</span>
-</span><span class='line'><span class="err">...</span>
-</span><span class='line'><span class="err">leaf</span> <span class="err">fwd</span> <span class="p">{</span> <span class="err">type</span> <span class="err">ip-next-hop;</span> <span class="p">}</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-json">...
+typedef ip-next-hop {
+  type union {
+    type inet:ipv4-address;
+    type string;
+  }
+}
+...
+leaf fwd { type ip-next-hop; }
+</code></pre>
 
 <p>So far we&rsquo;ve been concentrating on the simplest form of a static route, which doesn&rsquo;t include any of the optional arguments. Let&rsquo;s add the leaf nodes for name, AD, tag, track and permanent options of the static route:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">...</span>
-</span><span class='line'><span class="err">leaf</span> <span class="err">metric</span> <span class="p">{</span> <span class="err">type</span> <span class="err">uint8;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">leaf</span> <span class="err">name</span> <span class="p">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">leaf</span> <span class="err">tag</span> <span class="p">{</span> <span class="err">type</span> <span class="err">uint8;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">leaf</span> <span class="err">track</span> <span class="p">{</span> <span class="err">type</span> <span class="err">uint8;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">leaf</span> <span class="err">permanent</span> <span class="p">{</span> <span class="err">type</span> <span class="err">empty;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">...</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-json">...
+leaf metric { type uint8; }
+leaf name { type string; }
+leaf tag { type uint8; }
+leaf track { type uint8; }
+leaf permanent { type empty; }
+...
+</code></pre>
 
 <p>Since <strong>track</strong> and <strong>permanent</strong> options are mutually exclusive they should not appear in the configuration at the same time. To model that we can use the <code>choice</code> YANG statement. Let&rsquo;s remove the <strong>track</strong> and <strong>permanent</strong> leafs from the model and replace them with this:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">choice</span> <span class="err">track-or-perm</span> <span class="p">{</span>
-</span><span class='line'>  <span class="err">leaf</span> <span class="err">track</span> <span class="err">{</span> <span class="err">type</span> <span class="err">uint8;</span> <span class="p">}</span>
-</span><span class='line'>  <span class="err">leaf</span> <span class="err">permanent</span> <span class="p">{</span> <span class="err">type</span> <span class="err">empty;</span> <span class="p">}</span>
-</span><span class='line'><span class="err">}</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-json">choice track-or-perm {
+  leaf track { type uint8; }
+  leaf permanent { type empty; }
+}
+</code></pre>
 
+<p>And finally, we need to add an options for VRF. When VRF is defined the whole <code>ip-route-interface-forwarding-list</code> gets encapsulated inside a list called <code>vrf</code>. This list has just one more leaf element <code>name</code> which plays the role of this lists&rsquo; key. In order to model this we can use another oft-used YANG concept called <code>grouping</code>. I like to think of it as a Python function, a reusable part of code that can be referenced multiple times by its name. Here are the final changes to our model to include the VRF support:</p>
 
-<p>And finally, we need to add an options for VRF. When VRF is defined the whole <code>ip-route-interface-forwarding-list</code> gets encapsulated inside a list called <code>vrf</code>. This list has just one more leaf element <code>name</code> which plays the role of this lists' key. In order to model this we can use another oft-used YANG concept called <code>grouping</code>. I like to think of it as a Python function, a reusable part of code that can be referenced multiple times by its name. Here are the final changes to our model to include the VRF support:</p>
+<pre><code class="language-json">grouping ip-route-list {
+  list ip-route-interface-forwarding-list {
+      ...
+  }
+}
+grouping vrf-grouping {
+  list vrf {
+    key &quot;name&quot;;
+    leaf name { type string; }
+    uses ip-route-list;
+  }
+}
+container route {
+  uses vrf-grouping;
+  uses ip-route-list;
+}
+</code></pre>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-</pre></td><td class='code'><pre><code class='json'><span class='line'><span class="err">grouping</span> <span class="err">ip-route-list</span> <span class="p">{</span>
-</span><span class='line'>  <span class="err">list</span> <span class="err">ip-route-interface-forwarding-list</span> <span class="err">{</span>
-</span><span class='line'>      <span class="err">...</span>
-</span><span class='line'>  <span class="p">}</span>
-</span><span class='line'><span class="err">}</span>
-</span><span class='line'><span class="err">grouping</span> <span class="err">vrf-grouping</span> <span class="p">{</span>
-</span><span class='line'>  <span class="err">list</span> <span class="err">vrf</span> <span class="err">{</span>
-</span><span class='line'>    <span class="err">key</span> <span class="nt">&quot;name&quot;</span><span class="err">;</span>
-</span><span class='line'>    <span class="err">leaf</span> <span class="err">name</span> <span class="p">{</span> <span class="err">type</span> <span class="err">string;</span> <span class="p">}</span>
-</span><span class='line'>    <span class="err">uses</span> <span class="err">ip-route-list;</span>
-</span><span class='line'>  <span class="p">}</span>
-</span><span class='line'><span class="err">}</span>
-</span><span class='line'><span class="err">container</span> <span class="err">route</span> <span class="p">{</span>
-</span><span class='line'>  <span class="err">uses</span> <span class="err">vrf-grouping;</span>
-</span><span class='line'>  <span class="err">uses</span> <span class="err">ip-route-list;</span>
-</span><span class='line'><span class="p">}</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>Each element in a YANG model is optional by default, which means that the <code>route</code> container can include any number of VRF and non-VRF routes. The full YANG model can be found <a href="https://github.com/networkop/yang/blob/master/yang-101/cisco-route-static.yang" target="_blank">here</a>.</p>
 
+<h1 id="modifying-static-route-configuration">Modifying static route configuration</h1>
 
-<p>Each element in a YANG model is optional by default, which means that the <code>route</code> container can include any number of VRF and non-VRF routes. The full YANG model can be found <a href="https://github.com/networkop/yang/blob/master/yang-101/cisco-route-static.yang">here</a>.</p>
+<p>Now let me demonstrate how to use our newly built YANG model to change the next-hop of an existing static route. Using <a href="https://github.com/mbj4668/pyang" target="_blank">pyang</a> we need to generate a Python module based on the YANG model.</p>
 
-<h2>Modifying static route configuration</h2>
-
-<p>Now let me demonstrate how to use our newly built YANG model to change the next-hop of an existing static route. Using <a href="https://github.com/mbj4668/pyang">pyang</a> we need to generate a Python module based on the YANG model.</p>
-
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang --plugindir <span class="nv">$PYBINDPLUGIN</span> -f pybind -o binding.py cisco-route-static.yang
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>pyang --plugindir $PYBINDPLUGIN -f pybind -o binding.py cisco-route-static.yang
+</code></pre>
 
 <p>From a Python shell, download the current static IP route configuration:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">requests</span>
-</span><span class='line'><span class="n">url</span> <span class="o">=</span> <span class="s">&quot;http://{h}:{p}/restconf/api/config/native/ip/route?deep&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">h</span><span class="o">=</span><span class="s">&#39;192.168.145.51&#39;</span><span class="p">,</span> <span class="n">p</span><span class="o">=</span><span class="s">&#39;80&#39;</span><span class="p">)</span>
-</span><span class='line'><span class="n">headers</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;accept&#39;</span><span class="p">:</span> <span class="s">&#39;application/vnd.yang.data+json&#39;</span><span class="p">}</span>
-</span><span class='line'><span class="n">result</span> <span class="o">=</span> <span class="n">requests</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">url</span><span class="p">,</span> <span class="n">auth</span><span class="o">=</span><span class="p">(</span><span class="s">&#39;admin&#39;</span><span class="p">,</span> <span class="s">&#39;admin&#39;</span><span class="p">),</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">)</span>
-</span><span class='line'><span class="n">current_json</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">text</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">import requests
+url = &quot;http://{h}:{p}/restconf/api/config/native/ip/route?deep&quot;.format(h='192.168.145.51', p='80')
+headers = {'accept': 'application/vnd.yang.data+json'}
+result = requests.get(url, auth=('admin', 'admin'), headers=headers)
+current_json = result.text
+</code></pre>
 
 <p>Import the downloaded JSON into a YANG model instance:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="kn">import</span> <span class="nn">binding</span>
-</span><span class='line'><span class="kn">import</span> <span class="nn">pyangbind.lib.pybindJSON</span> <span class="kn">as</span> <span class="nn">pybindJSON</span>
-</span><span class='line'><span class="n">model</span> <span class="o">=</span> <span class="n">pybindJSON</span><span class="o">.</span><span class="n">loads_ietf</span><span class="p">(</span><span class="n">current_json</span><span class="p">,</span> <span class="n">binding</span><span class="p">,</span> <span class="s">&quot;cisco_route_static&quot;</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">import binding
+import pyangbind.lib.pybindJSON as pybindJSON
+model = pybindJSON.loads_ietf(current_json, binding, &quot;cisco_route_static&quot;)
+</code></pre>
 
 <p>Delete the old next-hop and replace it with <strong>12.12.12.2</strong>:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">route</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">route</span><span class="o">.</span><span class="n">ip_route_interface_forwarding_list</span><span class="p">[</span><span class="s">&quot;2.2.2.2 255.255.255.255&quot;</span><span class="p">]</span>
-</span><span class='line'><span class="n">route</span><span class="o">.</span><span class="n">fwd_list</span><span class="o">.</span><span class="n">delete</span><span class="p">(</span><span class="s">&quot;GigabitEthernet2&quot;</span><span class="p">)</span>
-</span><span class='line'><span class="n">route</span><span class="o">.</span><span class="n">fwd_list</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="s">&quot;12.12.12.2&quot;</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">route = model.route.ip_route_interface_forwarding_list[&quot;2.2.2.2 255.255.255.255&quot;]
+route.fwd_list.delete(&quot;GigabitEthernet2&quot;)
+route.fwd_list.add(&quot;12.12.12.2&quot;)
+</code></pre>
 
+<p>Save the updated model in a JSON file with the help of a <a href="https://github.com/networkop/yang/blob/master/yang-101/helpers.py" target="_blank">write_file</a> function:</p>
 
-<p>Save the updated model in a JSON file with the help of a <a href="https://github.com/networkop/yang/blob/master/yang-101/helpers.py">write_file</a> function:</p>
+<pre><code class="language-python">json_data = pybindJSON.dumps(model, mode='ietf')
+write_file('new_conf.json', json_data)
+</code></pre>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">json_data</span> <span class="o">=</span> <span class="n">pybindJSON</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s">&#39;ietf&#39;</span><span class="p">)</span>
-</span><span class='line'><span class="n">write_file</span><span class="p">(</span><span class="s">&#39;new_conf.json&#39;</span><span class="p">,</span> <span class="n">json_data</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Updating running configuration</h2>
+<h1 id="updating-running-configuration">Updating running configuration</h1>
 
 <p>If we tried sending the <code>new_conf.json</code> file now, the device would have responded with an error:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>missing element: prefix in /ios:native/ios:ip/ios:route/ios:ip-route-interface-forwarding-list
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>missing element: prefix in /ios:native/ios:ip/ios:route/ios:ip-route-interface-forwarding-list
+</code></pre>
 
-
-<p>In our JSON file the order of elements inside a JSON object can be different from what was defined in the YANG model. This is expected since one of the fundamental principles of JSON is that an object is an <strong>unordered</strong> collection of name/value pairs. However it looks like behind the scenes IOS XE converts JSON to XML before processing and expects all elements to come in a strict, predefined order. Fortunately, this <a href="https://github.com/CiscoDevNet/openconfig-getting-started/issues/4">bug</a> is already known and we can hope that Cisco will implement the fix for IOS XE soon. In the meantime, we&rsquo;re gonna have to resort to sending XML.</p>
+<p>In our JSON file the order of elements inside a JSON object can be different from what was defined in the YANG model. This is expected since one of the fundamental principles of JSON is that an object is an <strong>unordered</strong> collection of name/value pairs. However it looks like behind the scenes IOS XE converts JSON to XML before processing and expects all elements to come in a strict, predefined order. Fortunately, this <a href="https://github.com/CiscoDevNet/openconfig-getting-started/issues/4" target="_blank">bug</a> is already known and we can hope that Cisco will implement the fix for IOS XE soon. In the meantime, we&rsquo;re gonna have to resort to sending XML.</p>
 
 <p>Following the procedure described in my <a href="/blog/2017/01/25/netconf-intro/">previous post</a>, we can use <strong>json2xml</strong> tool to convert our instance into an XML document. Here we hit another issue. Since <strong>json2xml</strong> was designed to produce a NETCONF-compliant XML, it wraps the payload inside a <strong>data</strong> or a <strong>config</strong> element. Thankfully, <strong>json2xml</strong> is a Python script and can be easily patched to produce a RESTCONF-compliant XML. The following is a diff between the original and the patched files</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>408c409
-</span><span class='line'>&lt;     if args.target not in [&quot;data&quot;, &quot;config&quot;]:
-</span><span class='line'>---
-</span><span class='line'>&gt;     if args.target not in [&quot;data&quot;, &quot;config&quot;, &quot;restconf&quot;]:
-</span><span class='line'>437c438,442
-</span><span class='line'>&lt;     ET.ElementTree(root_el).write(outfile, encoding=&quot;utf-8&quot;, xml_declaration=True)
-</span><span class='line'>---
-</span><span class='line'>&gt;     if args.target != &#39;restconf&#39;:
-</span><span class='line'>&gt;         ET.ElementTree(root_el).write(outfile, encoding=&quot;utf-8&quot;, xml_declaration=True)
-</span><span class='line'>&gt;     else:
-</span><span class='line'>&gt;         ET.ElementTree(list(root_el)[0]).write(outfile, encoding=&quot;utf-8&quot;, xml_declaration=True)
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>408c409
+&lt;     if args.target not in [&quot;data&quot;, &quot;config&quot;]:
++++
+&gt;     if args.target not in [&quot;data&quot;, &quot;config&quot;, &quot;restconf&quot;]:
+437c438,442
+&lt;     ET.ElementTree(root_el).write(outfile, encoding=&quot;utf-8&quot;, xml_declaration=True)
++++
+&gt;     if args.target != 'restconf':
+&gt;         ET.ElementTree(root_el).write(outfile, encoding=&quot;utf-8&quot;, xml_declaration=True)
+&gt;     else:
+&gt;         ET.ElementTree(list(root_el)[0]).write(outfile, encoding=&quot;utf-8&quot;, xml_declaration=True)
+</code></pre>
 
 <p>Instead of patching the original file, I&rsquo;ve applied the above changes to a local copy of the file. Once patched, the following commands should produce the needed XML.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang -f jtox -o static-route.jtox cisco-route-static.yang
-</span><span class='line'>./json2xml -t restconf -o new_conf.xml static-route.jtox new_conf.json
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>pyang -f jtox -o static-route.jtox cisco-route-static.yang
+./json2xml -t restconf -o new_conf.xml static-route.jtox new_conf.json
+</code></pre>
 
 <p>The final step would be to send the generated XML to the IOS XE device. Since we are replacing the old static IP route configuration we&rsquo;re gonna have to use HTTP PUT to overwrite the old data.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>curl -v -k -u admin:admin -H <span class="s2">&quot;Content-Type: application/vnd.yang.data+xml&quot;</span> <span class="se">\</span>
-</span><span class='line'> -X PUT http://192.168.145.51/restconf/api/config/native/ip/route/ -d @new_conf.xml
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>curl -v -k -u admin:admin -H &quot;Content-Type: application/vnd.yang.data+xml&quot; \
+ -X PUT http://192.168.145.51/restconf/api/config/native/ip/route/ -d @new_conf.xml
+</code></pre>
 
-
-<h2>Verification</h2>
+<h1 id="verification">Verification</h1>
 
 <p>Back at the IOS XE CLI we can see the new static IP route installed.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>TEST#sh run | i ip route
-</span><span class='line'>ip route 2.2.2.2 255.255.255.255 12.12.12.2
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>TEST#sh run | i ip route
+ip route 2.2.2.2 255.255.255.255 12.12.12.2
+</code></pre>
 
+<h1 id="more-examples">More examples</h1>
 
-<h2>More examples</h2>
-
-<p>As always there are more examples available in my <a href="https://github.com/networkop/yang/tree/master/yang-101">YANG 101 repo</a></p>
+<p>As always there are more examples available in my <a href="https://github.com/networkop/yang/tree/master/yang-101" target="_blank">YANG 101 repo</a></p>
 
 <hr />
 
 <p>The exercise we&rsquo;ve done in this post, though useful from a learning perspective, can come in very handy when dealing with vendors who forget or simply don&rsquo;t want to share their YANG models with their customers (I know of at least one vendor that would only publish tree representations of their YANG models). In the upcoming posts I&rsquo;ll show how to create a simple Python library to program static routes via RESTCONF and finally how to build an Ansible module to do that.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/yang">YANG</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible-yang">ansible-YANG</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-02-15T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">15/02/2017</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/restconf/'>restconf</a> <a class='category label label-primary' href='/blog/categories/yang/'>yang</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2017/02/15/restconf-yang/" data-via="" data-counturl="http://networkop.github.io/blog/2017/02/15/restconf-yang/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2017/02/15/restconf-yang/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2017/01/25/netconf-intro/">Getting Started With NETCONF and YANG on Cisco IOS XE</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2017/01/25/netconf-intro/" title="Previous Post: Getting started with NETCONF and YANG on Cisco IOS XE">&laquo; Getting started with NETCONF and YANG on Cisco IOS XE</a></li>
-            
-            
-            <li class="next"><a href="/blog/2017/02/22/odl-ydk/" title="Next Post: Configuring Cisco IOS XE with YDK and OpenDaylight">Configuring Cisco IOS XE with YDK and OpenDaylight &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2017/02/15/restconf-yang/';
-        var disqus_url = 'http://networkop.github.io/blog/2017/02/15/restconf-yang/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

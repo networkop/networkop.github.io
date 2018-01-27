@@ -1,910 +1,722 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>REST for Network Engineers Part 3 - Advanced Operations With UnetLab - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Advanced operations with UNetlab">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Extracting Node&rsquo;s UUID In the previous post we have learned how to create a Node. To perform further actions on it we need to know it&rsquo;s UUID. According to HTTP specification 201 - Created response SHOULD return a Location header with resource URI, which would contain resource UUID. However, UNetLab&rsquo;s implementation does not return a Location header so we need to extract that information ourselves. To do that we&rsquo;ll use the previously defined .">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/01/17/rest-unl-advanced/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/">
-  <meta property="og:title" content="REST for Network Engineers Part 3 - Advanced Operations With UnetLab - Network-oriented programming">
-  <meta property="og:description" content="Advanced operations with UNetlab">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2016/01/17/rest-unl-advanced/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2016/01/17/rest-unl-advanced/">
+  <meta property="og:title" content="REST for Network Engineers Part 3 - Advanced Operations With UnetLab | Network-oriented programming">
+  <meta property="og:description" content="Extracting Node&rsquo;s UUID In the previous post we have learned how to create a Node. To perform further actions on it we need to know it&rsquo;s UUID. According to HTTP specification 201 - Created response SHOULD return a Location header with resource URI, which would contain resource UUID. However, UNetLab&rsquo;s implementation does not return a Location header so we need to extract that information ourselves. To do that we&rsquo;ll use the previously defined .">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2016-01-17T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2016-01-17T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>REST for Network Engineers Part 3 - Advanced Operations With UnetLab | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">REST for Network Engineers Part 3 - Advanced Operations With UnetLab</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2016-01-17 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      17 Jan 2016
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    7 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2016/01/17/rest-unl-advanced/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=REST%20for%20Network%20Engineers%20Part%203%20-%20Advanced%20Operations%20With%20UnetLab&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f01%2f17%2frest-unl-advanced%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f01%2f17%2frest-unl-advanced%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f01%2f17%2frest-unl-advanced%2f&amp;title=REST%20for%20Network%20Engineers%20Part%203%20-%20Advanced%20Operations%20With%20UnetLab"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=REST%20for%20Network%20Engineers%20Part%203%20-%20Advanced%20Operations%20With%20UnetLab&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f01%2f17%2frest-unl-advanced%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<h1 id="extracting-node-s-uuid">Extracting Node&rsquo;s UUID</h1>
 
+<p>In the <a href="/blog/2016/01/06/rest-basic-operations/">previous post</a> we have learned how to create a Node. To perform further actions on it we need to know it&rsquo;s UUID. According to HTTP specification <code>201 - Created</code> response SHOULD return a <code>Location</code> header with resource URI, which would contain resource UUID. However, UNetLab&rsquo;s implementation does not return a Location header so we need to extract that information ourselves. To do that we&rsquo;ll use the previously defined <code>.get_nodes()</code> method which returns all attributes of all configured Nodes in the following format:</p>
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-01-17T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">17/01/2016</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        REST for Network Engineers Part 3 - Advanced Operations With UnetLab
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post we&rsquo;ll look at how to create arbitrary topologies and push configuration to Nodes in UNetlab via REST SDK. We&rsquo;ll conclude by extending our sample application to create and configure a 3-node topology and enable full connectivity between all nodes.</p>
-
-<!--more-->
-
-
-<h2>Extracting Node&rsquo;s UUID</h2>
-
-<p>In the <a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">previous post</a> we have learned how to create a Node. To perform further actions on it we need to know it&rsquo;s UUID. According to HTTP specification <code>201 - Created</code> response SHOULD return a <code>Location</code> header with resource URI, which would contain resource UUID. However, UNetLab&rsquo;s implementation does not return a Location header so we need to extract that information ourselves. To do that we&rsquo;ll use the previously defined <code>.get_nodes()</code> method which returns all attributes of all configured Nodes in the following format:</p>
-
-<p><img class="centre" src="/images/rest-unl-get-nodes.png" title="REST SDK GET ALL NODES" ></p>
+<p><img src="/img/rest-unl-get-nodes.png" alt="REST SDK GET ALL NODES" /></p>
 
 <p>The best place to extract UUID would be when Node is being created. After the <code>Create</code> request has been sent to a server we&rsquo;ll send another <code>Read</code> request and extract all attributes of a Node based on its name.</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">UnlNode</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lab</span><span class="p">,</span> <span class="n">device</span><span class="p">):</span>
-</span><span class='line'>      <span class="o">...</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">node</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_node</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="s">&#39;id&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">url</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">node</span><span class="p">[</span><span class="s">&#39;url&#39;</span><span class="p">]</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">_get_node</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">nodes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">get_nodes</span><span class="p">()</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s">&#39;data&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">get_obj_by_name</span><span class="p">(</span><span class="n">nodes</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">class UnlNode(object):
 
+    def __init__(self, lab, device):
+    	...
+        self.node = self._get_node()
+        self.id = self.node['id']
+        self.url = self.node['url']
 
-<p> To extract data from the payload we need to call <code>.json()</code> on the returned HTTP response and look for the <code>data</code> key inside that JSON object. The returned value will contain all attributes including the UUID and access URL which we&rsquo;ll use later. To help us find a Node object matching a name we&rsquo;ll use a helper function defined below:</p>
+    def _get_node(self):
+        nodes = self.lab.get_nodes().json()['data']
+        return get_obj_by_name(nodes, self.device.name)
+</code></pre>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/helper.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">def</span> <span class="nf">get_obj_by_name</span><span class="p">(</span><span class="n">objects</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
-</span><span class='line'>    <span class="k">for</span> <span class="n">obj_id</span> <span class="ow">in</span> <span class="n">objects</span><span class="p">:</span>
-</span><span class='line'>        <span class="k">if</span> <span class="n">objects</span><span class="p">[</span><span class="n">obj_id</span><span class="p">][</span><span class="s">&quot;name&quot;</span><span class="p">]</span> <span class="o">==</span> <span class="n">name</span><span class="p">:</span>
-</span><span class='line'>            <span class="k">return</span> <span class="n">objects</span><span class="p">[</span><span class="n">obj_id</span><span class="p">]</span>
-</span><span class='line'>    <span class="k">return</span> <span class="bp">None</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>To extract data from the payload we need to call <code>.json()</code> on the returned HTTP response and look for the <code>data</code> key inside that JSON object. The returned value will contain all attributes including the UUID and access URL which we&rsquo;ll use later. To help us find a Node object matching a name we&rsquo;ll use a helper function defined below:</p>
 
+<pre><code class="language-python">def get_obj_by_name(objects, name):
+    for obj_id in objects:
+        if objects[obj_id][&quot;name&quot;] == name:
+            return objects[obj_id]
+    return None
+</code></pre>
 
 <p>Needless to say that we MUST have unique names for all nodes otherwise it won&rsquo;t be possible to do the matching. It&rsquo;s quite a safe assumption to make in most cases however no built-in error checking will be performed by the REST SDK to prevent you from doing it.</p>
 
-<h2>UnlNet implementation</h2>
+<h1 id="unlnet-implementation">UnlNet implementation</h1>
 
-<p>Before we start connecting Nodes together we need to create a Network. As per the <a href="http://networkop.github.io/blog/2016/01/06/rest-basic-operations/">design</a>, UnlNet will be a class holding a pointer to the UnlLab object which created it. The structure of the class will be very similar to UnlNode.</p>
+<p>Before we start connecting Nodes together we need to create a Network. As per the <a href="/blog/2016/01/06/rest-basic-operations/">design</a>, UnlNet will be a class holding a pointer to the UnlLab object which created it. The structure of the class will be very similar to UnlNode.</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">REST_SCHEMA</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>              <span class="o">...</span> <span class="p">,</span>
-</span><span class='line'>              <span class="s">&#39;create_net&#39;</span><span class="p">:</span> <span class="s">&#39;/labs/{lab_name}/networks&#39;</span><span class="p">,</span>
-</span><span class='line'>              <span class="s">&#39;get_nets&#39;</span><span class="p">:</span> <span class="s">&#39;/labs/{lab_name}/networks&#39;</span>
-</span><span class='line'>          <span class="p">}</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnlLab</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>  <span class="o">...</span>
-</span><span class='line'>  <span class="k">def</span> <span class="nf">create_net</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">UnlNet</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">get_nets</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;get_nets&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">api_url</span> <span class="o">=</span> <span class="n">api_call</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">api_call</span><span class="p">,</span> <span class="n">lab_name</span><span class="o">=</span><span class="n">append_unl</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">get_object</span><span class="p">(</span><span class="n">api_url</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">resp</span>
-</span><span class='line'>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnlNet</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">lab</span><span class="p">,</span> <span class="n">name</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;create_net&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">=</span> <span class="n">lab</span><span class="o">.</span><span class="n">unl</span><span class="p">,</span> <span class="n">lab</span><span class="p">,</span> <span class="n">name</span>
-</span><span class='line'>        <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="s">&#39;type&#39;</span><span class="p">:</span> <span class="s">&#39;bridge&#39;</span><span class="p">,</span> <span class="s">&#39;name&#39;</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">}</span>
-</span><span class='line'>        <span class="n">api_url</span> <span class="o">=</span> <span class="n">api_call</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">api_call</span><span class="p">,</span> <span class="n">lab_name</span><span class="o">=</span><span class="n">append_unl</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">add_object</span><span class="p">(</span><span class="n">api_url</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">net</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_get_net</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">net</span><span class="p">[</span><span class="s">&#39;id&#39;</span><span class="p">]</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">_get_net</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">nets</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">get_nets</span><span class="p">()</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s">&#39;data&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">get_obj_by_name</span><span class="p">(</span><span class="n">nets</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">REST_SCHEMA = { 
+				... ,
+				'create_net': '/labs/{lab_name}/networks',
+				'get_nets': '/labs/{lab_name}/networks'
+			}
+
+class UnlLab(object):
+	...
+	def create_net(self, name):
+        return UnlNet(self, name)
+
+    def get_nets(self):
+        api_call = REST_SCHEMA['get_nets']
+        api_url = api_call.format(api_call, lab_name=append_unl(self.name))
+        resp = self.unl.get_object(api_url)
+        return resp
 
 
-<h2>Connecting Nodes to a network</h2>
+class UnlNet(object):
 
-<p>Official <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/">Unetlab API guide</a> is still under development and doesn&rsquo;t specify how to connect a Node to a network. If you want to find out the syntax for this or any other unspecified API call you can always try that in a Web GUI while capturing traffic with Wireshark. That is how I&rsquo;ve discovered that to connect a Node to a network we need to send an Update request with payload containing mapping between Node&rsquo;s interface ID and Network ID.</p>
+    def __init__(self, lab, name):
+        api_call = REST_SCHEMA['create_net']
+        self.unl, self.lab, self.name = lab.unl, lab, name
+        payload = {'type': 'bridge', 'name': self.name}
+        api_url = api_call.format(api_call, lab_name=append_unl(self.lab.name))
+        self.resp = self.unl.add_object(api_url, data=payload)
+        self.net = self._get_net()
+        self.id = self.net['id']
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">REST_SCHEMA</span> <span class="o">=</span> <span class="p">{</span>
-</span><span class='line'>                <span class="o">...</span> <span class="p">,</span>
-</span><span class='line'>                <span class="s">&#39;connect_interface&#39;</span><span class="p">:</span> <span class="s">&#39;/labs/{lab_name}/nodes/{node_id}/interfaces&#39;</span>
-</span><span class='line'>            <span class="p">}</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">class</span> <span class="nc">UnlNode</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">connect_interface</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">intf_name</span><span class="p">,</span> <span class="n">net</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">api_call</span> <span class="o">=</span> <span class="n">REST_SCHEMA</span><span class="p">[</span><span class="s">&#39;connect_interface&#39;</span><span class="p">]</span>
-</span><span class='line'>        <span class="n">api_url</span> <span class="o">=</span> <span class="n">api_call</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">api_call</span><span class="p">,</span> <span class="n">lab_name</span><span class="o">=</span><span class="n">append_unl</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">name</span><span class="p">),</span> <span class="n">node_id</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">payload</span> <span class="o">=</span> <span class="p">{</span><span class="n">get_intf_id</span><span class="p">(</span><span class="n">intf_name</span><span class="p">):</span> <span class="n">net</span><span class="o">.</span><span class="n">id</span><span class="p">}</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">update_object</span><span class="p">(</span><span class="n">api_url</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="n">payload</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">resp</span>
-</span></code></pre></td></tr></table></div></figure>
+    def _get_net(self):
+        nets = self.lab.get_nets().json()['data']
+        return get_obj_by_name(nets, self.name)
+</code></pre>
 
+<h1 id="connecting-nodes-to-a-network">Connecting Nodes to a network</h1>
 
-<p>The ID of an interface &ldquo;Ethernet x/y” of an IOU device can be easily calculated based on the formula <code>id = x + (y * 16)</code> as described <a href="http://evilrouters.net/2011/01/09/creating-a-netmap-file-for-iou/">here</a>. This will be accomplished with yet another helper function:</p>
+<p>Official <a href="http://www.unetlab.com/2015/09/using-unetlab-apis/" target="_blank">Unetlab API guide</a> is still under development and doesn&rsquo;t specify how to connect a Node to a network. If you want to find out the syntax for this or any other unspecified API call you can always try that in a Web GUI while capturing traffic with Wireshark. That is how I&rsquo;ve discovered that to connect a Node to a network we need to send an Update request with payload containing mapping between Node&rsquo;s interface ID and Network ID.</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/helper.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">def</span> <span class="nf">get_intf_id</span><span class="p">(</span><span class="n">intf_name</span><span class="p">):</span>
-</span><span class='line'>    <span class="n">x</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">findall</span><span class="p">(</span><span class="s">&#39;\d+&#39;</span><span class="p">,</span> <span class="n">intf_name</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="o">+</span> <span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">y</span><span class="p">)</span> <span class="o">*</span> <span class="mi">16</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">REST_SCHEMA = { 
+                ... ,
+                'connect_interface': '/labs/{lab_name}/nodes/{node_id}/interfaces'
+            }
 
+class UnlNode(object):
+    ...
 
-<h2>Connecting Nodes to each other</h2>
+    def connect_interface(self, intf_name, net):
+        api_call = REST_SCHEMA['connect_interface']
+        api_url = api_call.format(api_call, lab_name=append_unl(self.lab.name), node_id=self.id)
+        payload = {get_intf_id(intf_name): net.id}
+        resp = self.unl.update_object(api_url, data=payload)
+        return resp
+</code></pre>
+
+<p>The ID of an interface &ldquo;Ethernet x/y” of an IOU device can be easily calculated based on the formula <code>id = x + (y * 16)</code> as described <a href="http://evilrouters.net/2011/01/09/creating-a-netmap-file-for-iou/" target="_blank">here</a>. This will be accomplished with yet another helper function:</p>
+
+<pre><code class="language-python">def get_intf_id(intf_name):
+    x, y = re.findall('\d+', intf_name)
+    return int(x) + (int(y) * 16)
+</code></pre>
+
+<h1 id="connecting-nodes-to-each-other">Connecting Nodes to each other</h1>
 
 <p>To create multi-access topologies we would need to maintain an internal mapping between Node&rsquo;s interface and the network it&rsquo;s attached to. However, if we assume that all links are point-to-point, we can not only simplify our implementation but also enable REST client to ignore the notion of a network all together.  We&rsquo;ll simply assume that when device A connects to B our implementation will create a network called <code>A_B</code> in the background and connect both devices to it. This method will perform two separate REST calls and thus will return both responses in a tuple:</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">UnlNode</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">def</span> <span class="nf">connect_node</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">local_intf</span><span class="p">,</span> <span class="n">other_node</span><span class="p">,</span> <span class="n">other_intf</span><span class="p">):</span>
-</span><span class='line'>    <span class="n">net</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">create_net</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="s">&#39;_&#39;</span><span class="o">.</span><span class="n">join</span><span class="p">([</span><span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">name</span><span class="p">,</span> <span class="n">other_node</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">name</span><span class="p">]))</span>
-</span><span class='line'>    <span class="n">resp1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">connect_interface</span><span class="p">(</span><span class="n">local_intf</span><span class="p">,</span> <span class="n">net</span><span class="p">)</span>
-</span><span class='line'>    <span class="n">resp2</span> <span class="o">=</span> <span class="n">other_node</span><span class="o">.</span><span class="n">connect_interface</span><span class="p">(</span><span class="n">other_intf</span><span class="p">,</span> <span class="n">net</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">return</span> <span class="n">resp1</span><span class="p">,</span> <span class="n">resp2</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">class UnlNode(object):
+    ...
 
+def connect_node(self, local_intf, other_node, other_intf):
+    net = self.lab.create_net(name='_'.join([self.device.name, other_node.device.name]))
+    resp1 = self.connect_interface(local_intf, net)
+    resp2 = other_node.connect_interface(other_intf, net)
+    return resp1, resp2
+</code></pre>
 
 <p>Assuming all links are point-to-point certainly decreases visibility of created networks and we would not be able to perform selective changes on them in the future. However it is a safe assumption to make for 99% of the networks that I&rsquo;m dealing with.</p>
 
-<h2>Node Start, Stop and Delete</h2>
+<h1 id="node-start-stop-and-delete">Node Start, Stop and Delete</h1>
 
 <p>These simple actions can easily be coded using TDD. I will omit the actual implementation and simply provide unit tests for readers to exercise their TDD skills again.</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/tests/test_unl.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-<span class='line-number'>36</span>
-<span class='line-number'>37</span>
-<span class='line-number'>38</span>
-<span class='line-number'>39</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">AdvancedUnlNodeTest</span><span class="p">(</span><span class="n">UnlTests</span><span class="p">):</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">setUp</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="nb">super</span><span class="p">(</span><span class="n">AdvancedUnlNodeTest</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">setUp</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">device_one</span> <span class="o">=</span> <span class="n">Router</span><span class="p">(</span><span class="s">&#39;R1&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">device_two</span> <span class="o">=</span> <span class="n">Router</span><span class="p">(</span><span class="s">&#39;R2&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">lab</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">create_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">node_one</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">create_node</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device_one</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">node_two</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">create_node</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">device_two</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">tearDown</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">unl</span><span class="o">.</span><span class="n">delete_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span><span class='line'>        <span class="nb">super</span><span class="p">(</span><span class="n">AdvancedUnlNodeTest</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">tearDown</span><span class="p">()</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_start_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">stop_all_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">start_all_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_stop_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">start_all_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">stop_all_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_delete_node</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">delete_node</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">node_one</span><span class="o">.</span><span class="n">id</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_del_all_nodes</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">del_all_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">resp</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">get_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">resp_2</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s">&#39;data&#39;</span><span class="p">]))</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">test_lab_cleanup</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">resp_1</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">stop_all_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">del_all_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">resp_2</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">lab</span><span class="o">.</span><span class="n">get_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">200</span><span class="p">,</span> <span class="n">resp_1</span><span class="o">.</span><span class="n">status_code</span><span class="p">)</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">assertEqual</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">resp_2</span><span class="o">.</span><span class="n">json</span><span class="p">()[</span><span class="s">&#39;data&#39;</span><span class="p">]))</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">class AdvancedUnlNodeTest(UnlTests):
 
+    def setUp(self):
+        super(AdvancedUnlNodeTest, self).setUp()
+        self.device_one = Router('R1')
+        self.device_two = Router('R2')
+        self.lab = self.unl.create_lab(LAB_NAME)
+        self.node_one = self.lab.create_node(self.device_one)
+        self.node_two = self.lab.create_node(self.device_two)
 
-<p>The final, <code>lab_cleanup()</code> method is simply a shortcut to <code>stop_nodes()</code> followed by <code>del_all_nodes()</code>.<br/>
+    def tearDown(self):
+        self.unl.delete_lab(LAB_NAME)
+        super(AdvancedUnlNodeTest, self).tearDown()
+
+    def test_start_nodes(self):
+        self.lab.stop_all_nodes()
+        resp = self.lab.start_all_nodes()
+        self.assertEqual(200, resp.status_code)
+
+    def test_stop_nodes(self):
+        self.lab.start_all_nodes()
+        resp = self.lab.stop_all_nodes()
+        self.assertEqual(200, resp.status_code)
+
+    def test_delete_node(self):
+        resp = self.lab.delete_node(self.node_one.id)
+        self.assertEqual(200, resp.status_code)
+
+    def test_del_all_nodes(self):
+        self.lab.del_all_nodes()
+        resp = self.lab.get_nodes()
+        self.assertEqual(0, len(resp_2.json()['data']))
+
+    def test_lab_cleanup(self):
+        resp_1 = self.lab.stop_all_nodes()
+        self.lab.del_all_nodes()
+        resp_2 = self.lab.get_nodes()
+        self.assertEqual(200, resp_1.status_code)
+        self.assertEqual(0, len(resp_2.json()['data']))
+</code></pre>
+
+<p>The final, <code>lab_cleanup()</code> method is simply a shortcut to <code>stop_nodes()</code> followed by <code>del_all_nodes()</code>.<br />
 As always, link to full code is available at the end of this post.</p>
 
-<h2>Pushing configuration to Nodes</h2>
+<h1 id="pushing-configuration-to-nodes">Pushing configuration to Nodes</h1>
 
 <p>At this point of time UnetLab does not support configuration import so we&rsquo;re stuck with the only access method available - telnet. To push configuration into the Node we&rsquo;re gonna have to establish a telnet session to Node&rsquo;s URI (which we&rsquo;ve extracted earlier) and write all configuration into that session.</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/unetlab.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">UnlNode</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">configure</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">device</span><span class="o">.</span><span class="n">send_config</span><span class="p">(</span><span class="n">wrap_conf</span><span class="p">(</span><span class="n">text</span><span class="p">))</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">class UnlNode(object):
+    ...
 
+    def configure(self, text):
+        return self.device.send_config(wrap_conf(text))
+</code></pre>
 
 <p>Another helper function <code>wrap_conf()</code> prepends <code>enable</code> and appends <code>end</code> to make configuration suitable for pasting into the new IOU device.</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/device.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">Router</span><span class="p">(</span><span class="n">Device</span><span class="p">):</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">send_config</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">config</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">session</span> <span class="o">=</span> <span class="n">telnetlib</span><span class="o">.</span><span class="n">Telnet</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">url_ip</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">url_port</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">send_and_wait</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">result</span> <span class="o">=</span> <span class="n">send_and_wait</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">config</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">session</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">result</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">class Router(Device):
+    ...
 
+    def send_config(self, config):
+        session = telnetlib.Telnet(self.url_ip, self.url_port)
+        send_and_wait(session, '\r\n')
+        result = send_and_wait(session, config)
+        session.close()
+        return result
+</code></pre>
 
 <p>The biggest problem is that Nodes, when started, take some time to boot before we can access the CLI prompt. To overcome that I had to implement a dirty hack in a form of <code>send_and_wait()</code> helper function that simulates pressing the <code>Enter</code> button every 0.1 second until it sees a CLI prompt (either <code>&gt;</code> or <code>#</code>).</p>
 
-<figure class='code'><figcaption><span>/rest-blog-unl-client/restunl/helper.py</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">def</span> <span class="nf">send_and_wait</span><span class="p">(</span><span class="n">session</span><span class="p">,</span> <span class="n">text</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">session</span><span class="o">.</span><span class="n">read_very_eager</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">result</span> <span class="o">=</span> <span class="s">&#39;&#39;</span>
-</span><span class='line'>        <span class="n">session</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">while</span> <span class="ow">not</span> <span class="nb">any</span><span class="p">(</span><span class="n">stop_char</span> <span class="ow">in</span> <span class="n">result</span><span class="p">[</span><span class="o">-</span><span class="mi">3</span><span class="p">:]</span> <span class="k">for</span> <span class="n">stop_char</span> <span class="ow">in</span> <span class="p">[</span><span class="s">&#39;&gt;&#39;</span><span class="p">,</span> <span class="s">&#39;#&#39;</span><span class="p">]):</span>
-</span><span class='line'>            <span class="n">session</span><span class="o">.</span><span class="n">write</span><span class="p">(</span><span class="s">&#39;</span><span class="se">\r\n</span><span class="s">&#39;</span><span class="p">)</span>
-</span><span class='line'>            <span class="n">result</span> <span class="o">+=</span> <span class="n">session</span><span class="o">.</span><span class="n">read_very_eager</span><span class="p">()</span>
-</span><span class='line'>            <span class="n">time</span><span class="o">.</span><span class="n">sleep</span><span class="p">(</span><span class="mf">0.1</span><span class="p">)</span>
-</span><span class='line'>        <span class="k">return</span> <span class="n">result</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">
+def send_and_wait(session, text):
+        session.read_very_eager()
+        result = ''
+        session.write(text)
+        while not any(stop_char in result[-3:] for stop_char in ['&gt;', '#']):
+            session.write('\r\n')
+            result += session.read_very_eager()
+            time.sleep(0.1)
+        return result
+</code></pre>
 
 <p>Let&rsquo;s hope that UNL team will implement config import soon so that we can get rid of this kludgy workaround.</p>
 
-<h2>Extending our sample app</h2>
+<h1 id="extending-our-sample-app">Extending our sample app</h1>
 
 <p>At this stage we&rsquo;ve got all the code to finish our sample app. The goal is to create and configure the following 3-node topology:</p>
 
-<p><img class="centre" src="/images/rest-sample-app.png" title="REST SDK SAMPLE TOPO" ></p>
+<p><img src="/img/rest-sample-app.png" alt="REST SDK SAMPLE TOPO" /></p>
 
 <p>We&rsquo;ll assume that all configs will be stored as text files under the <code>./config</code> directory and will have device names as their filename. A helper function <code>read_file</code> will read the contents of a configuration text file into a Python string.</p>
 
-<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-<span class='line-number'>36</span>
-<span class='line-number'>37</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">TOPOLOGY</span> <span class="o">=</span> <span class="p">{(</span><span class="s">&#39;R1&#39;</span><span class="p">,</span> <span class="s">&#39;Ethernet0/0&#39;</span><span class="p">):</span> <span class="p">(</span><span class="s">&#39;R2&#39;</span><span class="p">,</span> <span class="s">&#39;Ethernet0/0&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="p">(</span><span class="s">&#39;R2&#39;</span><span class="p">,</span> <span class="s">&#39;Ethernet0/1&#39;</span><span class="p">):</span> <span class="p">(</span><span class="s">&#39;R3&#39;</span><span class="p">,</span> <span class="s">&#39;Ethernet0/0&#39;</span><span class="p">),</span>
-</span><span class='line'>            <span class="p">(</span><span class="s">&#39;R1&#39;</span><span class="p">,</span> <span class="s">&#39;Ethernet0/1&#39;</span><span class="p">):</span> <span class="p">(</span><span class="s">&#39;R3&#39;</span><span class="p">,</span> <span class="s">&#39;Ethernet0/1&#39;</span><span class="p">)}</span>
-</span><span class='line'>
-</span><span class='line'><span class="k">def</span> <span class="nf">app_1</span><span class="p">():</span>
-</span><span class='line'>    <span class="o">...</span>
-</span><span class='line'>    <span class="k">try</span><span class="p">:</span>
-</span><span class='line'>        <span class="c"># Creating topology in UnetLab</span>
-</span><span class='line'>        <span class="n">nodes</span> <span class="o">=</span> <span class="nb">dict</span><span class="p">()</span>
-</span><span class='line'>        <span class="k">for</span> <span class="p">(</span><span class="n">a_name</span><span class="p">,</span> <span class="n">a_intf</span><span class="p">),</span> <span class="p">(</span><span class="n">b_name</span><span class="p">,</span> <span class="n">b_intf</span><span class="p">)</span> <span class="ow">in</span> <span class="n">TOPOLOGY</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
-</span><span class='line'>            <span class="c"># Create a mapping between a Node&#39;s name and an object</span>
-</span><span class='line'>            <span class="k">if</span> <span class="ow">not</span> <span class="n">a_name</span> <span class="ow">in</span> <span class="n">nodes</span><span class="p">:</span>
-</span><span class='line'>                <span class="n">nodes</span><span class="p">[</span><span class="n">a_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">lab</span><span class="o">.</span><span class="n">create_node</span><span class="p">(</span><span class="n">Router</span><span class="p">(</span><span class="n">a_name</span><span class="p">))</span>
-</span><span class='line'>                <span class="k">print</span><span class="p">(</span><span class="s">&quot;*** NODE {} CREATED&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">a_name</span><span class="p">))</span>
-</span><span class='line'>            <span class="k">if</span> <span class="ow">not</span> <span class="n">b_name</span> <span class="ow">in</span> <span class="n">nodes</span><span class="p">:</span>
-</span><span class='line'>                <span class="n">nodes</span><span class="p">[</span><span class="n">b_name</span><span class="p">]</span> <span class="o">=</span> <span class="n">lab</span><span class="o">.</span><span class="n">create_node</span><span class="p">(</span><span class="n">Router</span><span class="p">(</span><span class="n">b_name</span><span class="p">))</span>
-</span><span class='line'>                <span class="k">print</span><span class="p">(</span><span class="s">&quot;*** NODE {} CREATED&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">b_name</span><span class="p">))</span>
-</span><span class='line'>            <span class="c"># Extract Node objects using their names and connect them</span>
-</span><span class='line'>            <span class="n">node_a</span> <span class="o">=</span> <span class="n">nodes</span><span class="p">[</span><span class="n">a_name</span><span class="p">]</span>
-</span><span class='line'>            <span class="n">node_b</span> <span class="o">=</span> <span class="n">nodes</span><span class="p">[</span><span class="n">b_name</span><span class="p">]</span>
-</span><span class='line'>            <span class="n">node_a</span><span class="o">.</span><span class="n">connect_node</span><span class="p">(</span><span class="n">a_intf</span><span class="p">,</span> <span class="n">node_b</span><span class="p">,</span> <span class="n">b_intf</span><span class="p">)</span>
-</span><span class='line'>            <span class="k">print</span><span class="p">(</span><span class="s">&quot;*** NODES {0} and {1} ARE CONNECTED&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">a_name</span><span class="p">,</span> <span class="n">b_name</span><span class="p">))</span>
-</span><span class='line'>        <span class="k">print</span><span class="p">(</span><span class="s">&quot;*** TOPOLOGY IS BUILT&quot;</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">lab</span><span class="o">.</span><span class="n">start_all_nodes</span><span class="p">()</span>
-</span><span class='line'>        <span class="k">print</span><span class="p">(</span><span class="s">&quot;*** NODES STARTED&quot;</span><span class="p">)</span>
-</span><span class='line'>        <span class="c"># Reading and pushing configuration</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">node_name</span> <span class="ow">in</span> <span class="n">nodes</span><span class="p">:</span>
-</span><span class='line'>            <span class="n">conf</span> <span class="o">=</span> <span class="n">read_file</span><span class="p">(</span><span class="s">&#39;..</span><span class="se">\\</span><span class="s">config</span><span class="se">\\</span><span class="s">{}.txt&#39;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">node_name</span><span class="p">))</span>
-</span><span class='line'>            <span class="n">nodes</span><span class="p">[</span><span class="n">node_name</span><span class="p">]</span><span class="o">.</span><span class="n">configure</span><span class="p">(</span><span class="n">conf</span><span class="p">)</span>
-</span><span class='line'>            <span class="k">print</span><span class="p">(</span><span class="s">&quot;*** NODE {} CONFIGURED&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">node_name</span><span class="p">))</span>
-</span><span class='line'>        <span class="nb">raw_input</span><span class="p">(</span><span class="s">&#39;PRESS ANY KEY TO STOP THE LAB&#39;</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">except</span> <span class="ne">Exception</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-</span><span class='line'>        <span class="k">print</span><span class="p">(</span><span class="s">&quot;*** APP FAILED : {}&quot;</span><span class="o">.</span><span class="n">format</span><span class="p">(</span><span class="n">e</span><span class="p">))</span>
-</span><span class='line'>    <span class="k">finally</span><span class="p">:</span>
-</span><span class='line'>        <span class="k">print</span><span class="p">(</span><span class="s">&quot;*** CLEANING UP THE LAB&quot;</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">lab</span><span class="o">.</span><span class="n">cleanup</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">unl</span><span class="o">.</span><span class="n">delete_lab</span><span class="p">(</span><span class="n">LAB_NAME</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">
+TOPOLOGY = {('R1', 'Ethernet0/0'): ('R2', 'Ethernet0/0'),
+            ('R2', 'Ethernet0/1'): ('R3', 'Ethernet0/0'),
+            ('R1', 'Ethernet0/1'): ('R3', 'Ethernet0/1')}
 
+def app_1():
+    ...
+    try:
+        # Creating topology in UnetLab
+        nodes = dict()
+        for (a_name, a_intf), (b_name, b_intf) in TOPOLOGY.iteritems():
+            # Create a mapping between a Node's name and an object
+            if not a_name in nodes:
+                nodes[a_name] = lab.create_node(Router(a_name))
+                print(&quot;*** NODE {} CREATED&quot;.format(a_name))
+            if not b_name in nodes:
+                nodes[b_name] = lab.create_node(Router(b_name))
+                print(&quot;*** NODE {} CREATED&quot;.format(b_name))
+            # Extract Node objects using their names and connect them
+            node_a = nodes[a_name]
+            node_b = nodes[b_name]
+            node_a.connect_node(a_intf, node_b, b_intf)
+            print(&quot;*** NODES {0} and {1} ARE CONNECTED&quot;.format(a_name, b_name))
+        print(&quot;*** TOPOLOGY IS BUILT&quot;)
+        lab.start_all_nodes()
+        print(&quot;*** NODES STARTED&quot;)
+        # Reading and pushing configuration
+        for node_name in nodes:
+            conf = read_file('..\\config\\{}.txt'.format(node_name))
+            nodes[node_name].configure(conf)
+            print(&quot;*** NODE {} CONFIGURED&quot;.format(node_name))
+        raw_input('PRESS ANY KEY TO STOP THE LAB')
+    except Exception as e:
+        print(&quot;*** APP FAILED : {}&quot;.format(e))
+    finally:
+        print(&quot;*** CLEANING UP THE LAB&quot;)
+        lab.cleanup()
+        unl.delete_lab(LAB_NAME)
+</code></pre>
 
 <p>When you run this app for the first time, the lab with 3 nodes will be spun up and configured. When you get to the <code>PRESS ANY KEY</code> prompt you can login into Web GUI and navigate to lab <code>test_1</code> and validate that all configs have been pushed and devices can ping each other&rsquo;s loopbacks.</p>
 
-<h2>Source code</h2>
+<h1 id="source-code">Source code</h1>
 
-<p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/2e847b8a809a1c9c4c0962b61c1c72325a405090">public repository on Github</a></p>
+<p>All code from this post can be found in my <a href="https://github.com/networkop/rest-blog-unl-client/tree/2e847b8a809a1c9c4c0962b61c1c72325a405090" target="_blank">public repository on Github</a></p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/rest-api">REST-API</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-01-17T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">17/01/2016</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/rest/'>rest</a> <a class='category label label-primary' href='/blog/categories/unetlab/'>unetlab</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/" data-via="" data-counturl="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2016/01/06/rest-basic-operations/">REST for Network Engineers Part 2 - Basic Operations With UnetLab</a></li>
+    
+    <li><a href="/blog/2016/01/03/dev-env-setup-rest/">REST for Network Engineers Part 1 - Development Environment Setup</a></li>
+    
+    <li><a href="/blog/2016/01/01/rest-for-neteng/">REST API for Network Engineers</a></li>
+    
+    <li><a href="/blog/2015/11/13/automating-flexvpn-config/">Automating the Build of a FlexVPN Network</a></li>
+    
+    <li><a href="/blog/2015/09/03/automating-bgp-config/">Automating New Network Build - Part 2 (BGP)</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2016/01/06/rest-basic-operations/" title="Previous Post: REST for Network Engineers Part 2 - Basic Operations with UnetLab">&laquo; REST for Network Engineers Part 2 - Basic Operations with UnetLab</a></li>
-            
-            
-            <li class="next"><a href="/blog/2016/02/19/network-ci-intro/" title="Next Post: Network Continuous Integration and Delivery">Network Continuous Integration and Delivery &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/';
-        var disqus_url = 'http://networkop.github.io/blog/2016/01/17/rest-unl-advanced/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

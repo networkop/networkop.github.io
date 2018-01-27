@@ -1,783 +1,680 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Configuring Cisco IOS XE With YANG-based YAML Files - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Using YAML to instantiate IOS XE YANG models">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="XML, just like many more structured data formats, was not designed to be human-friendly. That&rsquo;s why many network engineers lose interest in YANG as soon as the conversation gets to the XML part. JSON is a much more human-readable alternative, however very few devices support RESTCONF, and the ones that do may have buggy implementations. At the same time, a lot of network engineers have happily embraced Ansible, which extensively uses YAML.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2017/03/13/yaml-yang/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2017/03/13/yaml-yang/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2017/03/13/yaml-yang/">
-  <meta property="og:title" content="Configuring Cisco IOS XE With YANG-based YAML Files - Network-oriented programming">
-  <meta property="og:description" content="Using YAML to instantiate IOS XE YANG models">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2017/03/13/yaml-yang/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2017/03/13/yaml-yang/">
+  <meta property="og:title" content="Configuring Cisco IOS XE With YANG-based YAML Files | Network-oriented programming">
+  <meta property="og:description" content="XML, just like many more structured data formats, was not designed to be human-friendly. That&rsquo;s why many network engineers lose interest in YANG as soon as the conversation gets to the XML part. JSON is a much more human-readable alternative, however very few devices support RESTCONF, and the ones that do may have buggy implementations. At the same time, a lot of network engineers have happily embraced Ansible, which extensively uses YAML.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2017-03-13T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2017-03-13T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Configuring Cisco IOS XE With YANG-based YAML Files | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Configuring Cisco IOS XE With YANG-based YAML Files</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2017-03-13 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      13 Mar 2017
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    9 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2017/03/13/yaml-yang/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">Automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Configuring%20Cisco%20IOS%20XE%20With%20YANG-based%20YAML%20Files&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f03%2f13%2fyaml-yang%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f03%2f13%2fyaml-yang%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f03%2f13%2fyaml-yang%2f&amp;title=Configuring%20Cisco%20IOS%20XE%20With%20YANG-based%20YAML%20Files"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Configuring%20Cisco%20IOS%20XE%20With%20YANG-based%20YAML%20Files&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2017%2f03%2f13%2fyaml-yang%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>XML, just like many more structured data formats, was not designed to be human-friendly. That&rsquo;s why many network engineers lose interest in YANG as soon as the conversation gets to the XML part. JSON is a much more human-readable alternative, however very few devices support RESTCONF, and the ones that do may have <a href="https://github.com/CiscoDevNet/openconfig-getting-started/issues/4" target="_blank">buggy implementations</a>. At the same time, a lot of network engineers have happily embraced Ansible, which extensively uses YAML. That&rsquo;s why I&rsquo;ve decided to write a Python module that would program network devices using YANG and NETCONF according to configuration data described in a YAML format.</p>
 
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-03-13T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">13/03/2017</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Configuring Cisco IOS XE With YANG-based YAML Files
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>One thing that puts a lot of network engineers off NETCONF and YANG is the complexity of the device configuration process. Even the simplest change involves multiple tools and requires some knowledge of XML. In this post I will show how to use simple, human-readable YAML configuration files to instantiate YANG models and push them down to network devices using a single command.</p>
-
-<!--more-->
-
-
-<hr />
-
-<p>XML, just like many more structured data formats, was not designed to be human-friendly. That&rsquo;s why many network engineers lose interest in YANG as soon as the conversation gets to the XML part. JSON is a much more human-readable alternative, however very few devices support RESTCONF, and the ones that do may have <a href="https://github.com/CiscoDevNet/openconfig-getting-started/issues/4">buggy implementations</a>. At the same time, a lot of network engineers have happily embraced Ansible, which extensively uses YAML. That&rsquo;s why I&rsquo;ve decided to write a Python module that would program network devices using YANG and NETCONF according to configuration data described in a YAML format.</p>
-
-<p>In the <a href="blog/2017/02/22/odl-ydk/">previous post</a> I have introduced a new open-source tool called YDK, designed to create API bindings for YANG models and interact with network devices using NETCONF or RESTCONF protocols. I have also mentioned that I would still prefer to use <a href="https://github.com/robshakir/pyangbind">pyangbind</a> along with other open-source tools to achieve the same functionality. Now, two weeks later, I must admin I have been converted. Initially, I was planning to write a simple REST API client to interact with RESTCONF interface of IOS XE, create an API binding with <strong>pyangbind</strong>, use it to produce the JSON output, convert it to XML and send it to the device, similar to what I&rsquo;ve described in my <a href="/blog/2017/01/25/netconf-intro/">netconf</a> and <a href="blog/2017/02/15/restconf-yang/">restconf</a> posts. However, I&rsquo;ve realised that YDK can already do all what I need with just a few function calls. All what I&rsquo;ve got left to do is create a wrapper module to consume the YAML data and use it to automatically populate YDK bindings.</p>
+<p>In the <a href="blog/2017/02/22/odl-ydk/" target="_blank">previous post</a> I have introduced a new open-source tool called YDK, designed to create API bindings for YANG models and interact with network devices using NETCONF or RESTCONF protocols. I have also mentioned that I would still prefer to use <a href="https://github.com/robshakir/pyangbind" target="_blank">pyangbind</a> along with other open-source tools to achieve the same functionality. Now, two weeks later, I must admin I have been converted. Initially, I was planning to write a simple REST API client to interact with RESTCONF interface of IOS XE, create an API binding with <strong>pyangbind</strong>, use it to produce the JSON output, convert it to XML and send it to the device, similar to what I&rsquo;ve described in my <a href="/blog/2017/01/25/netconf-intro/">netconf</a> and <a href="blog/2017/02/15/restconf-yang/" target="_blank">restconf</a> posts. However, I&rsquo;ve realised that YDK can already do all what I need with just a few function calls. All what I&rsquo;ve got left to do is create a wrapper module to consume the YAML data and use it to automatically populate YDK bindings.</p>
 
 <p>This post will be mostly about the internal structure of this wrapper module I call <code>ydk_yaml.py</code>, which will serve as a base library for a YANG Ansible module, which I will describe in my next post. This post will be very programming-oriented, I&rsquo;ll start with a quick overview of some of the programming concepts being used by the module and then move on to the details of module implementation. Those who are not interested in technical details can jump straight to the <strong>examples</strong> sections at the end of this post for a quick demonstration of how it works.</p>
 
-<h2>Recursion</h2>
+<h1 id="recursion">Recursion</h1>
 
 <p>One of the main tasks of <code>ydk_yaml.py</code> module is to be able parse a YAML data structure. This data structure, when loaded into Python, is stored as a collection of Python objects like dictionaries, lists and primitive data types like strings, integers and booleans. One key property of YAML data structures is that they can be represented as trees and parsing trees is a very well-known programming problem.</p>
 
-<p>After having completed <a href="https://www.coursera.org/learn/programming-languages">this programming course</a> I fell in love with functional programming and recursions. Every problem I see, I try to solve with a recursive function. Recursions are very interesting in a way that they are very difficult to understand but relatively easy to write. Any recursive function will consist of a number of <code>if/then/else</code> conditional statements. The first one (or few) <code>if</code> statements are called the base of a recursion - this is where recursion stops and the value is returned to the outer function. The remaining few <code>if</code> statements will implement the recursion by calling the same function with a <strong>reduced input</strong>. You can find a much better explanation of recursive functions <a href="http://composingprograms.com/pages/17-recursive-functions.html">here</a>. For now, let&rsquo;s consider the problem of parsing the following tree-like data structure:</p>
+<p>After having completed <a href="https://www.coursera.org/learn/programming-languages" target="_blank">this programming course</a> I fell in love with functional programming and recursions. Every problem I see, I try to solve with a recursive function. Recursions are very interesting in a way that they are very difficult to understand but relatively easy to write. Any recursive function will consist of a number of <code>if/then/else</code> conditional statements. The first one (or few) <code>if</code> statements are called the base of a recursion - this is where recursion stops and the value is returned to the outer function. The remaining few <code>if</code> statements will implement the recursion by calling the same function with a <strong>reduced input</strong>. You can find a much better explanation of recursive functions <a href="http://composingprograms.com/pages/17-recursive-functions.html" target="_blank">here</a>. For now, let&rsquo;s consider the problem of parsing the following tree-like data structure:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="p">{</span> <span class="s">&#39;parent&#39;</span><span class="p">:</span> <span class="p">{</span>
-</span><span class='line'>    <span class="s">&#39;child_1&#39;</span><span class="p">:</span> <span class="p">{</span>
-</span><span class='line'>      <span class="s">&#39;leaf_1&#39;</span><span class="p">:</span> <span class="s">&#39;value_1&#39;</span>
-</span><span class='line'>    <span class="p">},</span>
-</span><span class='line'>    <span class="s">&#39;child_1&#39;</span><span class="p">:</span> <span class="s">&#39;value_2&#39;</span>
-</span><span class='line'>    <span class="p">}</span>
-</span><span class='line'><span class="p">}</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">{ 'parent': {
+    'child_1': {
+      'leaf_1': 'value_1'
+    },
+    'child_1': 'value_2'
+    }
+}
+</code></pre>
 
 <p>Recursive function to parse this data structure written in a pseudo-language will look something like this:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">def</span> <span class="nf">recursion</span><span class="p">(</span><span class="n">input_key</span><span class="p">,</span> <span class="n">input_value</span><span class="p">):</span>
-</span><span class='line'>  <span class="k">if</span> <span class="n">input_value</span> <span class="ow">is</span> <span class="n">String</span><span class="p">:</span>
-</span><span class='line'>    <span class="k">return</span> <span class="n">process</span><span class="p">(</span><span class="n">input_value</span><span class="p">)</span>
-</span><span class='line'>  <span class="k">elif</span> <span class="n">input_value</span> <span class="ow">is</span> <span class="n">Dictonary</span><span class="p">:</span>
-</span><span class='line'>    <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">input_value</span><span class="o">.</span><span class="n">keys_and_values</span><span class="p">():</span>
-</span><span class='line'>      <span class="k">return</span> <span class="n">recursion</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">def recursion(input_key, input_value):
+  if input_value is String:
+    return process(input_value)
+  elif input_value is Dictonary:
+    for key, value in input_value.keys_and_values():
+      return recursion(key, value)
+</code></pre>
 
 <p>The beauty of recursive functions is that they are capable parsing data structures of arbitrary complexity. That means if we had 1000 randomly nested child elements in the parent data structure, they all could have been parsed by the same 6-line function.</p>
 
-<h2>Introspection</h2>
+<h1 id="introspection">Introspection</h1>
 
-<p><a href="http://zetcode.com/lang/python/introspection/">Introspection</a> refers to the ability of Python to examine objects at runtime. It can be useful when dealing with object of arbitrary structure, e.g. a YAML document. Introspection is used whenever there is a need for a function to behave differently based on the runtime data. In the above pseudo-language example, the two conditional statements are the examples of introspection. Whenever we need to determine the type of an object in Python we can either use a built-in function <code>type(obj)</code> which returns the type of an object or <code>isinstance(obj, type)</code> which checks if the <strong>object</strong> is an <em>instance</em> or a <em>descendant</em> of a particular <strong>type</strong>. This is how we can re-write the above two conditional statements using real Python:</p>
+<p><a href="http://zetcode.com/lang/python/introspection/" target="_blank">Introspection</a> refers to the ability of Python to examine objects at runtime. It can be useful when dealing with object of arbitrary structure, e.g. a YAML document. Introspection is used whenever there is a need for a function to behave differently based on the runtime data. In the above pseudo-language example, the two conditional statements are the examples of introspection. Whenever we need to determine the type of an object in Python we can either use a built-in function <code>type(obj)</code> which returns the type of an object or <code>isinstance(obj, type)</code> which checks if the <strong>object</strong> is an <em>instance</em> or a <em>descendant</em> of a particular <strong>type</strong>. This is how we can re-write the above two conditional statements using real Python:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_value</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
-</span><span class='line'>  <span class="k">print</span><span class="p">(</span><span class="s">&#39;input value is a string&#39;</span><span class="p">)</span>
-</span><span class='line'><span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">input_value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
-</span><span class='line'>  <span class="k">print</span><span class="p">(</span><span class="s">&#39;intput value is a dictionary&#39;</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">if isinstance(input_value, str):
+  print('input value is a string')
+elif isinstance(input_value, dict):
+  print('intput value is a dictionary')
+</code></pre>
 
+<h1 id="metaprogramming">Metaprogramming</h1>
 
-<h2>Metaprogramming</h2>
+<p>Another programming concept used in my Python module is <a href="http://chase-seibert.github.io/blog/2013/04/12/getattr-setattr.html" target="_blank">metaprogramming</a>. Metaprogramming, in general, refers to an ability of programs to write themselves. This is what compilers normally do when they read the program written in a higher-level language and translate it to a lower-level language, like assembler. What I&rsquo;ve used in my module is the simplest version of metaprogramming - dynamic getting and setting of object attributes. For example, this is how we would configure BGP using YDK Python binding, as described in my <a href="blog/2017/02/22/odl-ydk/" target="_blank">previous post</a>:</p>
 
-<p>Another programming concept used in my Python module is <a href="http://chase-seibert.github.io/blog/2013/04/12/getattr-setattr.html">metaprogramming</a>. Metaprogramming, in general, refers to an ability of programs to write themselves. This is what compilers normally do when they read the program written in a higher-level language and translate it to a lower-level language, like assembler. What I&rsquo;ve used in my module is the simplest version of metaprogramming - dynamic getting and setting of object attributes. For example, this is how we would configure BGP using YDK Python binding, as described in my <a href="blog/2017/02/22/odl-ydk/">previous post</a>:</p>
-
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="mi">100</span>
-</span><span class='line'><span class="n">n</span> <span class="o">=</span> <span class="n">bgp</span><span class="o">.</span><span class="n">Neighbor</span><span class="p">()</span>
-</span><span class='line'><span class="n">n</span><span class="o">.</span><span class="n">id</span> <span class="o">=</span> <span class="s">&#39;2.2.2.2&#39;</span>
-</span><span class='line'><span class="n">n</span><span class="o">.</span><span class="n">remote_as</span> <span class="o">=</span> <span class="mi">65100</span>
-</span><span class='line'><span class="n">bgp</span><span class="o">.</span><span class="n">neighbor</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">bgp.id = 100
+n = bgp.Neighbor()
+n.id = '2.2.2.2'
+n.remote_as = 65100
+bgp.neighbor.append(n)
+</code></pre>
 
 <p>The same code could be re-written using the <code>getattr</code> and <code>setattr</code> method calls:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="nb">setattr</span><span class="p">(</span><span class="n">bgp</span><span class="p">,</span> <span class="s">&#39;id&#39;</span><span class="p">,</span> <span class="mi">100</span><span class="p">)</span>
-</span><span class='line'><span class="n">n</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">bgp</span><span class="p">,</span> <span class="s">&#39;Neighbor&#39;</span><span class="p">)()</span>
-</span><span class='line'><span class="nb">setattr</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="s">&#39;id&#39;</span><span class="p">,</span> <span class="s">&#39;2.2.2.2&#39;</span><span class="p">)</span>
-</span><span class='line'><span class="nb">setattr</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="s">&#39;remote_as&#39;</span><span class="p">,</span> <span class="mi">65100</span><span class="p">)</span>
-</span><span class='line'><span class="nb">getattr</span><span class="p">(</span><span class="n">bgp</span><span class="p">,</span> <span class="s">&#39;neighbor&#39;</span><span class="p">)</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">n</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">setattr(bgp, 'id', 100)
+n = getattr(bgp, 'Neighbor')()
+setattr(n, 'id', '2.2.2.2')
+setattr(n, 'remote_as', 65100)
+getattr(bgp, 'neighbor').append(n)
+</code></pre>
 
 <p>This is also very useful when working with arbitrary data structures and objects. In my case the goal was to write a module that would be completely independent of the structure of a particular YANG model, which means that I can <strong>not know</strong> the structure of the Python binding generated by YDK. However, I can &ldquo;guess&rdquo; the name of the attributes if I assume that my YAML document is structured <strong>exactly</strong> like the YANG model. This simple assumption allows me to implement YAML mapping for <strong>all</strong> possible YANG models with just a single function.</p>
 
-<h2>YANG mapping to YAML</h2>
+<h1 id="yang-mapping-to-yaml">YANG mapping to YAML</h1>
 
-<p>As I&rsquo;ve mentioned in my <a href="/blog/2017/01/25/netconf-intro/">previous post</a>, YANG is simply a way to define the structure of an XML document. At the same time, it is known that YANG-based XML can be mapped to JSON as described in <a href="https://tools.ietf.org/html/draft-ietf-netmod-yang-json-10">this RFC</a>. Since YAML is a superset of JSON, it&rsquo;s easy to come up with a similar XML-to-YAML mapping convention. The following table contains the mapping between some of the most common YAML and YANG data structures and types:</p>
+<p>As I&rsquo;ve mentioned in my <a href="/blog/2017/01/25/netconf-intro/">previous post</a>, YANG is simply a way to define the structure of an XML document. At the same time, it is known that YANG-based XML can be mapped to JSON as described in <a href="https://tools.ietf.org/html/draft-ietf-netmod-yang-json-10" target="_blank">this RFC</a>. Since YAML is a superset of JSON, it&rsquo;s easy to come up with a similar XML-to-YAML mapping convention. The following table contains the mapping between some of the most common YAML and YANG data structures and types:</p>
 
 <table>
 <thead>
 <tr>
-<th> YANG data </th>
-<th> YAML representation</th>
+<th>YANG data</th>
+<th>YAML representation</th>
 </tr>
 </thead>
+
 <tbody>
 <tr>
-<td> container </td>
-<td> dictionary </td>
+<td>container</td>
+<td>dictionary</td>
 </tr>
+
 <tr>
-<td> container name </td>
-<td> dictionary key </td>
+<td>container name</td>
+<td>dictionary key</td>
 </tr>
+
 <tr>
-<td> leaf name </td>
-<td> dictionary key </td>
+<td>leaf name</td>
+<td>dictionary key</td>
 </tr>
+
 <tr>
-<td> leaf </td>
-<td> dictionary value </td>
+<td>leaf</td>
+<td>dictionary value</td>
 </tr>
+
 <tr>
-<td> list </td>
-<td> list </td>
+<td>list</td>
+<td>list</td>
 </tr>
+
 <tr>
-<td> string, bool, integer </td>
-<td> string, bool, integer </td>
+<td>string, bool, integer</td>
+<td>string, bool, integer</td>
 </tr>
+
 <tr>
-<td> empty </td>
-<td> null </td>
+<td>empty</td>
+<td>null</td>
 </tr>
 </tbody>
 </table>
 
-
 <p>Using this table, it&rsquo;s easy to map the YANG data model to a YAML document. Let me demonstrate it on IOS XE&rsquo;s native OSPF data model. First, I&rsquo;ve generated a tree representation of an OSPF data model using <strong>pyang</strong>:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>pyang -f tree --tree-path <span class="s2">&quot;/native/router/ospf&quot;</span> ~/ydk-gen/gen-api/.cache/models/cisco_ios_xe@0.1.0/ned.yang -o ospf.tree
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>pyang -f tree --tree-path &quot;/native/router/ospf&quot; ~/ydk-gen/gen-api/.cache/models/cisco_ios_xe@0.1.0/ned.yang -o ospf.tree
+</code></pre>
 
 <p>Next, I&rsquo;ve trimmed it down to only contain the options that I would like to set and created a YAML document based on the model&rsquo;s tree structure:</p>
 
-<p><img class="center" src="/images/yang-yaml.png"></p>
+<p><img src="/img/yang-yaml.png" alt="" /></p>
 
-<p>With the right knowledge of <a href="blog/2017/02/15/restconf-yang/">YANG model&rsquo;s structure</a>, it&rsquo;s fairly easy to generate similar YAML configuration files for other configuration objects, like <a href="https://github.com/networkop/yang/blob/master/yaml-101/interface.yaml">interface</a> and <a href="https://github.com/networkop/yang/blob/master/yaml-101/bgp.yaml">BGP</a>.</p>
+<p>With the right knowledge of <a href="blog/2017/02/15/restconf-yang/" target="_blank">YANG model&rsquo;s structure</a>, it&rsquo;s fairly easy to generate similar YAML configuration files for other configuration objects, like <a href="https://github.com/networkop/yang/blob/master/yaml-101/interface.yaml" target="_blank">interface</a> and <a href="https://github.com/networkop/yang/blob/master/yaml-101/bgp.yaml" target="_blank">BGP</a>.</p>
 
-<h2>YANG instantiating function</h2>
+<h1 id="yang-instantiating-function">YANG instantiating function</h1>
 
 <p>At the heart of the <code>ydk_yaml</code> module is a single recursive function that traverses the input YAML data structure and uses it to instantiate the YDK-generated Python binding. Here is a simple, abridged version of the function that demonstrates the main logic.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">def</span> <span class="nf">instantiate</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">,</span> <span class="n">model_value</span><span class="p">):</span>
-</span><span class='line'>    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="nb">isinstance</span><span class="p">(</span><span class="n">model_value</span><span class="p">,</span> <span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">,</span> <span class="nb">int</span><span class="p">]):</span>
-</span><span class='line'>        <span class="nb">setattr</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">,</span> <span class="n">model_value</span><span class="p">)</span>
-</span><span class='line'>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">model_value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">el</span> <span class="ow">in</span> <span class="n">model_value</span><span class="p">:</span>
-</span><span class='line'>            <span class="nb">getattr</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">)</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">instantiate</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">,</span> <span class="n">el</span><span class="p">))</span>
-</span><span class='line'>    <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">model_value</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
-</span><span class='line'>        <span class="n">container_instance</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">)()</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">model_value</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
-</span><span class='line'>            <span class="n">instantiate</span><span class="p">(</span><span class="n">container_instance</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
-</span><span class='line'>        <span class="nb">setattr</span><span class="p">(</span><span class="n">binding</span><span class="p">,</span> <span class="n">model_key</span><span class="p">,</span> <span class="n">container_instance</span><span class="p">)</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-python">def instantiate(binding, model_key, model_value):
+    if any(isinstance(model_value, x) for x in [str, bool, int]):
+        setattr(binding, model_key, model_value)
+    elif isinstance(model_value, list):
+        for el in model_value:
+            getattr(binding, model_key).append(instantiate(binding, model_key, el))
+    elif isinstance(model_value, dict):
+        container_instance = getattr(binding, model_key)()
+        for k, v in model_value.iteritems():
+            instantiate(container_instance, k, v)
+        setattr(binding, model_key, container_instance)
+</code></pre>
 
 <p>Most of it should already make sense based on what I&rsquo;ve covered above. The first conditional statement is the base of the recursion and performs the action of setting the value of a YANG Leaf element. The second conditional statement takes care of a YANG List by traversing all its elements, instantiating them recursively, and appends the result to a YDK binding. The last <code>elif</code> statement creates a class instance for a YANG container, recursively populates its values and saves the final result inside a YDK binding.</p>
 
-<p>The full version of this function covers a few extra corner cases and can be found <a href="https://github.com/networkop/yang/blob/master/yaml-101/ydk_yaml.py">here</a>.</p>
+<p>The full version of this function covers a few extra corner cases and can be found <a href="https://github.com/networkop/yang/blob/master/yaml-101/ydk_yaml.py" target="_blank">here</a>.</p>
 
-<h2>The YDK module wrapper</h2>
+<h1 id="the-ydk-module-wrapper">The YDK module wrapper</h1>
 
 <p>The final step is to write a wrapper class that would consume the YDK model binding along with the YAML data, and both instantiate and push the configuration down to the network device.</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-</pre></td><td class='code'><pre><code class='python'><span class='line'><span class="k">class</span> <span class="nc">YdkModel</span><span class="p">:</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">model</span><span class="p">,</span> <span class="n">data</span><span class="p">):</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">model</span> <span class="o">=</span> <span class="n">model</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span>
-</span><span class='line'>        <span class="kn">from</span> <span class="nn">ydk.models.cisco_ios_xe.ned</span> <span class="kn">import</span> <span class="n">Native</span>
-</span><span class='line'>        <span class="bp">self</span><span class="o">.</span><span class="n">binding</span> <span class="o">=</span> <span class="n">Native</span><span class="p">()</span>
-</span><span class='line'>        <span class="k">for</span> <span class="n">k</span><span class="p">,</span><span class="n">v</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">iteritems</span><span class="p">():</span>
-</span><span class='line'>            <span class="n">instantiate</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">binding</span><span class="p">,</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="k">def</span> <span class="nf">action</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">crud_action</span><span class="p">,</span> <span class="n">device</span><span class="p">):</span>
-</span><span class='line'>        <span class="kn">from</span> <span class="nn">ydk.services</span> <span class="kn">import</span> <span class="n">CRUDService</span>
-</span><span class='line'>        <span class="kn">from</span> <span class="nn">ydk.providers</span> <span class="kn">import</span> <span class="n">NetconfServiceProvider</span>
-</span><span class='line'>        <span class="n">provider</span> <span class="o">=</span> <span class="n">NetconfServiceProvider</span><span class="p">(</span><span class="n">address</span><span class="o">=</span><span class="n">device</span><span class="p">[</span><span class="s">&#39;hostname&#39;</span><span class="p">],</span>
-</span><span class='line'>                                          <span class="n">port</span><span class="o">=</span><span class="n">device</span><span class="p">[</span><span class="s">&#39;port&#39;</span><span class="p">],</span>
-</span><span class='line'>                                          <span class="n">username</span><span class="o">=</span><span class="n">device</span><span class="p">[</span><span class="s">&#39;username&#39;</span><span class="p">],</span>
-</span><span class='line'>                                          <span class="n">password</span><span class="o">=</span><span class="n">device</span><span class="p">[</span><span class="s">&#39;password&#39;</span><span class="p">],</span>
-</span><span class='line'>                                          <span class="n">protocol</span><span class="o">=</span><span class="s">&#39;ssh&#39;</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">crud</span> <span class="o">=</span> <span class="n">CRUDService</span><span class="p">()</span>
-</span><span class='line'>        <span class="n">crud_instance</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">crud</span><span class="p">,</span> <span class="n">crud_action</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">crud_instance</span><span class="p">(</span><span class="n">provider</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">binding</span><span class="p">)</span>
-</span><span class='line'>        <span class="n">provider</span><span class="o">.</span><span class="n">close</span><span class="p">()</span>
-</span><span class='line'>        <span class="k">return</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-python">class YdkModel:
 
+    def __init__(self, model, data):
+        self.model = model
+        self.data = data
+        from ydk.models.cisco_ios_xe.ned import Native
+        self.binding = Native()
+        for k,v in self.data.iteritems():
+            instantiate(self.binding, k, v)
 
-<p>The structure of this class is pretty simple. The constructor instantiates a YDK native data model and calls the recursive instantiation function to populate the binding. The <strong>action</strong> method implements standard CRUD actions using the YDK&rsquo;s NETCONF provider. The full version of this Python module can be found <a href="https://github.com/networkop/yang/blob/master/yaml-101/ydk_yaml.py">here</a>.</p>
+    def action(self, crud_action, device):
+        from ydk.services import CRUDService
+        from ydk.providers import NetconfServiceProvider
+        provider = NetconfServiceProvider(address=device['hostname'],
+                                          port=device['port'],
+                                          username=device['username'],
+                                          password=device['password'],
+                                          protocol='ssh')
+        crud = CRUDService()
+        crud_instance = getattr(crud, crud_action)
+        crud_instance(provider, self.binding)
+        provider.close()
+        return
+</code></pre>
 
-<h2>Configuration examples</h2>
+<p>The structure of this class is pretty simple. The constructor instantiates a YDK native data model and calls the recursive instantiation function to populate the binding. The <strong>action</strong> method implements standard CRUD actions using the YDK&rsquo;s NETCONF provider. The full version of this Python module can be found <a href="https://github.com/networkop/yang/blob/master/yaml-101/ydk_yaml.py" target="_blank">here</a>.</p>
 
-<p>In my <a href="https://github.com/networkop/yang/tree/master/yaml-101">Github repo</a>, I&rsquo;ve included a few examples of how to configure Interface, OSPF and BGP settings of IOS XE device. A helper Python script <code>1_send_yaml.py</code> accepts the YANG model name and the name of the YAML configuration file as the input. It then instantiates the <code>YdkModel</code> class and calls the <code>create</code> action to push the configuration to the device. Let&rsquo;s assume that we have the following YAML configuration data saved in a <code>bgp.yaml</code> file:</p>
+<h1 id="configuration-examples">Configuration examples</h1>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="l-Scalar-Plain">router</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">bgp</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">100</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">bgp</span><span class="p-Indicator">:</span>
-</span><span class='line'>        <span class="l-Scalar-Plain">router_id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1.1.1.1</span>
-</span><span class='line'>        <span class="l-Scalar-Plain">fast_external_fallover</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">null</span>
-</span><span class='line'>        <span class="l-Scalar-Plain">update_delay</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">15</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">neighbor</span><span class="p-Indicator">:</span>
-</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">2.2.2.2</span>
-</span><span class='line'>          <span class="l-Scalar-Plain">remote_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">200</span>
-</span><span class='line'>        <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">id</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">3.3.3.3</span>
-</span><span class='line'>          <span class="l-Scalar-Plain">remote_as</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">300</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">redistribute</span><span class="p-Indicator">:</span>
-</span><span class='line'>        <span class="l-Scalar-Plain">connected</span><span class="p-Indicator">:</span> <span class="p-Indicator">{}</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>In my <a href="https://github.com/networkop/yang/tree/master/yaml-101" target="_blank">Github repo</a>, I&rsquo;ve included a few examples of how to configure Interface, OSPF and BGP settings of IOS XE device. A helper Python script <code>1_send_yaml.py</code> accepts the YANG model name and the name of the YAML configuration file as the input. It then instantiates the <code>YdkModel</code> class and calls the <code>create</code> action to push the configuration to the device. Let&rsquo;s assume that we have the following YAML configuration data saved in a <code>bgp.yaml</code> file:</p>
 
+<pre><code>+++
+router:
+  bgp:
+    - id: 100
+      bgp:
+        router_id: 1.1.1.1
+        fast_external_fallover: null
+        update_delay: 15
+      neighbor:
+        - id: 2.2.2.2
+          remote_as: 200
+        - id: 3.3.3.3
+          remote_as: 300
+      redistribute:
+        connected: {}
+</code></pre>
 
 <p>To push this BGP configuration to the device all what I need to do is run the following command:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>./1_send_yaml.py bgp bgp.yaml
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>./1_send_yaml.py bgp bgp.yaml
+</code></pre>
 
 <p>The resulting configuration on IOS XE device would look like this:</p>
 
-<figure class='code panel panel-default'><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>router bgp 100
-</span><span class='line'> bgp router-id 1.1.1.1
-</span><span class='line'> bgp log-neighbor-changes
-</span><span class='line'> bgp update-delay 15
-</span><span class='line'> redistribute connected
-</span><span class='line'> neighbor 2.2.2.2 remote-as 200
-</span><span class='line'> neighbor 3.3.3.3 remote-as 300
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>router bgp 100
+ bgp router-id 1.1.1.1
+ bgp log-neighbor-changes
+ bgp update-delay 15
+ redistribute connected
+ neighbor 2.2.2.2 remote-as 200
+ neighbor 3.3.3.3 remote-as 300
+</code></pre>
+
+<p>To see more example, follow <a href="https://github.com/networkop/yang/tree/master/yaml-101" target="_blank">this link</a> to my Github repo.</p>
+
+      </div>
+
+      
 
 
-<p>To see more example, follow <a href="https://github.com/networkop/yang/tree/master/yaml-101">this link</a> to my Github repo.</p>
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/yang">YANG</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible-yang">ansible-YANG</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2017-03-13T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">13/03/2017</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/yang/'>yang</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2017/03/13/yaml-yang/" data-via="" data-counturl="http://networkop.github.io/blog/2017/03/13/yaml-yang/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2017/03/13/yaml-yang/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2017/02/22/odl-ydk/">Configuring Cisco IOS XE With YDK and OpenDaylight</a></li>
+    
+    <li><a href="/blog/2017/02/15/restconf-yang/">Introduction to YANG Programming and RESTCONF on Cisco IOS XE</a></li>
+    
+    <li><a href="/blog/2017/01/25/netconf-intro/">Getting Started With NETCONF and YANG on Cisco IOS XE</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2017/02/22/odl-ydk/" title="Previous Post: Configuring Cisco IOS XE with YDK and OpenDaylight">&laquo; Configuring Cisco IOS XE with YDK and OpenDaylight</a></li>
-            
-            
-            <li class="next"><a href="/blog/2017/04/04/ansible-yang/" title="Next Post: Using YANG models in Ansible to configure and verify state of IOS-XE and JUNOS devices">Using YANG models in Ansible to configure and verify state of IOS-XE and JUNOS devices &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2017/03/13/yaml-yang/';
-        var disqus_url = 'http://networkop.github.io/blog/2017/03/13/yaml-yang/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

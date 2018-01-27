@@ -1,165 +1,324 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Using Neutron L2 gateway plugin to configure a Cumulus VX switch">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used Cisco and Arista switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve downloaded and imported into my lab.
+To simulate the baremetal server (10.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/05/21/neutron-l2gw/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/">
-  <meta property="og:title" content="OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus &hellip; - Network-oriented programming">
-  <meta property="og:description" content="Using Neutron L2 gateway plugin to configure a Cumulus VX switch">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2016/05/21/neutron-l2gw/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2016/05/21/neutron-l2gw/">
+  <meta property="og:title" content="OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway | Network-oriented programming">
+  <meta property="og:description" content="Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used Cisco and Arista switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve downloaded and imported into my lab.
+To simulate the baremetal server (10.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2016-05-21T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2016-05-21T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2016-05-21 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      21 May 2016
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    10 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2016/05/21/neutron-l2gw/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/sdn">SDN</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=OpenStack%20SDN%20-%20Interconnecting%20VMs%20and%20Physical%20Devices%20With%20Cumulus%20VX%20L2%20Gateway&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f05%2f21%2fneutron-l2gw%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f05%2f21%2fneutron-l2gw%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f05%2f21%2fneutron-l2gw%2f&amp;title=OpenStack%20SDN%20-%20Interconnecting%20VMs%20and%20Physical%20Devices%20With%20Cumulus%20VX%20L2%20Gateway"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=OpenStack%20SDN%20-%20Interconnecting%20VMs%20and%20Physical%20Devices%20With%20Cumulus%20VX%20L2%20Gateway&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f05%2f21%2fneutron-l2gw%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/" target="_blank">downloaded</a> and imported into my lab.</p>
 
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-05-21T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">21/05/2016</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        OpenStack SDN - Interconnecting VMs and Physical Devices With Cumulus VX L2 Gateway
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>One of the basic function of any data centre network is the ability to communicate with baremetal servers. In this post we&rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</p>
-
-<!--more-->
-
-
-<p>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&rsquo;ve used <a href="/blog/2016/04/18/os-unl-lab/">Cisco</a> and <a href="/blog/2016/05/11/neutron-routed-extnet/">Arista</a> switches to build a 4-leaf 2-spine CLOS fabric. For this task I&rsquo;ve decided to use a Cumulus VX switch which I&rsquo;ve <a href="https://cumulusnetworks.com/cumulus-vx/">downloaded</a> and imported into my lab.</p>
-
-<p><img class="center" src="/images/neutron-l2gw-overview.png"></p>
+<p><img src="/img/neutron-l2gw-overview.png" alt="" /></p>
 
 <p>To simulate the baremetal server (10.0.0.100) I&rsquo;ve VRF&rsquo;d an interface on Arista &ldquo;L4&rdquo; switch and connected it directly to a &ldquo;swp3&rdquo; interface of the Cumulus VX. This is not shown on the diagram.</p>
 
-<h2>Solution overview</h2>
+<h1 id="solution-overview">Solution overview</h1>
 
-<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that compose this solution:</p>
+<p><a href="https://wiki.openstack.org/wiki/Neutron/L2-GW" target="_blank">L2 Gateway</a> is a relatively <a href="https://github.com/openstack/networking-l2gw/releases" target="_blank">new</a> service plugin for OpenStack Neutron.  It provides the ability to interconnect a given tenant network with a VLAN on a physical switch. There are three main components that compose this solution:</p>
 
 <ul>
 <li><strong>Hardware switch</strong> implementing the OVSDB hardware vtep schema. This is a special &ldquo;flavour&rdquo; of OVSDB designed specifically to enable connectivity between logical (VXLAN VTEP) and physical (switchport) interfaces.</li>
@@ -167,116 +326,69 @@
 <li><strong>L2GW Service Plugin</strong> residing on a control node. The task of this plugin is to notify the L2GW agent and normal L2 OVS agents running on compute hosts about network events and distribute VTEP IP address information between them.</li>
 </ul>
 
-
 <p>Note that in our case both network and control nodes are running on the same VM.</p>
 
-<h2>Cumulux VX configuration</h2>
+<h1 id="cumulux-vx-configuration">Cumulux VX configuration</h1>
 
 <p>Cumulux is a debian-based linux distribution, therefore most of the basic networking configuration will be similar to how things are done in Ubuntu. First, let&rsquo;s start by configuring basic IP addressing on Loopback (VTEP IP), Eth0 (OOB management), swp1 and swp2 (fabric) interfaces.</p>
 
-<figure class='code'><figcaption><span>/etc/network/interfaces</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>iface lo inet loopback
-</span><span class='line'>        address 10.0.0.5/32
-</span><span class='line'>
-</span><span class='line'>auto eth0
-</span><span class='line'>iface eth0 inet static
-</span><span class='line'>        address 192.168.91.21/24
-</span><span class='line'>
-</span><span class='line'>auto swp1
-</span><span class='line'>iface swp1 inet static
-</span><span class='line'>        address 169.254.51.5/24
-</span><span class='line'>
-</span><span class='line'>auto swp2
-</span><span class='line'>iface swp2 inet static
-</span><span class='line'>        address 169.254.52.5/24
-</span><span class='line'>
-</span><span class='line'>auto swp3
-</span><span class='line'>iface swp3
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">iface lo inet loopback
+        address 10.0.0.5/32
 
+auto eth0
+iface eth0 inet static
+        address 192.168.91.21/24
+
+auto swp1
+iface swp1 inet static
+        address 169.254.51.5/24
+
+auto swp2
+iface swp2 inet static
+        address 169.254.52.5/24
+
+auto swp3
+iface swp3
+</code></pre>
 
 <p>Next, let&rsquo;s enable OSPF</p>
 
-<figure class='code'><figcaption><span>Enable OSPF process</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo sed -i s/zebra<span class="o">=</span>no/zebra<span class="o">=</span>yes/ /etc/quagga/daemons
-</span><span class='line'>sudo sed -i s/ospfd<span class="o">=</span>no/ospfd<span class="o">=</span>yes/ /etc/quagga/daemons
-</span><span class='line'>sudo service quagga restart
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">sudo sed -i s/zebra=no/zebra=yes/ /etc/quagga/daemons
+sudo sed -i s/ospfd=no/ospfd=yes/ /etc/quagga/daemons
+sudo service quagga restart
+</code></pre>
 
 <p>Once OSPFd is running, we can use <code>sudo vtysh</code> to connect to local quagga shell and finalise the configuration.</p>
 
-<figure class='code'><figcaption><span>show run</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>interface lo
-</span><span class='line'> ip ospf area 0.0.0.0
-</span><span class='line'> link-detect
-</span><span class='line'>!
-</span><span class='line'>interface swp1
-</span><span class='line'> ip ospf area 0.0.0.0
-</span><span class='line'> ip ospf network point-to-point
-</span><span class='line'> link-detect
-</span><span class='line'>!
-</span><span class='line'>interface swp2
-</span><span class='line'> ip ospf area 0.0.0.0
-</span><span class='line'> ip ospf network point-to-point
-</span><span class='line'> link-detect
-</span><span class='line'>!
-</span><span class='line'>router ospf
-</span><span class='line'> ospf router-id 10.0.0.5
-</span><span class='line'> passive-interface default
-</span><span class='line'> no passive-interface swp1
-</span><span class='line'> no passive-interface swp2
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">interface lo
+ ip ospf area 0.0.0.0
+ link-detect
+!
+interface swp1
+ ip ospf area 0.0.0.0
+ ip ospf network point-to-point
+ link-detect
+!
+interface swp2
+ ip ospf area 0.0.0.0
+ ip ospf network point-to-point
+ link-detect
+!
+router ospf
+ ospf router-id 10.0.0.5
+ passive-interface default
+ no passive-interface swp1
+ no passive-interface swp2
+</code></pre>
 
 <p>At this stage our Cumulus VX switch should be fully adjacent to both spines and its loopback IP (10.0.0.5) should be reachable from all OpenStack nodes.</p>
 
-<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack">process</a> is fairly simple and involves only a few commands.</p>
+<p>The final step is to enable the hardware VTEP functionality. The <a href="https://docs.cumulusnetworks.com/display/CL22/Integrating+Hardware+VTEPs+with+Midokura+MidoNet+and+OpenStack" target="_blank">process</a> is fairly simple and involves only a few commands.</p>
 
-<figure class='code'><figcaption><span></span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>sudo sed -i s/START<span class="o">=</span>no/START<span class="o">=</span>yes/g /etc/default/openvswitch-vtep
-</span><span class='line'><span class="nv">$ </span>sudo service openvswitch-vtep start
-</span><span class='line'><span class="nv">$ </span>sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">$ sudo sed -i s/START=no/START=yes/g /etc/default/openvswitch-vtep
+$ sudo service openvswitch-vtep start
+$ sudo vtep-bootstrap L5 10.0.0.5 192.168.91.21 --no_encryption
+</code></pre>
 
 <p>The last command runs a bootstrap script that does the following things:</p>
 
@@ -287,585 +399,375 @@
 <li>Starts listening to incoming OVSDB connections on 192.168.91.21</li>
 </ul>
 
+<h1 id="hardware-vtep-vs-openvswitch-ovsdb-schemas-optional">Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h1>
 
-<h2>Hardware VTEP vs OpenvSwitch OVSDB schemas (Optional)</h2>
-
-<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that <a href="https://tools.ietf.org/html/rfc7047">OVSDB</a> is just a database and OVSDB protocol is just a set of JSON RPC calls to work with that database. Information that can be stored in the database is defined by a schema - a structure that represents tables and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
+<p>By now you&rsquo;re probably wondering what&rsquo;s that hardware VTEP OVSDB schema and how it&rsquo;s different from a normal OVS schema. First of all, remember that <a href="https://tools.ietf.org/html/rfc7047" target="_blank">OVSDB</a> is just a database and OVSDB protocol is just a set of JSON RPC calls to work with that database. Information that can be stored in the database is defined by a schema - a structure that represents tables and their relations. Therefore, OVSDB can be used to store and manage <a href="https://twitter.com/ben_pfaff/status/453333818653417472" target="_blank">ANY</a> type of data which makes it very flexible. Specificallly OVS project defines two OVSDB schemas:</p>
 
 <ul>
-<li><strong><a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf">Open_vSwitch schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
-<li><strong><a href="http://openvswitch.org/docs/vtep.5.pdf">Hardware_vtep schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
+<li><strong><a href="http://openvswitch.org/ovs-vswitchd.conf.db.5.pdf" target="_blank">Open_vSwitch schema</a></strong> - used to manage bridges, ports and controllers of OpenvSwitch. This schema is used by OVS inside every compute host we have in our OpenStack environment.</li>
+<li><strong><a href="http://openvswitch.org/docs/vtep.5.pdf" target="_blank">Hardware_vtep schema</a></strong> - designed to be used by physical switches. The goal of this schema is to extend the virtual L2 switch into a physical realm by providing the ability to map physical ports to logical networks. For each logical network the hardware VTEP database holds mappings of MAC addresses to VTEPs and physical switchport.</li>
 </ul>
-
 
 <p>The information from these databases is later consumed by another process that sets up the actual bridges and ports. The first schema is used by the <strong>ovs-vswitchd</strong> process running on all compute hosts to configure ports and flows of integration and tunnel bridges. In case of a Cumulus switch, the information from <strong>hardware_vtep</strong> OVSDB is used by a process called <strong>ovs-vtepd</strong> that is responsible for settings up VXLAN VTEP interfaces, provisioning of VLANs on physical switchports and interconnecting them with a Linux bridge.</p>
 
-<p>If you want to learn more, check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html">awesome post</a> about hardware VTEP and OVS.</p>
+<p>If you want to learn more, check out this <a href="http://www.relaxdiego.com/2014/09/hardware_vtep.html" target="_blank">awesome post</a> about hardware VTEP and OVS.</p>
 
-<h2>OpenStack Control node configuration</h2>
+<h1 id="openstack-control-node-configuration">OpenStack Control node configuration</h1>
 
-<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/">another blog</a>. It&rsquo;s included it this post because I had to do some modifications and also for the sake of completeness.</p>
+<p>Most of the following procedure has been borrowed from <a href="http://kimizhang.com/neutron-l2-gateway-hp-5930-switch-ovsdb-integration/" target="_blank">another blog</a>. It&rsquo;s included it this post because I had to do some modifications and also for the sake of completeness.</p>
 
 <ol>
 <li><p>Clone the L2GW repository</p>
 
-<pre><code class="`"> git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
+<pre><code>git clone -b stable/mitaka https://github.com/openstack/networking-l2gw.git
 </code></pre></li>
+
 <li><p>Use pip to install the plugin</p>
 
-<pre><code class="`"> pip install ./networking-l2gw/
+<pre><code>pip install ./networking-l2gw/
 </code></pre></li>
+
 <li><p>Enable the L2GW service plugin</p>
 
-<pre><code class="`"> sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' \
- /etc/neutron/neutron.conf
+<pre><code>sudo sed -ri 's/^(service_plugins.*)/\1,networking_l2gw.services.l2gateway.plugin.L2GatewayPlugin/' \
+/etc/neutron/neutron.conf
 </code></pre></li>
+
 <li><p>Copy L2GW configuration files into the neutron configuration directory</p>
 
-<pre><code class="`"> cp  /usr/etc/neutron/l2g* /etc/neutron/
+<pre><code>cp  /usr/etc/neutron/l2g* /etc/neutron/
 </code></pre></li>
+
 <li><p>Point the L2GW plugin to our Cumulus VX switch</p>
 
-<pre><code class="`"> sudo sed -ri "s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/" /etc/neutron/l2gateway_agent.ini
+<pre><code>sudo sed -ri &quot;s/^#\s+(ovsdb_hosts).*/\1 = 'ovsdb1:192.168.91.21:6632'/&quot; /etc/neutron/l2gateway_agent.ini
 </code></pre></li>
+
 <li><p>Update Neutron database with the new schema required by L2GW plugin</p>
 
-<pre><code class="`"> systemctl stop neutron-server
- neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
- systemctl start neutron-server
+<pre><code>systemctl stop neutron-server
+neutron-db-manage --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gw_plugin.ini  upgrade head
+systemctl start neutron-server
 </code></pre></li>
+
 <li><p>Update Neutron startup script to load the L2GW plugin configuration file</p>
 
-<pre><code class="`"> sed -ri "s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /" /usr/lib/systemd/system/neutron-server.service
+<pre><code>sed -ri &quot;s/(ExecStart=.*)/\1 --config-file \/etc\/neutron\/l2gw_plugin.ini /&quot; /usr/lib/systemd/system/neutron-server.service
 </code></pre></li>
+
 <li><p>Create a L2GW systemd unit file</p>
 
-<pre><code class="`"> cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
- [Unit]
- Description=OpenStack Neutron L2 Gateway Agent
- After=neutron-server.service
-
- [Service]
- Type=simple
- User=neutron
- ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
- KillMode=process
-
- [Install]
- WantedBy=multi-user.target
- EOF
+<pre><code>cat &gt;&gt; /usr/lib/systemd/system/neutron-l2gateway-agent.service &lt;&lt; EOF
+[Unit]
+Description=OpenStack Neutron L2 Gateway Agent
+After=neutron-server.service
+    
+[Service]
+Type=simple
+User=neutron
+ExecStart=/usr/bin/neutron-l2gateway-agent --config-file /etc/neutron/neutron.conf --config-file /etc/neutron/l2gateway_agent.ini
+KillMode=process
+    
+[Install]
+WantedBy=multi-user.target
+EOF
 </code></pre></li>
+
 <li><p>Restart both L2GW and neutron server</p>
 
-<pre><code class="`"> systemctl daemon-reload
- systemctl restart neutron-server.service
- systemctl start neutron-l2gateway-agent.service  
+<pre><code>systemctl daemon-reload
+systemctl restart neutron-server.service
+systemctl start neutron-l2gateway-agent.service  
 </code></pre></li>
+
 <li><p>Enter the &ldquo;neutron configuration mode&rdquo;</p>
 
 <pre><code>source ~/keystone_admin
 neutron
 </code></pre></li>
+
 <li><p>Create a new L2 gateway device</p>
 
-<pre><code>l2-gateway-create --device name="L5",interface_names="swp3" CUMULUS-L2GW
+<pre><code>l2-gateway-create --device name=&quot;L5&quot;,interface_names=&quot;swp3&quot; CUMULUS-L2GW
 </code></pre></li>
+
 <li><p>Create a connection between a &ldquo;private_network&rdquo; and a native vlan (dot1q 0) of swp3 interface</p>
 
 <pre><code>l2-gateway-connection-create --default-segmentation-id 0 CUMULUS-L2GW private_network
 </code></pre></li>
 </ol>
 
-
-<h2>Verification and Traffic Flows</h2>
+<h1 id="verification-and-traffic-flows">Verification and Traffic Flows</h1>
 
 <p>At this stage everything should be ready for testing. We&rsquo;ll start by examining the following traffic flow:</p>
 
 <ul>
-<li>From VM-2 10.0.0.4/fa:16:3e:d7:0e:14</li>
-<li>To baremetal server 10.0.0.100/50:00:00:6b:2e:70</li>
+<li>From VM-2 10.0.0.4 / fa:16:3e:d7:0e:14</li>
+<li>To baremetal server 10.0.0.100 / 50:00:00:6b:2e:70</li>
 </ul>
 
-
-<p><img class="center" src="/images/neutron-l2gw-detailed.png"></p>
+<p><img src="/img/neutron-l2gw-detailed.png" alt="" /></p>
 
 <p>The communication starts with VM-2 sending an ARP request for the MAC address of the baremetal server. Packet flow inside the compute host will be exactly the same <a href="/blog/2016/04/22/neutron-native/">as before</a>, with packet being flooded from the VM to the integration and tunnel bridges. Inside the tunnel bridge the packet gets resubmitted to table 22 where head-end replication of ARP request takes place.</p>
 
-<p>The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards the Cumulux VTEP IP. We&rsquo;ll use the <code>ovs-appctl ofproto/trace</code> command to see the full path a packet takes inside OVS, which is similar to <code>packet-tracer</code> command of Cisco ASA. To simulate an ARP packet we need to specify the incoming port(in_port), EtherType(arp), internal VLAN number for our tenant(dl_vlan) and an ARP request target IP address(arp_tpa). You can find the full list of fields that can be matched in <a href="http://openvswitch.org/support/dist-docs/ovs-ofctl.8.txt">this document</a>.</p>
+<p>The only exception is that this time the frame will get replicated to a new VXLAN port pointing towards the Cumulux VTEP IP. We&rsquo;ll use the <code>ovs-appctl ofproto/trace</code> command to see the full path a packet takes inside OVS, which is similar to <code>packet-tracer</code> command of Cisco ASA. To simulate an ARP packet we need to specify the incoming port(in_port), EtherType(arp), internal VLAN number for our tenant(dl_vlan) and an ARP request target IP address(arp_tpa). You can find the full list of fields that can be matched in <a href="http://openvswitch.org/support/dist-docs/ovs-ofctl.8.txt" target="_blank">this document</a>.</p>
 
-<figure class='code'><figcaption><span>ARP request to the baremetal server</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>1,arp,dl_vlan<span class="o">=</span>1,arp_tpa<span class="o">=</span>10.0.0.100 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
-</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>1
-</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
-</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">2</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00
-</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
-</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">20</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">priority</span><span class="o">=</span>0
-</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,22<span class="o">)</span>
-</span><span class='line'>                        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">22</span> <span class="nv">cookie</span><span class="o">=</span>0xb3c018296c2aa8a3 <span class="nv">dl_vlan</span><span class="o">=</span>1
-</span><span class='line'>                        OpenFlow <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">$ ovs-appctl ofproto/trace br-tun in_port=1,arp,dl_vlan=1,arp_tpa=10.0.0.100 | grep -E &quot;Rule|actions=&quot;
+Rule: table=0 cookie=0xb3c018296c2aa8a3 priority=1,in_port=1
+OpenFlow actions=resubmit(,2)
+        Rule: table=2 cookie=0xb3c018296c2aa8a3 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
+        OpenFlow actions=resubmit(,20)
+                Rule: table=20 cookie=0xb3c018296c2aa8a3 priority=0
+                OpenFlow actions=resubmit(,22)
+                        Rule: table=22 cookie=0xb3c018296c2aa8a3 dl_vlan=1
+                        OpenFlow actions=strip_vlan,set_tunnel:0x45,output:9,output:4,output:6
+</code></pre>
 
 <p>The packet leaving port 9 will get encapsulated into a VXLAN header with destination IP of 10.0.0.5 and forwarded out the fabric-facing interface eth1.100. When VXLAN packet reaches the <strong>vxln69</strong> interface (10.0.0.5) of the Cumulus switch, the <strong>br-vxlan69</strong> Linux bridge floods the frame out the second connected interface - <strong>swp3</strong>.</p>
 
-<figure class='code'><figcaption><span>brctl show br-vxln69</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>bridge name        bridge id          STP enabled     interfaces
-</span><span class='line'>br-vxln69          8000.500000070003  no              swp3
-</span><span class='line'>                                                      vxln69
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">$ brctl show br-vxln69
+bridge name        bridge id          STP enabled     interfaces
+br-vxln69          8000.500000070003  no              swp3
+                                                      vxln69
+</code></pre>
 
 <p>The rest of the story is very simple. When ARP packet hits the baremetal server it populates its ARP cache. A unicast response travels all the way back to the Cumulus switch, gets matched by the static MAC (0e:14) entry created based on information provided by the L2GW plugin. This entry points to the VTEP IP of Compute host 2(10.0.2.10) which is where it gets forwarded next.</p>
 
-<figure class='code'><figcaption><span>bridge fdb show</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>50:00:00:09:00:04 dev swp3 vlan <span class="m">0</span> master br-vxln69
-</span><span class='line'>50:00:00:07:00:03 dev swp3 vlan <span class="m">0</span> master br-vxln69 permanent
-</span><span class='line'>50:00:00:6b:2e:70 dev swp3 vlan <span class="m">0</span> master br-vxln69
-</span><span class='line'>26:21:90:a8:8a:cc dev vxln69 vlan <span class="m">0</span> master br-vxln69 permanent
-</span><span class='line'>fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan <span class="m">65535</span> self permanent
-</span><span class='line'>fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan <span class="m">65535</span> self permanent
-</span><span class='line'>fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan <span class="m">65535</span> self permanent
-</span><span class='line'>fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan <span class="m">65535</span> self permanent
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">$ bridge fdb show
+50:00:00:09:00:04 dev swp3 vlan 0 master br-vxln69
+50:00:00:07:00:03 dev swp3 vlan 0 master br-vxln69 permanent
+50:00:00:6b:2e:70 dev swp3 vlan 0 master br-vxln69
+26:21:90:a8:8a:cc dev vxln69 vlan 0 master br-vxln69 permanent
+fa:16:3e:57:1c:6c dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
+fa:16:3e:a4:12:e6 dev vxln69 dst 10.0.3.10 vlan 65535 self permanent
+fa:16:3e:d7:0e:14 dev vxln69 dst 10.0.2.10 vlan 65535 self permanent
+fa:16:3e:3c:51:d7 dev vxln69 dst 10.0.1.10 vlan 65535 self permanent
+</code></pre>
 
 <p>The packet travels through compute host 2, populating the flow entries of all OVS bridges along the way. These entries are then used by subsequent unicast packets travelling from VM-2.</p>
 
-<figure class='code'><figcaption><span>Unicast packet to the baremetal server</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>1,dl_vlan<span class="o">=</span>1,dl_dst<span class="o">=</span>50:00:00:6b:2e:70 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
-</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>1
-</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,2<span class="o">)</span>
-</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">2</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>0,dl_dst<span class="o">=</span>00:00:00:00:00:00/01:00:00:00:00:00
-</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,20<span class="o">)</span>
-</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">20</span> <span class="nv">cookie</span><span class="o">=</span>0xb5625033061a8ae5 <span class="nv">priority</span><span class="o">=</span>1,vlan_tci<span class="o">=</span>0x0001/0x0fff,dl_dst<span class="o">=</span>50:00:00:6b:2e:70
-</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:0x45-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:9
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">$ ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=50:00:00:6b:2e:70 | grep -E &quot;Rule|actions=&quot;
+Rule: table=0 cookie=0xb5625033061a8ae5 priority=1,in_port=1
+OpenFlow actions=resubmit(,2)
+        Rule: table=2 cookie=0xb5625033061a8ae5 priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
+        OpenFlow actions=resubmit(,20)
+                Rule: table=20 cookie=0xb5625033061a8ae5 priority=1,vlan_tci=0x0001/0x0fff,dl_dst=50:00:00:6b:2e:70
+                OpenFlow actions=load:0-&gt;NXM_OF_VLAN_TCI[],load:0x45-&gt;NXM_NX_TUN_ID[],output:9
+</code></pre>
 
+<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view" target="_blank">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/" target="_blank">service node</a> to perform the head-end replication. The idea is that a switch that needs to flood a multicast packet, would send it to a service node which keeps track of all active VTEPs in the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node, however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
 
-<p>It all looks fine until the ARP cache of the baremetal server expires and you get an ARP request coming from the physical into the virtual world. There is a <a href="https://drive.google.com/file/d/0Bx8nDIFktlzBRm0tV3pmYURnZ3M/view">known issue</a> with BUM forwarding which requires a special <a href="http://blog.scottlowe.org/2014/02/27/learning-nsx-part-10-adding-a-service-node/">service node</a> to perform the head-end replication. The idea is that a switch that needs to flood a multicast packet, would send it to a service node which keeps track of all active VTEPs in the network and performs packet replication on behalf of the sender. OpenStack doesn&rsquo;t have a dedicated service node, however it is possible to trick the network node into performing a similar functionality, which is what I&rsquo;m going to demonstrate next.</p>
-
-<h2>Programming Network Node as BUM replication service node</h2>
+<h1 id="programming-network-node-as-bum-replication-service-node">Programming Network Node as BUM replication service node</h1>
 
 <p>First of all, we need to tell our Cumulus switch to send all multicast packets to the network node. To do that we need to modify OVSDB table called &ldquo;Mcast_Macs_Remote&rdquo;. You can view the contents of the database using the <code>ovsdb-client dump --pretty tcp:192.168.91.21:6632</code> command to make sure that this table is empty. Using the VTEP control command we need to force all <strong>unknown-dst</strong> (BUM) traffic to go to the network node(10.0.3.10). The UUID of the logical switch can be found with <code>sudo vtep-ctl list-ls</code> command.</p>
 
-<figure class='code'><figcaption><span>Forward all BUM traffic to OpenStack network node</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">sudo vtep-ctl add-mcast-remote 818b4779-645c-49bb-ae4a-aa9340604019 unknown-dst 10.0.3.10
+</code></pre>
 
 <p>At this stage all BUM traffic hits the network node and gets flooded to the DHCP and the virtual router namespaces. In order to force this traffic to also be replicated to all compute nodes we can use some of the existing tables of the tunnel bridge. Before we do anything let&rsquo;s have a look at the tables our ARP request has to go through inside the tunnel bridge.</p>
 
-<figure class='code'><figcaption><span>Packet from Cumulus VTEP inside br-tun</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>0, <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span><span class="m">2</span> <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>4, <span class="nv">priority</span><span class="o">=</span>1,tun_id<span class="o">=</span>0x45 <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:1,resubmit<span class="o">(</span>,10<span class="o">)</span>
-</span><span class='line'><span class="nv">table</span><span class="o">=</span>10,priority<span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,cookie<span class="o">=</span>0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">table=0, priority=1,in_port=2 actions=resubmit(,4)
+table=4, priority=1,tun_id=0x45 actions=mod_vlan_vid:1,resubmit(,10)
+table=10,priority=1 actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
+</code></pre>
 
 <p>We also have a default head-end replication table 22 which floods all BUM traffic received from the integration bridge to all VTEPs:</p>
 
-<figure class='code'><figcaption><span>BUM replication table</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">table</span><span class="o">=</span>22, <span class="nv">dl_vlan</span><span class="o">=</span><span class="m">1</span> <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">table=22, dl_vlan=1 actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</code></pre>
 
 <p>So what we can do is create a new flow entry that would intercept all ARP packets inside Table 4 and resubmit them to tables 10 and 22. Table 10 will take our packet up to the integration bridge of the network node, since we still need to be able to talk the virtual router and the DHCP. Table 22 will receive a copy of the packet and flood it to all known VXLAN endpoints.</p>
 
-<figure class='code'><figcaption><span>Manipulating OVS flows</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>ovs-ofctl add-flow br-tun <span class="s2">&quot;table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)&quot;</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">ovs-ofctl add-flow br-tun &quot;table=4,arp,tun_id=0x45,priority=2,actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)&quot;
+</code></pre>
 
 <p>We can once again use the trace command to see the ARP request flow inside the tunnel bridge.</p>
 
-<figure class='code'><figcaption><span>ARP request received from the Cumulus switch</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ovs-appctl ofproto/trace br-tun <span class="nv">in_port</span><span class="o">=</span>2,arp,tun_id<span class="o">=</span>0x45 <span class="p">|</span> grep -E <span class="s2">&quot;Rule|actions=&quot;</span>
-</span><span class='line'>Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">priority</span><span class="o">=</span>1,in_port<span class="o">=</span>2
-</span><span class='line'>OpenFlow <span class="nv">actions</span><span class="o">=</span>resubmit<span class="o">(</span>,4<span class="o">)</span>
-</span><span class='line'>        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">4</span> <span class="nv">cookie</span><span class="o">=</span><span class="m">0</span> <span class="nv">priority</span><span class="o">=</span>2,arp,tun_id<span class="o">=</span>0x45
-</span><span class='line'>        OpenFlow <span class="nv">actions</span><span class="o">=</span>mod_vlan_vid:1,resubmit<span class="o">(</span>,10<span class="o">)</span>,resubmit<span class="o">(</span>,22<span class="o">)</span>
-</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">10</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">priority</span><span class="o">=</span>1
-</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>learn<span class="o">(</span><span class="nv">table</span><span class="o">=</span>20,hard_timeout<span class="o">=</span>300,priority<span class="o">=</span>1,cookie<span class="o">=</span>0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI<span class="o">[</span>0..11<span class="o">]</span>,NXM_OF_ETH_DST<span class="o">[]=</span>NXM_OF_ETH_SRC<span class="o">[]</span>,load:0-&gt;NXM_OF_VLAN_TCI<span class="o">[]</span>,load:NXM_NX_TUN_ID<span class="o">[]</span>-&gt;NXM_NX_TUN_ID<span class="o">[]</span>,output:NXM_OF_IN_PORT<span class="o">[])</span>,output:1
-</span><span class='line'>                        Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0x91b1a9a9b6e8d608 <span class="nv">priority</span><span class="o">=</span>0
-</span><span class='line'>                        OpenFlow <span class="nv">actions</span><span class="o">=</span>NORMAL
-</span><span class='line'>                                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">0</span> <span class="nv">cookie</span><span class="o">=</span>0xb36f6e358a37bea6 <span class="nv">priority</span><span class="o">=</span>2,in_port<span class="o">=</span>2
-</span><span class='line'>                                OpenFlow <span class="nv">actions</span><span class="o">=</span>drop
-</span><span class='line'>                Rule: <span class="nv">table</span><span class="o">=</span><span class="m">22</span> <span class="nv">cookie</span><span class="o">=</span>0x9f3e746b7ee48bbf <span class="nv">dl_vlan</span><span class="o">=</span>1
-</span><span class='line'>                OpenFlow <span class="nv">actions</span><span class="o">=</span>strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">$ ovs-appctl ofproto/trace br-tun in_port=2,arp,tun_id=0x45 | grep -E &quot;Rule|actions=&quot;
+Rule: table=0 cookie=0x9f3e746b7ee48bbf priority=1,in_port=2
+OpenFlow actions=resubmit(,4)
+        Rule: table=4 cookie=0 priority=2,arp,tun_id=0x45
+        OpenFlow actions=mod_vlan_vid:1,resubmit(,10),resubmit(,22)
+                Rule: table=10 cookie=0x9f3e746b7ee48bbf priority=1
+                OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x9f3e746b7ee48bbf,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&gt;NXM_NX_TUN_ID[],output:NXM_OF_IN_PORT[]),output:1
+                        Rule: table=0 cookie=0x91b1a9a9b6e8d608 priority=0
+                        OpenFlow actions=NORMAL
+                                Rule: table=0 cookie=0xb36f6e358a37bea6 priority=2,in_port=2
+                                OpenFlow actions=drop
+                Rule: table=22 cookie=0x9f3e746b7ee48bbf dl_vlan=1
+                OpenFlow actions=strip_vlan,set_tunnel:0x45,output:2,output:4,output:6
+</code></pre>
 
-
-<p><img class="center" src="/images/neutron-l2gw-arp.png"></p>
+<p><img src="/img/neutron-l2gw-arp.png" alt="" /></p>
 
 <p>Now we should be able to clear the ARP cache on baremetal device and successfully ping both VM-2, VM-1 and the virtual router.</p>
 
-<h2>Conclusion</h2>
+<h1 id="conclusion">Conclusion</h1>
 
-<p>The workaround presented above is just a temporary solution for the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily, the patch implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c">merged</a> into master OVS branch only a few days ago. So hopefully, this update trickles down to Cumulus package repositories soon.</p>
+<p>The workaround presented above is just a temporary solution for the problem. In order to fix the problem properly, OVS vtep schema needs to be updated to support source node replication. Luckily, the patch implementing this functionality has been <a href="https://github.com/openvswitch/ovs/commit/b351ac0c9bc270b3fff07ae8c7434c53d59b132c" target="_blank">merged</a> into master OVS branch only a few days ago. So hopefully, this update trickles down to Cumulus package repositories soon.</p>
 
 <p>Despite all the issues, Neutron L2 gateway plugin is a cool project that provides a very important piece of functionality without having to rely on 3rd party SDN controllers. Let&rsquo;s hope it will continue to be supported and developed by the community.</p>
 
-<h2>Coming up</h2>
+<h1 id="coming-up">Coming up</h1>
 
-<p>In the next post I was planning to examine another &ldquo;must have&rdquo; feature of any SDN solution - Distributed Virtual Routing. However due to my current circumstances I may need to take a few weeks' break before going on. Be back soon!</p>
+<p>In the next post I was planning to examine another &ldquo;must have&rdquo; feature of any SDN solution - Distributed Virtual Routing. However due to my current circumstances I may need to take a few weeks break before going on. Be back soon!</p>
 
-<p><img class="center" src="/images/be-back.jpg"></p>
+<p><img src="/img/be-back.jpg" alt="" /></p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/openstack-sdn">OpenStack-SDN</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/neutron">Neutron</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-05-21T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">21/05/2016</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/openstack/'>openstack</a> <a class='category label label-primary' href='/blog/categories/sdn/'>sdn</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/" data-via="" data-counturl="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/05/21/neutron-l2gw/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2016/05/11/neutron-routed-extnet/">OpenStack SDN - Extending a L2 Provider Network Over a L3 Fabric</a></li>
+    
+    <li><a href="/blog/2016/05/06/neutron-l2pop/">OpenStack SDN - L2 Population and ARP Proxy</a></li>
+    
+    <li><a href="/blog/2016/04/22/neutron-native/">Network Engineering Analysis of OpenStack SDN</a></li>
+    
+    <li><a href="/blog/2016/04/18/os-unl-lab/">Building a Multi-node OpenStack Lab in UNetLab</a></li>
+    
+    <li><a href="/blog/2016/04/04/openstack-unl/">OpenStack on UNetlab</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2016/05/11/neutron-routed-extnet/" title="Previous Post: Openstack SDN - Extending a L2 provider network over a L3 fabric">&laquo; Openstack SDN - Extending a L2 provider network over a L3 fabric</a></li>
-            
-            
-            <li class="next"><a href="/blog/2016/08/26/os-lab-p1/" title="Next Post: Automating the build of OpenStack lab (Part 1)">Automating the build of OpenStack lab (Part 1) &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2016/05/21/neutron-l2gw/';
-        var disqus_url = 'http://networkop.github.io/blog/2016/05/21/neutron-l2gw/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

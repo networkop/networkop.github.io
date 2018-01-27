@@ -1,163 +1,326 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Network-CI Part 2 - Small Network Demo - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Automating the build and test of a small network topology">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
+To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
+Local development environment contains the following files describing the modelled topology:
+ Configuration files for each node under the ./config directory Network topology in .">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/">
-  <meta property="og:title" content="Network-CI Part 2 - Small Network Demo - Network-oriented programming">
-  <meta property="og:description" content="Automating the build and test of a small network topology">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/">
+  <meta property="og:title" content="Network-CI Part 2 - Small Network Demo | Network-oriented programming">
+  <meta property="og:description" content="Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
+To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
+Local development environment contains the following files describing the modelled topology:
+ Configuration files for each node under the ./config directory Network topology in .">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2016-03-03T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2016-03-03T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Network-CI Part 2 - Small Network Demo | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Network-CI Part 2 - Small Network Demo</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2016-03-03 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      3 Mar 2016
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    5 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Network-CI%20Part%202%20-%20Small%20Network%20Demo&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f&amp;title=Network-CI%20Part%202%20-%20Small%20Network%20Demo"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Network-CI%20Part%202%20-%20Small%20Network%20Demo&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
-
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-03-03T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">03/03/2016</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Network-CI Part 2 - Small Network Demo
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network topology.</p>
-
-<!--more-->
-
-
-<h2>Demo network overview</h2>
+<h1 id="demo-network-overview">Demo network overview</h1>
 
 <p>The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.</p>
 
-<p><img class="center" src="/images/ci-acme-small.jpg" title="Small demo topology" ></p>
+<p><img src="/img/ci-acme-small.jpg" alt="Small demo topology" /></p>
 
-<p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small">repository</a> and reset it to work with your own Github account using <code>git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br/>
+<p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small" target="_blank">repository</a> and reset it to work with your own Github account using <code>git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br />
 Local development environment contains the following files describing the modelled topology:</p>
 
 <ol>
@@ -167,43 +330,31 @@ Local development environment contains the following files describing the modell
 <li>Traffic flow test definitions under <code>./network/test</code> directory</li>
 </ol>
 
-
-<h2>Test definitions</h2>
+<h1 id="test-definitions">Test definitions</h1>
 
 <p>Traffic flow test file contains an ordered set of test scenarios that will be performed automatically. The following is an example that illustrates main capabilities of our test tools:</p>
 
-<figure class='code'><figcaption><span>./network/tests/traffic_flows.txt</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>## Normal operations
-</span><span class='line'>1 Failed None
-</span><span class='line'>  From R1 to R3 via R2 or R4, R3
-</span><span class='line'>  From R2 to R3 via R3
-</span><span class='line'>  From R2 to R4 via R1 or R3
-</span><span class='line'>
-</span><span class='line'># Failed link between R1 and R2
-</span><span class='line'>2 Failed R1 Gig1/1, R2 Gig0/0
-</span><span class='line'>  From R1 to R2 via not R2, R3
-</span><span class='line'>  From R2 to R4 via not R1, R4
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-text"># Normal operations
+1 Failed None
+  From R1 to R3 via R2 or R4, R3
+  From R2 to R3 via R3
+  From R2 to R4 via R1 or R3
 
+# Failed link between R1 and R2
+2 Failed R1 Gig1/1, R2 Gig0/0
+  From R1 to R2 via not R2, R3
+  From R2 to R4 via not R1, R4
+</code></pre>
 
 <p>Each scenario starts with a <strong>failure definition</strong>. It could be either <em>None</em>, which represents normal network conditions, or it could contain a list of interfaces that need to be failed. Following the failure definition are the actual tests. On each line we define source, destination and the path we expect the traffic to take. Path definition (everything following the &lsquo;via&rsquo; keyword) contains an ordered set of nodes and can use simple boolean operators like <strong>or</strong> or <strong>not</strong>.</p>
 
 <p>Ping flow definition file is a lot shorter and simply contains a list of source/destination pairs to run a ping test between. All ping tests will execute concurrently and issue only 2 pings, therefore we&rsquo;ll only be able to detect connectivity loss if it lasts for more than 4 seconds.</p>
 
-<h2>Jenkins setup</h2>
+<h1 id="jenkins-setup">Jenkins setup</h1>
 
-<p>In the previous post we&rsquo;ve automatically built a VM with Jenkins and UNetLab pre-installed. Before we can start using Jenkins we need to install a Github plugin, which can be done very easily from Jenkins GUI. Power up your <strong>vm-network-ci</strong> and open Jenkins home page at <code>http://VM_IP:8080</code>. From there navigate to <strong>Manage Jenkins -> Manage Plugins -> Available</strong>, search for and install the <strong>GitHub plugin</strong>.</p>
+<p>In the previous post we&rsquo;ve automatically built a VM with Jenkins and UNetLab pre-installed. Before we can start using Jenkins we need to install a Github plugin, which can be done very easily from Jenkins GUI. Power up your <strong>vm-network-ci</strong> and open Jenkins home page at <code>http://VM_IP:8080</code>. From there navigate to <strong>Manage Jenkins -&gt; Manage Plugins -&gt; Available</strong>, search for and install the <strong>GitHub plugin</strong>.</p>
 
-<h2>A quick Jenkins intro</h2>
+<h1 id="a-quick-jenkins-intro">A quick Jenkins intro</h1>
 
 <p>Inside Jenkins, <strong>a job</strong> represents a set of tasks that need to be automated for a particular project. Each job first waits for a trigger, which can be either a manual or an automatic event. When triggered, it connects to Github repository, downloads all the code to a local machine and executes a set of build steps defined in this job. A very simple workflow would looks like this:</p>
 
@@ -212,369 +363,210 @@ Local development environment contains the following files describing the modell
 <li>Github notifies Jenkins server by sending an HTTP POST request</li>
 <li>Jenkins identifies the job that needs to be run and clones Github repo into a local directory</li>
 <li>It then goes through and executes a set of build steps defined for this job</li>
-<li>At the end you can optionally configure Jenkins to update the status of the build as described <a href="http://stackoverflow.com/questions/14274293/show-current-state-of-jenkins-build-on-github-repo">here</a></li>
+<li>At the end you can optionally configure Jenkins to update the status of the build as described <a href="http://stackoverflow.com/questions/14274293/show-current-state-of-jenkins-build-on-github-repo" target="_blank">here</a></li>
 </ol>
 
-
-<h2>Using Jenkins for network testing</h2>
+<h1 id="using-jenkins-for-network-testing">Using Jenkins for network testing</h1>
 
 <ol>
 <li>From Jenkins home page click on <strong>create new jobs</strong> and create a <em>Freestyle project</em> called <strong>acme-small</strong>.</li>
-<li>Select the <strong>Github project</strong> option and enter a url of your Github repository (in my case its <a href="https://github.com/networkop/network-ci">https://github.com/networkop/network-ci</a>).</li>
+<li>Select the <strong>Github project</strong> option and enter a url of your Github repository (in my case its <a href="https://github.com/networkop/network-ci" target="_blank">https://github.com/networkop/network-ci</a>).</li>
 <li>Under <strong>Source Code Management</strong> select <em>Git</em> and enter the same repository URL.</li>
-<li>Under <strong>Additional Behaviours</strong> add a <em>Polling ignores commits in certain paths</em>. <br/>
+<li>Under <strong>Additional Behaviours</strong> add a <em>Polling ignores commits in certain paths</em>.<br />
 Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to make sure that this job is only triggered if commit affected a particular directory.</li>
 <li>Under <strong>Included Regions</strong> add <code>acme-small/.*</code> to only trigger builds for changes made to <strong>acme-small</strong> directory.</li>
 <li>Optionally you can specify the build triggers to either build periodically or wait for changes to be pushed to Github.</li>
+
 <li><p>Under <strong>Build</strong> add a new build step with the following shell commands:</p>
 
-<pre><code class="`bash"> export UNL_IP="unl_ip_address"
- export PYTHONUNBUFFERED=1
- cd acme-small
- chmod +x 0_built_topo.py
- chmod +x 2_test.py
- chmod +x 3_destroy_topo.py
- ./0_built_topo.py
- ./2_test.py
- ./3_destroy_topo.py
+<pre><code>export UNL_IP=&quot;unl_ip_address&quot;
+export PYTHONUNBUFFERED=1
+cd acme-small
+chmod +x 0_built_topo.py
+chmod +x 2_test.py
+chmod +x 3_destroy_topo.py
+./0_built_topo.py
+./2_test.py
+./3_destroy_topo.py
 </code></pre>
 
 <p>The first two env variables setup the UNL&rsquo;s IP address of and disable IO buffering so that we can see the output produced by our scripts in real time. The remaining steps simply execute the build, test and destroy scripts in order.</p></li>
+
 <li><p>Save the job and click on the <strong>Build Now</strong> to trigger the build manually.</p></li>
-<li>In the <strong>Build History</strong> pane click on the latest build number (should be #1) and go to <em>Console Output</em>.</li>
-<li>Observe how Jenkins builds, tests and destroys our demo topology</li>
+
+<li><p>In the <strong>Build History</strong> pane click on the latest build number (should be #1) and go to <em>Console Output</em>.</p></li>
+
+<li><p>Observe how Jenkins builds, tests and destroys our demo topology</p></li>
 </ol>
 
-
-<h2>Network upgrade workflow</h2>
+<h1 id="network-upgrade-workflow">Network upgrade workflow</h1>
 
 <p>Now imagine that a new requirements has come in to make sure that traffic from R1 to R3&rsquo;s Gig0/1 does not traverse R4 and goes via R2 instead, only falling back to R4 when R1-R2 link is down. In the following video I&rsquo;ll show how to use network-ci tools locally to implement and test this traffic engineering requirement.</p>
 
-<div class="embed-video-container"><iframe src="//www.youtube.com/embed/GLOG9KZzP90" allowfullscreen></iframe></div>
+
+<div style="position: relative; padding-bottom: 56.25%; padding-top: 30px; height: 0; overflow: hidden;">
+  <iframe src="//www.youtube.com/embed/GLOG9KZzP90" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" allowfullscreen frameborder="0" title="YouTube Video"></iframe>
+ </div>
 
 
-<h2>Coming up</h2>
+<h1 id="coming-up">Coming up</h1>
 
 <p>In the next post I&rsquo;ll show how to apply the same workflow to automate the build, test and ugprade of a large 14-node topology.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-ci">network-ci</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2016-03-03T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">03/03/2016</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/devops/'>devops</a> <a class='category label label-primary' href='/blog/categories/network/'>network</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/" data-via="" data-counturl="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2016/02/25/network-ci-dev-setup/">Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins</a></li>
+    
+    <li><a href="/blog/2016/02/19/network-ci-intro/">Network Continuous Integration and Delivery</a></li>
+    
+    <li><a href="/blog/2016/01/17/rest-unl-advanced/">REST for Network Engineers Part 3 - Advanced Operations With UnetLab</a></li>
+    
+    <li><a href="/blog/2016/01/06/rest-basic-operations/">REST for Network Engineers Part 2 - Basic Operations With UnetLab</a></li>
+    
+    <li><a href="/blog/2016/01/03/dev-env-setup-rest/">REST for Network Engineers Part 1 - Development Environment Setup</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2016/02/25/network-ci-dev-setup/" title="Previous Post: Network-CI Part 1 - Automatically building a VM with UNetLab and Jenkins">&laquo; Network-CI Part 1 - Automatically building a VM with UNetLab and Jenkins</a></li>
-            
-            
-            <li class="next"><a href="/blog/2016/03/23/network-ci-demo-large/" title="Next Post: Network-CI Part 3 - OSPF to BGP migration in Active/Standby DC">Network-CI Part 3 - OSPF to BGP migration in Active/Standby DC &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/';
-        var disqus_url = 'http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

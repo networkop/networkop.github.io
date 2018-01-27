@@ -1,164 +1,325 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Automating New Network Build - Part 2 (BGP) - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="BGP configuration automation">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.
+Requirements and assumptions The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2015/09/03/automating-bgp-config/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2015/09/03/automating-bgp-config/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2015/09/03/automating-bgp-config/">
-  <meta property="og:title" content="Automating New Network Build - Part 2 (BGP) - Network-oriented programming">
-  <meta property="og:description" content="BGP configuration automation">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2015/09/03/automating-bgp-config/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2015/09/03/automating-bgp-config/">
+  <meta property="og:title" content="Automating New Network Build - Part 2 (BGP) | Network-oriented programming">
+  <meta property="og:description" content="This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.
+Requirements and assumptions The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2015-09-03T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2015-09-03T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Automating New Network Build - Part 2 (BGP) | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Automating New Network Build - Part 2 (BGP)</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2015-09-03 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      3 Sep 2015
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    4 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2015/09/03/automating-bgp-config/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Automating%20New%20Network%20Build%20-%20Part%202%20%28BGP%29&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f09%2f03%2fautomating-bgp-config%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f09%2f03%2fautomating-bgp-config%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f09%2f03%2fautomating-bgp-config%2f&amp;title=Automating%20New%20Network%20Build%20-%20Part%202%20%28BGP%29"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Automating%20New%20Network%20Build%20-%20Part%202%20%28BGP%29&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f09%2f03%2fautomating-bgp-config%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.</p>
 
+<h1 id="requirements-and-assumptions">Requirements and assumptions</h1>
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-09-03T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">03/09/2015</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Automating New Network Build - Part 2 (BGP)
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post we&rsquo;ll have a look at how to automate a typical BGP setup. This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.</p>
-
-<!--more-->
-
-
-<h2>Requirements and assumptions</h2>
-
-<p>The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link. Secondary WAN link should only be used in case both primary and backdoor links are unavailable.<br/>
+<p>The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link. Secondary WAN link should only be used in case both primary and backdoor links are unavailable.<br />
 All routed devices within Branch-2 will be running iBGP AS#3 with BR2-CORE playing a role of route-reflector for the two WAN routers. iBGP convergence timers should rely on IGP&rsquo;s timers (OSPF default timers of 10 and 40 seconds). Site&rsquo;s core switch should originate a site summary prefix as well as any other non-standard prefixes falling outside of the standard site summary (e.g. links to 3rd Parties, DMZ etc.). All prefixes originated by the site should be tagged with specific community values in order to be easily identifiable at the remote end.</p>
 
-<p><img class="centre" src="/images/full-network-topo.png" title="Full network topology" ></p>
+<p><img src="/img/full-network-topo.png" alt="Full network topology" /></p>
 
-<h2>eBGP configuration automation</h2>
+<h1 id="ebgp-configuration-automation">eBGP configuration automation</h1>
 
 <p>Each site will have a unique set of eBGP peers, hence, it is logical to put all eBGP-related variables into a site-specific directory <code>group_vars/branch-2/</code>. In order to understand how to configure each eBGP neighbor the following values need to be defined for each eBGP neighbor:</p>
 
@@ -168,507 +329,266 @@ All routed devices within Branch-2 will be running iBGP AS#3 with BR2-CORE playi
 <li>(optional) Routing manipulation policies</li>
 </ol>
 
+<p>The above values correspond to the following Ansible variables in <code>./group_vars/branch-2/bgp</code>:</p>
 
-<p>The above values correspond to the following Ansible variables:</p>
-
-<figure class='code'><figcaption><span>./group_vars/branch-2/bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">ebgp_peers</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-WAN1</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">1.1.1.2</span><span class="p-Indicator">:</span>
-</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">remote-as 1000</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-WAN2</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">2.2.3.2</span><span class="p-Indicator">:</span>
-</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">remote-as 2000</span>
-</span><span class='line'>      <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">route-map RM-BGP-PREPEND-OUT out</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-CORE</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">10.0.2.49</span><span class="p-Indicator">:</span>
-</span><span class='line'>       <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">remote-as 2</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>ebgp_peers:
+  BR2-WAN1:
+    1.1.1.2:
+      - remote-as 1000
+  BR2-WAN2:
+    2.2.3.2:
+      - remote-as 2000
+      - route-map RM-BGP-PREPEND-OUT out
+  BR2-CORE:
+    10.0.2.49:
+       - remote-as 2
+</code></pre>
 
 <p>Here <code>ebgp_peers</code> variable contains a mapping between network devices and their eBGP neighbors identified by their IP addresses. BGP path manipulation policies ideally should belong to global variables and are defined under the company-wide <code>routing</code> group</p>
 
-<figure class='code'><figcaption><span>./group_vars/routing/route-maps</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">bgp_out_rmap_prepend</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">set as-path prepend {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }}</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>bgp_out_rmap_prepend:
+    - set as-path prepend {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }} {{ site_ASN }}
+</code></pre>
 
+<p>All information defined above will be reused by the <code>bgp</code> template of the <code>routing</code> ansible roles in <code>./roles/routing/template/bgp</code>:</p>
 
-<p>All information defined above will be reused by the <code>bgp</code> template of the <code>routing</code> ansible roles:</p>
+<pre><code>route-map RM-BGP-PREPEND-OUT permit 10
+{%- for clause in bgp_out_rmap_prepend %}
+  {{ clause }}
+{% endfor -%}
 
-<figure class='code'><figcaption><span>./roles/routing/template/bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">route-map RM-BGP-PREPEND-OUT permit 10</span>
-</span><span class='line'><span class="l-Scalar-Plain">{%- for clause in bgp_out_rmap_prepend %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{{ clause }}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{% endfor -%}</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">router bgp {{ site_ASN }}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{%- if inventory_hostname in ebgp_peers %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{%- for neighbor_ip in ebgp_peers[inventory_hostname] %}</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">{%- for option in ebgp_peers[inventory_hostname][neighbor_ip] %}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">neighbor {{ neighbor_ip }} {{ option }}</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">{% endfor -%}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">{% endfor -%}</span>
-</span><span class='line'><span class="l-Scalar-Plain">{% endif -%}</span>
-</span></code></pre></td></tr></table></div></figure>
+router bgp {{ site_ASN }}
+{%- if inventory_hostname in ebgp_peers %}
+  {%- for neighbor_ip in ebgp_peers[inventory_hostname] %}
+    {%- for option in ebgp_peers[inventory_hostname][neighbor_ip] %}
+  neighbor {{ neighbor_ip }} {{ option }}
+    {% endfor -%}
+  {% endfor -%}
+{% endif -%}
+</code></pre>
 
-
-<h2>iBGP configuration automation</h2>
+<h1 id="ibgp-configuration-automation">iBGP configuration automation</h1>
 
 <p>Each site will be running a simple iBGP topology with a single route-reflector with two clients. Each routed device within the new branch will need to have it&rsquo;s iBGP role  defined (server or client).</p>
 
-<figure class='code'><figcaption><span>./group_vars/branch-2/bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">ibgp_topo</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">route_reflector</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">BR2-CORE</span><span class="p-Indicator">]</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">rr_clients</span><span class="p-Indicator">:</span> <span class="p-Indicator">[</span><span class="nv">BR2-WAN1</span><span class="p-Indicator">,</span> <span class="nv">BR2-WAN2</span><span class="p-Indicator">]</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">bgp_originate_redistribute</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-CORE</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">summary</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">static</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">bgp_originate_network</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-WAN1</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Loopback0</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BR2-WAN2</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">Loopback0</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>ibgp_topo:
+  route_reflector: [BR2-CORE]
+  rr_clients: [BR2-WAN1, BR2-WAN2]
 
+bgp_originate_redistribute:
+  BR2-CORE:
+    - summary
+    - static
 
-<p>Special variables that start with <code>bgp_originate_</code> define which subnets should be originated by which router. RR-server will originate site-wide summary and any 3rd party subnets while WAN routers will inject their own loopbacks in order to be remotely accessible even if BR2-CORE goes down. Specific route maps responsible for prefix origination should be defined in the global scope:</p>
+bgp_originate_network:
+  BR2-WAN1:
+    - Loopback0
+  BR2-WAN2:
+    - Loopback0
 
-<figure class='code'><figcaption><span>./group_vars/routing/route-maps</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="l-Scalar-Plain">bgp_redistr_route_maps</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">static</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">match tag {{ tags.static }}</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">set community {{ bgp_comm_static }}</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">summary</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">match tag {{ tags.summary }}</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">set community {{ bgp_comm_summary }}</span>
-</span></code></pre></td></tr></table></div></figure>
+</code></pre>
 
+<p>Special variables that start with <code>bgp_originate_</code> define which subnets should be originated by which router. RR-server will originate site-wide summary and any 3rd party subnets while WAN routers will inject their own loopbacks in order to be remotely accessible even if BR2-CORE goes down. Specific route maps responsible for prefix origination should be defined in the global scope in <code>./group_vars/routing/route-maps</code>:</p>
+
+<pre><code>bgp_redistr_route_maps:
+  static:
+    - match tag {{ tags.static }}
+    - set community {{ bgp_comm_static }}
+  summary:
+    - match tag {{ tags.summary }}
+    - set community {{ bgp_comm_summary }}
+</code></pre>
 
 <p>The resulting configuration for BR2-CORE will looks like this:</p>
 
-<figure class='code'><figcaption><span>./files/BR2-CORE.bgp</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>route-map RM-BGP-FROM-STATIC permit 10
-</span><span class='line'>  match tag 110
-</span><span class='line'>  set community 3:1
-</span><span class='line'>route-map RM-BGP-FROM-SUMMARY permit 10
-</span><span class='line'>  match tag 210
-</span><span class='line'>  set community 3:0
-</span><span class='line'>
-</span><span class='line'>route-map RM-BGP-PREPEND-OUT permit 10
-</span><span class='line'>  set as-path prepend 3 3 3 3 3 3 3
-</span><span class='line'>!
-</span><span class='line'>ip prefix-list PL-ALL-LOOPBACKS permit 0.0.0.0/0 le 32 ge 32
-</span><span class='line'>!
-</span><span class='line'>route-map RM-BGP-FALLOVER permit 10
-</span><span class='line'>  match ip address prefix PL-ALL-LOOPBACKS
-</span><span class='line'>!
-</span><span class='line'>router bgp 3
-</span><span class='line'>  redistribute static route-map RM-BGP-FROM-SUMMARY
-</span><span class='line'>  redistribute static route-map RM-BGP-FROM-STATIC
-</span><span class='line'>  neighbor 10.0.2.49 remote-as 2
-</span><span class='line'>  neighbor RR-CLIENTS peer-group
-</span><span class='line'>  neighbor RR-CLIENTS remote-as 3
-</span><span class='line'>  neighbor RR-CLIENTS update-source Loopback0
-</span><span class='line'>  neighbor RR-CLIENTS fall-over route-map RM-BGP-FALLOVER
-</span><span class='line'>  neighbor RR-CLIENTS route-reflector-client
-</span><span class='line'>  neighbor 10.0.3.2 peer-group RR-CLIENTS
-</span><span class='line'>  neighbor 10.0.3.3 peer-group RR-CLIENTS
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>route-map RM-BGP-FROM-STATIC permit 10
+  match tag 110
+  set community 3:1
+route-map RM-BGP-FROM-SUMMARY permit 10
+  match tag 210
+  set community 3:0
+
+route-map RM-BGP-PREPEND-OUT permit 10
+  set as-path prepend 3 3 3 3 3 3 3
+!
+ip prefix-list PL-ALL-LOOPBACKS permit 0.0.0.0/0 le 32 ge 32
+!
+route-map RM-BGP-FALLOVER permit 10
+  match ip address prefix PL-ALL-LOOPBACKS
+!
+router bgp 3
+  redistribute static route-map RM-BGP-FROM-SUMMARY
+  redistribute static route-map RM-BGP-FROM-STATIC
+  neighbor 10.0.2.49 remote-as 2
+  neighbor RR-CLIENTS peer-group
+  neighbor RR-CLIENTS remote-as 3
+  neighbor RR-CLIENTS update-source Loopback0
+  neighbor RR-CLIENTS fall-over route-map RM-BGP-FALLOVER
+  neighbor RR-CLIENTS route-reflector-client
+  neighbor 10.0.3.2 peer-group RR-CLIENTS
+  neighbor 10.0.3.3 peer-group RR-CLIENTS
+</code></pre>
+
+<h1 id="conclusion">Conclusion</h1>
+
+<p>This post concludes the series of articles describing how to automate enteprise network configuration. We first looked at how to automate <a href="/blog/2015/08/14/automating-legacy-networks/">legacy network configuration</a>, interface and OSPF configuration for the <a href="/blog/2015/08/26/automating-network-build-p1/">new network build</a> and, finally, BGP configuration. Full version of files and scripts can be found in <a href="https://github.com/networkop/cisco-ansible-provisioning" target="_blank">my github repository</a>.</p>
+
+      </div>
+
+      
 
 
-<h2>Conclusion</h2>
-
-<p>This post concludes the series of articles describing how to automate enteprise network configuration. We first looked at how to automate <a href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">legacy network configuration</a>, interface and OSPF configuration for the <a href="http://networkop.github.io/blog/2015/08/26/automating-network-build-p1/">new network build</a> and, finally, BGP configuration. Full version of files and scripts can be found in <a href="https://github.com/networkop/cisco-ansible-provisioning">my github repository</a>.</p>
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-ansible">network-ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible">Ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-09-03T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">03/09/2015</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/network/'>network</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/09/03/automating-bgp-config/" data-via="" data-counturl="http://networkop.github.io/blog/2015/09/03/automating-bgp-config/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2015/09/03/automating-bgp-config/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2015/08/26/automating-network-build-p1/">Automating New Network Build - Part 1</a></li>
+    
+    <li><a href="/blog/2015/08/14/automating-legacy-networks/">Automating Legacy Network Configuration</a></li>
+    
+    <li><a href="/blog/2015/08/07/configuration-automation/">Network Configuration Automation</a></li>
+    
+    <li><a href="/blog/2015/07/17/tdd-quickstart/">Network TDD Quickstart Guide</a></li>
+    
+    <li><a href="/blog/2015/07/10/test-verification/">Verifying TDD Scenarios</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2015/08/26/automating-network-build-p1/" title="Previous Post: Automating new network build - Part 1">&laquo; Automating new network build - Part 1</a></li>
-            
-            
-            <li class="next"><a href="/blog/2015/11/13/automating-flexvpn-config/" title="Next Post: Automating the build of FlexVPN network">Automating the build of FlexVPN network &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2015/09/03/automating-bgp-config/';
-        var disqus_url = 'http://networkop.github.io/blog/2015/09/03/automating-bgp-config/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

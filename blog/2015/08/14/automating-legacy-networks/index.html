@@ -1,328 +1,418 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Automating Legacy Network Configuration - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Automating Legacy Network Configuration">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="A lot of configuration files referenced throughout this post will be omitted for the sake of brevity, however all of them can be found in my github repository.
+Legacy network overview The network I&rsquo;m using for demonstration is a cut-down version of a typical enterprise network. At this point of time it consists of a branch office network and a central DC network interconnected via redundant WAN links. The branch office consists of a main computer room hosting all core network devices and interconnecting with access switches on each of the office floors.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2015/08/14/automating-legacy-networks/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/">
-  <meta property="og:title" content="Automating Legacy Network Configuration - Network-oriented programming">
-  <meta property="og:description" content="Automating Legacy Network Configuration">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2015/08/14/automating-legacy-networks/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2015/08/14/automating-legacy-networks/">
+  <meta property="og:title" content="Automating Legacy Network Configuration | Network-oriented programming">
+  <meta property="og:description" content="A lot of configuration files referenced throughout this post will be omitted for the sake of brevity, however all of them can be found in my github repository.
+Legacy network overview The network I&rsquo;m using for demonstration is a cut-down version of a typical enterprise network. At this point of time it consists of a branch office network and a central DC network interconnected via redundant WAN links. The branch office consists of a main computer room hosting all core network devices and interconnecting with access switches on each of the office floors.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2015-08-14T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2015-08-14T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Automating Legacy Network Configuration | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Automating Legacy Network Configuration</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2015-08-14 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      14 Aug 2015
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    7 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2015/08/14/automating-legacy-networks/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Automating%20Legacy%20Network%20Configuration&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f08%2f14%2fautomating-legacy-networks%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f08%2f14%2fautomating-legacy-networks%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f08%2f14%2fautomating-legacy-networks%2f&amp;title=Automating%20Legacy%20Network%20Configuration"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Automating%20Legacy%20Network%20Configuration&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f08%2f14%2fautomating-legacy-networks%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>A lot of configuration files referenced throughout this post will be omitted for the sake of brevity, however all of them can be found in my <a href="https://github.com/networkop/cisco-ansible-provisioning" target="_blank">github repository</a>.</p>
 
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-08-14T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">14/08/2015</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Automating Legacy Network Configuration
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll show how to take an already established network, pull out some of the common configuration pieces and put them all into a standard Ansible environment. A lot of configuration files will be omitted for the sake of brevity, however all of them can be found on my <a href="https://github.com/networkop/cisco-ansible-provisioning">github repository</a>.</p>
-
-<!--more-->
-
-
-<h2>Legacy network overview</h2>
+<h1 id="legacy-network-overview">Legacy network overview</h1>
 
 <p>The network I&rsquo;m using for demonstration is a cut-down version of a typical enterprise network. At this point of time it consists of a branch office network and a central DC network interconnected via redundant WAN links.
-The branch office consists of a main computer room hosting all core network devices and interconnecting with access switches on each of the office floors. Data Centre consists of a comms rack hosting all networking devices and a compute rack with <abbr title="Top-Of-the-Rack">TOR</abbr> switch connected back to the core.</p>
+The branch office consists of a main computer room hosting all core network devices and interconnecting with access switches on each of the office floors. Data Centre consists of a comms rack hosting all networking devices and a compute rack with <a href="abbr:Top-Of-the-Rack" target="_blank">TOR</a> switch connected back to the core.</p>
 
-<p><img class="centre" src="/images/legacy-network-design.png" title="Legacy Network Topology" ></p>
+<p><img src="/img/legacy-network-design.png" alt="Legacy Network Topology" /></p>
 
-<h2>Ansible environment setup</h2>
+<h1 id="ansible-environment-setup">Ansible environment setup</h1>
 
-<p>As per the Ansible&rsquo;s <a href="http://docs.ansible.com/ansible/playbooks_best_practices.html">best practices</a> all configuration tasks are split into separate <code>roles</code>. Variables will be assigned to groups and we&rsquo;ll use host-specific variables to override them if necessary. A special directory <code>./files</code> will store all Ansible-generated configuration files.</p>
+<p>As per the Ansible&rsquo;s <a href="http://docs.ansible.com/ansible/playbooks_best_practices.html" target="_blank">best practices</a> all configuration tasks are split into separate <code>roles</code>. Variables will be assigned to groups and we&rsquo;ll use host-specific variables to override them if necessary. A special directory <code>./files</code> will store all Ansible-generated configuration files.</p>
 
-<figure class='code'><figcaption><span>Ansible directory structure</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>drwxr-xr-x  <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:54 host_vars
-</span><span class='line'>drwxrwxrwx  <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 16:32 files
-</span><span class='line'>drwxr-xr-x  <span class="m">7</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:56 group_vars
-</span><span class='line'>drwxr-xr-x  <span class="m">7</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 15:18 roles
-</span><span class='line'>-rw-r--r--  <span class="m">1</span> root root  <span class="m">120</span> Jul <span class="m">12</span> 19:57 ansible.cfg
-</span><span class='line'>-rw-r--r--  <span class="m">1</span> root root  <span class="m">549</span> Jul <span class="m">12</span> 15:20 hosts
-</span><span class='line'>-rw-r--r--  <span class="m">1</span> root root  <span class="m">104</span> Jul <span class="m">12</span> 15:20 init.yml
-</span><span class='line'>-rw-r--r--  <span class="m">1</span> root root  <span class="m">240</span> Jul <span class="m">12</span> 15:20 site.yml
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-bash">drwxr-xr-x  2 root root 4096 Jul 12 20:54 host_vars
+drwxrwxrwx  2 root root 4096 Jul 12 16:32 files
+drwxr-xr-x  7 root root 4096 Jul 12 20:56 group_vars
+drwxr-xr-x  7 root root 4096 Jul 12 15:18 roles
+-rw-r--r--  1 root root  120 Jul 12 19:57 ansible.cfg
+-rw-r--r--  1 root root  549 Jul 12 15:20 hosts
+-rw-r--r--  1 root root  104 Jul 12 15:20 init.yml
+-rw-r--r--  1 root root  240 Jul 12 15:20 site.yml
+</code></pre>
 
 <p>All network devices will be defined within two sets of groups - geographical and functional. This dual-homing of devices in multiple groups will give us greater flexibility when it comes to variable assignment and device configuration.</p>
 
-<figure class='code'><figcaption><span>./hosts</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-<span class='line-number'>32</span>
-<span class='line-number'>33</span>
-<span class='line-number'>34</span>
-<span class='line-number'>35</span>
-<span class='line-number'>36</span>
-<span class='line-number'>37</span>
-<span class='line-number'>38</span>
-<span class='line-number'>39</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>acme:children<span class="o">]</span>
-</span><span class='line'>DC
-</span><span class='line'>branch-1
-</span><span class='line'>
-</span><span class='line'><span class="o">[</span>DC<span class="o">]</span>
-</span><span class='line'>DC-CORE <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.1.1
-</span><span class='line'>DC-WAN-1 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.1.2
-</span><span class='line'>DC-WAN-2 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.1.3
-</span><span class='line'>DC-TOR <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.1.130
-</span><span class='line'>
-</span><span class='line'><span class="o">[</span>branch-1<span class="o">]</span>
-</span><span class='line'>BR-1-CORE <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.1
-</span><span class='line'>BR-1-WAN-1 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.2
-</span><span class='line'>BR-1-WAN-2 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.3
-</span><span class='line'>BR-1-AS01 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.130
-</span><span class='line'>BR-1-AS02 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.131
-</span><span class='line'>BR-1-AS03 <span class="nv">ansible_ssh_host</span><span class="o">=</span>10.0.2.132
-</span><span class='line'>
-</span><span class='line'><span class="o">[</span>routers<span class="o">]</span>
-</span><span class='line'>DC-CORE
-</span><span class='line'>DC-WAN-1
-</span><span class='line'>DC-WAN-2
-</span><span class='line'>BR-1-CORE
-</span><span class='line'>BR-1-WAN-1
-</span><span class='line'>BR-1-WAN-2
-</span><span class='line'>
-</span><span class='line'><span class="o">[</span>switches:children<span class="o">]</span>
-</span><span class='line'>access_switches
-</span><span class='line'>core_switches
-</span><span class='line'>
-</span><span class='line'><span class="o">[</span>core_switches<span class="o">]</span>
-</span><span class='line'>DC-CORE
-</span><span class='line'>BR-1-CORE
-</span><span class='line'>
-</span><span class='line'><span class="o">[</span>access_switches<span class="o">]</span>
-</span><span class='line'>DC-TOR
-</span><span class='line'>BR-1-AS01
-</span><span class='line'>BR-1-AS02
-</span><span class='line'>BR-1-AS03
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">[acme:children]
+DC
+branch-1
 
+[DC]
+DC-CORE ansible_ssh_host=10.0.1.1
+DC-WAN-1 ansible_ssh_host=10.0.1.2
+DC-WAN-2 ansible_ssh_host=10.0.1.3
+DC-TOR ansible_ssh_host=10.0.1.130
 
-<h2>Create variables</h2>
+[branch-1]
+BR-1-CORE ansible_ssh_host=10.0.2.1
+BR-1-WAN-1 ansible_ssh_host=10.0.2.2
+BR-1-WAN-2 ansible_ssh_host=10.0.2.3
+BR-1-AS01 ansible_ssh_host=10.0.2.130
+BR-1-AS02 ansible_ssh_host=10.0.2.131
+BR-1-AS03 ansible_ssh_host=10.0.2.132
+
+[routers]
+DC-CORE
+DC-WAN-1
+DC-WAN-2
+BR-1-CORE
+BR-1-WAN-1
+BR-1-WAN-2
+
+[switches:children]
+access_switches
+core_switches
+
+[core_switches]
+DC-CORE
+BR-1-CORE
+
+[access_switches]
+DC-TOR
+BR-1-AS01
+BR-1-AS02
+BR-1-AS03
+</code></pre>
+
+<h1 id="create-variables">Create variables</h1>
 
 <p>Now we need to create variables we&rsquo;ll use in our template files. To do that we&rsquo;ll create another directory structure within the <code>./group_vars</code> directory</p>
 
-<figure class='code'><figcaption><span>ls -la ./group_vars</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">13</span> 04:41 access_switches
-</span><span class='line'>-rw-r--r-- <span class="m">1</span> root root  <span class="m">118</span> Jul <span class="m">12</span> 15:21 all
-</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:55 branch-1
-</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:56 branch-2
-</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 20:54 DC
-</span><span class='line'>-rw-r--r-- <span class="m">1</span> root root  <span class="m">120</span> Jul <span class="m">12</span> 15:21 passwords
-</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">12</span> 15:20 routers
-</span><span class='line'>drwxr-xr-x <span class="m">2</span> root root <span class="m">4096</span> Jul <span class="m">13</span> 04:41 switches
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">drwxr-xr-x 2 root root 4096 Jul 13 04:41 access_switches
+-rw-r--r-- 1 root root  118 Jul 12 15:21 all
+drwxr-xr-x 2 root root 4096 Jul 12 20:55 branch-1
+drwxr-xr-x 2 root root 4096 Jul 12 20:56 branch-2
+drwxr-xr-x 2 root root 4096 Jul 12 20:54 DC
+-rw-r--r-- 1 root root  120 Jul 12 15:21 passwords
+drwxr-xr-x 2 root root 4096 Jul 12 15:20 routers
+drwxr-xr-x 2 root root 4096 Jul 13 04:41 switches
+</code></pre>
 
+<p>The two files - <code>all</code> and <code>passwords</code> will contain variables relevant to network as a whole and confidential information respectively. Each of the directories within <code>./group_vars</code> corresponds to a particular inventory group. Within those directories there are files containing group-specific variables, like <code>./group_vars/routers/common</code> below:</p>
 
-<p>The two files - <code>all</code> and <code>passwords</code> will contain variables relevant to network as a whole and confidential information respectively. Each of the directories within <code>./group_vars</code> corresponds to a particular inventory group. Within those directories there are files containing group-specific variables, like the one below:</p>
+<pre><code class="language-bash">
+management_interface: Loopback0
 
-<figure class='code'><figcaption><span>./group_vars/routers/common</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>---
-</span><span class='line'>management_interface: Loopback0
-</span><span class='line'>
-</span><span class='line'>external_interface_bw:
-</span><span class='line'>  DC-WAN-1:
-</span><span class='line'>    Ethernet0/1: 10000
-</span><span class='line'>  DC-WAN-2:
-</span><span class='line'>    Ethernet0/1: 5000
-</span><span class='line'>  BR-1-WAN-1:
-</span><span class='line'>    Ethernet0/0: 10000
-</span><span class='line'>  BR-1-WAN-2:
-</span><span class='line'>    Ethernet0/0: 5000
-</span></code></pre></td></tr></table></div></figure>
-
+external_interface_bw:
+  DC-WAN-1:
+    Ethernet0/1: 10000
+  DC-WAN-2:
+    Ethernet0/1: 5000
+  BR-1-WAN-1:
+    Ethernet0/0: 10000
+  BR-1-WAN-2:
+    Ethernet0/0: 5000
+</code></pre>
 
 <p>This file contains management interface for all routed devices as well as external interface bandwidth information which will be used for QoS configuration later.</p>
 
-<h2>Create device configuration templates</h2>
+<h1 id="create-device-configuration-templates">Create device configuration templates</h1>
 
-<p>To get started, we need to dump running configuration from all network devices and put it into Jinja templates. This only needs to be done once by running <code>ansible-playbook init.yml</code> command. This playbook uses <code>raw</code> module to get the running configuration from each device and stores this information in <code>./roles/non-standard/templates/{{inventory_hostname}}.j2</code> files.</p>
+<p>To get started, we need to dump running configuration from all network devices and put it into Jinja templates. This only needs to be done once by running <code>ansible-playbook init.yml</code> command. This playbook uses <code>raw</code> module to get the running configuration from each device and stores this information in <code>./roles/non-standard/templates/{{&quot;{{inventory_hostname&quot;}}}}.j2</code> files.</p>
 
-<h2>System management configuration automation</h2>
+<h1 id="system-management-configuration-automation">System management configuration automation</h1>
 
 <p>Now, it&rsquo;s finally time to do some automation. Since all our devices have similar configuration of AAA, SYSLOG, NTP, VTY and SNMP we can easily remove these parts from <code>non-standard</code> templates and put them into a <code>management</code> role.
 To do this we&rsquo;ll:</p>
@@ -333,566 +423,299 @@ To do this we&rsquo;ll:</p>
 <li>Remove the duplicate lines from each of the templates in <code>non-standard</code> role</li>
 </ol>
 
+<p>The main management template <code>./roles/management/templates/management.j2</code> will have a number of references to other template files</p>
 
-<p>The main management template will have a number of references to other template files</p>
+<pre><code class="language-json">{% include &quot;services.j2&quot; %}
+!
+{% include &quot;aaa.j2&quot; %}
+!
+clock timezone {{ time_zone_name }} {{ time_zone_hours }} {{ time_zone_minutes }}
+!
+ip domain-name {{ domain_name }}
+no ip domain-lookup
+!
+{% include &quot;logging.j2&quot; %}
+!
+{% include &quot;snmp.j2&quot; %}
+!
+{% include &quot;ntp.j2&quot; %}
+!
+{% include &quot;ssh.j2&quot; %}
+!
+{% include &quot;vty.j2&quot; %}
+</code></pre>
 
-<figure class='code'><figcaption><span>./roles/management/templates/management.j2</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-</pre></td><td class='code'><pre><code class='jinja'><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;services.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">!</span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;aaa.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">!</span>
-</span><span class='line'><span class="x">clock timezone </span><span class="cp">{{</span> <span class="nv">time_zone_name</span> <span class="cp">}}</span><span class="x"> </span><span class="cp">{{</span> <span class="nv">time_zone_hours</span> <span class="cp">}}</span><span class="x"> </span><span class="cp">{{</span> <span class="nv">time_zone_minutes</span> <span class="cp">}}</span><span class="x"></span>
-</span><span class='line'><span class="x">!</span>
-</span><span class='line'><span class="x">ip domain-name </span><span class="cp">{{</span> <span class="nv">domain_name</span> <span class="cp">}}</span><span class="x"></span>
-</span><span class='line'><span class="x">no ip domain-lookup</span>
-</span><span class='line'><span class="x">!</span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;logging.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">!</span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;snmp.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">!</span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;ntp.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">!</span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;ssh.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">!</span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">include</span> <span class="s2">&quot;vty.j2&quot;</span> <span class="cp">%}</span><span class="x"></span>
-</span></code></pre></td></tr></table></div></figure>
+<p>Each of the included template files will contain only relevant configuration and will have some of its values replaced with variables, like the <code>snmp.j2</code> below:</p>
 
+<pre><code class="language-json">snmp-server community {{ snmp_ro_community }} RO
+snmp-server trap-source {{ management_interface }}
+snmp-server contact {{ snmp_contact }}
+{% for ip in snmp_servers %}
+snmp-server host {{ ip }} {{ snmp_servers[ip] }}
+{% endfor %}
+</code></pre>
 
-<p>Each of the included template files will contain only relevant configuration and will have some of its values replaced with variables:</p>
-
-<figure class='code'><figcaption><span>./roles/management/templates/snmp.j2</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-</pre></td><td class='code'><pre><code class='jinja'><span class='line'><span class="x">snmp-server community </span><span class="cp">{{</span> <span class="nv">snmp_ro_community</span> <span class="cp">}}</span><span class="x"> RO</span>
-</span><span class='line'><span class="x">snmp-server trap-source </span><span class="cp">{{</span> <span class="nv">management_interface</span> <span class="cp">}}</span><span class="x"></span>
-</span><span class='line'><span class="x">snmp-server contact </span><span class="cp">{{</span> <span class="nv">snmp_contact</span> <span class="cp">}}</span><span class="x"></span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">for</span> <span class="nv">ip</span> <span class="k">in</span> <span class="nv">snmp_servers</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">snmp-server host </span><span class="cp">{{</span> <span class="nv">ip</span> <span class="cp">}}</span><span class="x"> </span><span class="cp">{{</span> <span class="nv">snmp_servers</span><span class="o">[</span><span class="nv">ip</span><span class="o">]</span> <span class="cp">}}</span><span class="x"></span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">endfor</span> <span class="cp">%}</span><span class="x"></span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>Access switchport configuration</h2>
+<h1 id="access-switchport-configuration">Access switchport configuration</h1>
 
 <p>The trickiest part with automating switchport configuration is picking the right data structure to hold that information. There can be many switchport numbering schemes depending on whether the switches are stacked or the module number within the switch. I&rsquo;ve decided to store all switchport allocation as port ranges defined for a particular VLAN. The variable will be a hash (dictionary) with VLAN number as keys and another dictionary as value. That other dictionary will have a <code>EtherTypeSwitch/Module</code> as a key and list of ranges as values, where each range is defined with a start and stop value. In our case the switches are not stacked so the <code>EtherTypeSwitch/Module</code> key can be reduced to simply <code>EtherTypeModule</code>. The below variable defines VLAN 10 on ports <code>Ethernet0/0-3</code> and <code>Ethernet2/0-3</code>:</p>
 
-<figure class='code'><figcaption><span>./group_vars/switches/access_switches/access_ports</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'>---
-</span><span class='line'>access_ports:
-</span><span class='line'>  10:
-</span><span class='line'>    Ethernet0:
-</span><span class='line'>      - - 0
-</span><span class='line'>        - 3
-</span><span class='line'>    Ethernet2:
-</span><span class='line'>      - - 0
-</span><span class='line'>        - 3
-</span><span class='line'>  30:
-</span><span class='line'>    Ethernet3:
-</span><span class='line'>      - - 0
-</span><span class='line'>        - 3
-</span><span class='line'>  50:
-</span><span class='line'>    Ethernet5:
-</span><span class='line'>      - - 0
-</span><span class='line'>        - 3
-</span><span class='line'>  40:
-</span><span class='line'>    Ethernet4:
-</span><span class='line'>      - - 0
-</span><span class='line'>        - 3
-</span><span class='line'>  999:
-</span><span class='line'>    Ethernet0:
-</span><span class='line'>      - - 1
-</span><span class='line'>        - 3
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">
+access_ports:
+  10:
+    Ethernet0:
+      - - 0
+        - 3
+    Ethernet2:
+      - - 0
+        - 3
+  30:
+    Ethernet3:
+      - - 0
+        - 3
+  50:
+    Ethernet5:
+      - - 0
+        - 3
+  40:
+    Ethernet4:
+      - - 0
+        - 3
+  999:
+    Ethernet0:
+      - - 1
+        - 3
 
+</code></pre>
 
-<p>Should the switch configuration differ from the above &lsquo;standard&rsquo; (e.g. DC-TOR in our case) it can be included in a host-specific file under <code>./host_vars</code> directory which will override the variable defined above.<br/>
+<p>Should the switch configuration differ from the above &lsquo;standard&rsquo; (e.g. DC-TOR in our case) it can be included in a host-specific file under <code>./host_vars</code> directory which will override the variable defined above.<br />
 The template which will generate the switchport configuration is designed to have VLAN-specific configuration elements like port shutdown in case the VLAN is unused or an additional voice vlan number.</p>
 
-<figure class='code'><figcaption><span>roles/access-ports/templates/access-ports.j2</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-</pre></td><td class='code'><pre><code class='jinja'><span class='line'><span class="cp">{%</span>- <span class="k">for</span> <span class="nv">vlan</span> <span class="k">in</span> <span class="nv">access_ports</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">  </span><span class="cp">{%</span>- <span class="k">for</span> <span class="nv">sw_module</span> <span class="k">in</span> <span class="nv">access_ports</span><span class="o">[</span><span class="nv">vlan</span><span class="o">]</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">    </span><span class="cp">{%</span>- <span class="k">for</span> <span class="nv">int_range</span> <span class="k">in</span> <span class="nv">access_ports</span><span class="o">[</span><span class="nv">vlan</span><span class="o">][</span><span class="nv">sw_module</span><span class="o">]</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">      </span><span class="cp">{%</span>- <span class="k">for</span> <span class="nv">x</span> <span class="k">in</span> <span class="nv">range</span><span class="o">(</span><span class="nv">int_range</span><span class="o">[</span><span class="m">0</span><span class="o">],</span><span class="nv">int_range</span><span class="o">[</span><span class="m">1</span><span class="o">])</span> <span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">        interface range </span><span class="cp">{{</span> <span class="nv">sw_module</span> <span class="cp">}}</span><span class="x">/</span><span class="cp">{{</span> <span class="nv">x</span> <span class="cp">}}</span><span class="x"></span>
-</span><span class='line'><span class="x">        switchport mode access</span>
-</span><span class='line'><span class="x">        switchport access vlan </span><span class="cp">{{</span> <span class="nv">vlan</span> <span class="cp">}}</span><span class="x"></span>
-</span><span class='line'><span class="x">        switchport spanning-tree portfast</span>
-</span><span class='line'><span class="x">        </span><span class="cp">{%</span> <span class="k">if</span> <span class="nv">vlan</span> <span class="o">==</span> <span class="m">999</span> -<span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">        shutdown</span>
-</span><span class='line'><span class="x">        </span><span class="cp">{%</span> <span class="k">endif</span> -<span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">        </span><span class="cp">{%</span> <span class="k">if</span> <span class="nv">vlan</span> <span class="o">==</span> <span class="m">10</span> -<span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">        switchport voice vlan 20</span>
-</span><span class='line'><span class="x">        </span><span class="cp">{%</span> <span class="k">endif</span> -<span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">      </span><span class="cp">{%</span> <span class="k">endfor</span> -<span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">    </span><span class="cp">{%</span> <span class="k">endfor</span> -<span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="x">  </span><span class="cp">{%</span> <span class="k">endfor</span> -<span class="cp">%}</span><span class="x"></span>
-</span><span class='line'><span class="cp">{%</span> <span class="k">endfor</span> -<span class="cp">%}</span><span class="x"></span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-json">{%- for vlan in access_ports %}
+  {%- for sw_module in access_ports[vlan] %}
+    {%- for int_range in access_ports[vlan][sw_module] %}
+      {%- for x in range(int_range[0],int_range[1]) %}
+        interface range {{ sw_module }}/{{ x }}
+        switchport mode access
+        switchport access vlan {{ vlan }}
+        switchport spanning-tree portfast
+        {% if vlan == 999 -%}
+        shutdown
+        {% endif -%}
+        {% if vlan == 10 -%}
+        switchport voice vlan 20
+        {% endif -%}
+      {% endfor -%}
+    {% endfor -%}
+  {% endfor -%}
+{% endfor -%}
+</code></pre>
 
+<h1 id="vlans-configuration">VLANs configuration</h1>
 
-<h2>VLANs configuration</h2>
+<p>The other common bit amongst most of the switches is VLAN and STP configuration. This can be easily extracted and put into a separate <code>vlans</code> role. To allocate VLANs we&rsquo;ll use the <code>group_vars/switches/vlans</code> file with the following variables:</p>
 
-<p>The other common bit amongst most of the switches is VLAN and STP configuration. This can be easily extracted and put into a separate <code>vlans</code> role. To allocate VLANs we&rsquo;ll use the following variable:</p>
+<pre><code>vlans:
+  10: DATA
+  20: VOICE
+  30: MGMT
+  40: PRINTER
+  50: WLAN
+  999: UNUSED
+</code></pre>
 
-<figure class='code'><figcaption><span>group_vars/switches/vlans</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="l-Scalar-Plain">vlans</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">10</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">DATA</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">20</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">VOICE</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">30</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">MGMT</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">40</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">PRINTER</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">50</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">WLAN</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">999</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">UNUSED</span>
-</span></code></pre></td></tr></table></div></figure>
-
-
-<h2>QoS configuration</h2>
+<h1 id="qos-configuration">QoS configuration</h1>
 
 <p>QoS configuration automation is relatively easy. Once we&rsquo;ve identifies the common configuration commands and removed them from <code>non-standard</code> templates, we will put them into their own <code>wan-qos</code> role and use the <code>external_interface_bw</code> variable defined above to populate the QoS template.</p>
 
-<h2>Site Playbook</h2>
+<h1 id="site-playbook">Site Playbook</h1>
 
-<p>Finally we&rsquo;ll combine all the roles defined above in a single playbook which will generate configuration files for all devices under <code>./files</code> directory.</p>
+<p>Finally we&rsquo;ll combine all the roles defined above in a single playbook <code>./site.yml</code> which will generate configuration files for all devices and place them under <code>./files</code> directory.</p>
 
-<figure class='code'><figcaption><span>./site.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">acme</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">vars_files</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">group_vars/passwords</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">roles</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">non-standard</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">management</span>
-</span><span class='line'>
-</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">routers</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">roles</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">wan-qos</span>
-</span><span class='line'>
-</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">switches</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">connection</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">local</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">roles</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">access-ports</span>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">vlans</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>- hosts: acme
+  gather_facts: false
+  connection: local
+  vars_files:
+  - group_vars/passwords
+  roles:
+    - non-standard
+    - management
 
+- hosts: routers
+  gather_facts: false
+  connection: local
+  roles:
+    - wan-qos
+
+- hosts: switches
+  gather_facts: false
+  connection: local
+  roles:
+    - access-ports
+    - vlans
+</code></pre>
 
 <p>By this time <code>.non-standard</code> files should only contain inter-device link and routing configuration. All management, access switchport, VLANs and QoS configuration has been removed and allocated to different roles.</p>
 
 <hr />
 
 <p>This post demonstrated how to abstract common pieces of configuration and lay the groundwork for future site provisioning and enterprise-wide configuration changes. In the next post I&rsquo;ll show how to use the information collected so far to automate the build of a new branch office network.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-ansible">network-ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible">Ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-08-14T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">14/08/2015</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/network/'>network</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/" data-via="" data-counturl="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2015/08/07/configuration-automation/">Network Configuration Automation</a></li>
+    
+    <li><a href="/blog/2015/07/17/tdd-quickstart/">Network TDD Quickstart Guide</a></li>
+    
+    <li><a href="/blog/2015/07/10/test-verification/">Verifying TDD Scenarios</a></li>
+    
+    <li><a href="/blog/2015/07/03/parser-modules/">Developing Custom Ansible Modules</a></li>
+    
+    <li><a href="/blog/2015/06/24/ansible-intro/">Getting Started With Ansible for Cisco IOS</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2015/08/07/configuration-automation/" title="Previous Post: Network configuration automation">&laquo; Network configuration automation</a></li>
-            
-            
-            <li class="next"><a href="/blog/2015/08/26/automating-network-build-p1/" title="Next Post: Automating new network build - Part 1">Automating new network build - Part 1 &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/';
-        var disqus_url = 'http://networkop.github.io/blog/2015/08/14/automating-legacy-networks/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

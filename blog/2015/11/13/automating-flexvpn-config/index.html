@@ -1,163 +1,324 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Automating the Build of FlexVPN Network - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="FlexVPN configuration automation">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="In this post I will also introduce two concepts that are frequently used in software development world - DRY and &ldquo;Convention over Configuration&rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on Packetpushers.
+FlexVPN network overview FlexVPN topology will consist of two FlexVPN &ldquo;clouds&rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds.">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2015/11/13/automating-flexvpn-config/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/">
-  <meta property="og:title" content="Automating the Build of FlexVPN Network - Network-oriented programming">
-  <meta property="og:description" content="FlexVPN configuration automation">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2015/11/13/automating-flexvpn-config/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2015/11/13/automating-flexvpn-config/">
+  <meta property="og:title" content="Automating the Build of a FlexVPN Network | Network-oriented programming">
+  <meta property="og:description" content="In this post I will also introduce two concepts that are frequently used in software development world - DRY and &ldquo;Convention over Configuration&rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on Packetpushers.
+FlexVPN network overview FlexVPN topology will consist of two FlexVPN &ldquo;clouds&rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2015-11-13T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2015-11-13T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Automating the Build of a FlexVPN Network | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Automating the Build of a FlexVPN Network</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2015-11-13 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      13 Nov 2015
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    5 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2015/11/13/automating-flexvpn-config/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Automating%20the%20Build%20of%20a%20FlexVPN%20Network&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f11%2f13%2fautomating-flexvpn-config%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f11%2f13%2fautomating-flexvpn-config%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f11%2f13%2fautomating-flexvpn-config%2f&amp;title=Automating%20the%20Build%20of%20a%20FlexVPN%20Network"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Automating%20the%20Build%20of%20a%20FlexVPN%20Network&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f11%2f13%2fautomating-flexvpn-config%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
+<p>In this post I will also introduce two concepts that are frequently used in software development world - <a href="abbr:Do Not Repeat Yourself" target="_blank">DRY</a> and &ldquo;Convention over Configuration&rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on <a href="http://packetpushers.net/cisco-flexvpn-dmvpn-high-level-design/" target="_blank">Packetpushers</a>.</p>
 
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-11-13T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">13/11/2015</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Automating the Build of FlexVPN Network
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>In this post I&rsquo;ll show how to automatically build configuration files for Hubs and Spokes in FlexVPN network topology. I will also introduce two concepts that are frequently used in software development world - <abbr title="Do Not Repeat Yourself">DRY</abbr> and &ldquo;Convention over Configuration&rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
-
-<!--more-->
-
-
-<h2>FlexVPN network overview</h2>
+<h1 id="flexvpn-network-overview">FlexVPN network overview</h1>
 
 <p>FlexVPN topology will consist of two FlexVPN &ldquo;clouds&rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds. The two Hubs are interconnected by a direct site-to-site FlexVPN tunnel. To provide additional redundancy one Hub (HUB-1) and one Spoke (SPOKE-1) will have dual WAN links.</p>
 
-<p><img class="centre" src="/images/flexvpn-topo.png" title="FlexVPN topology" ></p>
+<p><img src="/img/flexvpn-topo.png" alt="FlexVPN topology" /></p>
 
-<h2>Assumptions</h2>
+<h1 id="assumptions">Assumptions</h1>
 
 <p>All FlexVPN devices will be using PKI-based authentication. However, in this post I will not cover the setup of PKI infrastructure and simply assume that all Hubs and Spokes are already enrolled with the appropriate CA. Following are the assumptions about the specifics of PKI setup on each router:</p>
 
@@ -168,535 +329,291 @@
 <li>Each certificate&rsquo;s trustpoint will be called &ldquo;PKI-CLOUD-X&rdquo;, where X is 1 or 2 depending on FlexVPN cloud</li>
 </ul>
 
-
 <p>As an example, SPOKE-3 will have the following trustpoint configured for FlexVPN cloud #1:</p>
 
-<figure class='code'><figcaption><span>PKI trustpoint #1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>crypto pki trustpoint PKI-CLOUD-1
-</span><span class='line'> enrollment url http://120.0.0.2:80
-</span><span class='line'> serial-number
-</span><span class='line'> fingerprint 2BE13A4FF167CEB770A24B2D6716033E
-</span><span class='line'> subject-name CN=SPOKE-3.cloud.one,OU=GREEN
-</span><span class='line'> vrf FVRF
-</span><span class='line'> revocation-check crl
-</span><span class='line'> rsakeypair CLOUD-1
-</span><span class='line'> auto-enroll
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>crypto pki trustpoint PKI-CLOUD-1
+ enrollment url http://120.0.0.2:80
+ serial-number
+ fingerprint 2BE13A4FF167CEB770A24B2D6716033E
+ subject-name CN=SPOKE-3.cloud.one,OU=GREEN
+ vrf FVRF
+ revocation-check crl
+ rsakeypair CLOUD-1
+ auto-enroll
+</code></pre>
 
-
-<h2>Convention over Configuration</h2>
+<h1 id="convention-over-configuration">Convention over Configuration</h1>
 
 <p>This is where it&rsquo;d make sense to introduce the concept of Convention over Configuration. The fact that we&rsquo;ve assumed that all trustpoints will have the prefix of &ldquo;PKI-CLOUD-&rdquo; (convention) makes configuration templates a lot easier. Without it we could have allowed ANY naming of PKI trustpoint but then it should have been defined as a separate variable for every Spoke. Effectively we&rsquo;re sacrificing some level flexibility in favour of brevity (and simplicity). This principle has been popularised by Ruby on Rails web framework and is widely used in other modern web frameworks.</p>
 
-<h2>FlexVPN inventory file</h2>
+<h1 id="flexvpn-inventory-file">FlexVPN inventory file</h1>
 
 <p>Before we start working with Ansible, we need to populate host inventory file. A parent &ldquo;FLEXVPN&rdquo; group will include two children groups - &ldquo;HUBS&rdquo; and &ldquo;SPOKES&rdquo;. The latter will be subdivided into three groups - &ldquo;GREEN&rdquo;, &ldquo;BLUE&rdquo; or &ldquo;RED&rdquo;. Each spoke will be assigned to a group base on its X.509 OU value. Additionally, in order to keep configuration templates simpler, we&rsquo;ll treat multi-vrf SPOKE-1 as two different routers - SPOKE1_1 and SPOKE1_2:</p>
 
-<figure class='code'><figcaption><span>./hosts </span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="p-Indicator">[</span><span class="nv">FLEXVPN</span><span class="p-Indicator">:</span><span class="nv">children</span><span class="p-Indicator">]</span>
-</span><span class='line'><span class="l-Scalar-Plain">HUBS</span>
-</span><span class='line'><span class="l-Scalar-Plain">SPOKES</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">[HUBS]</span>
-</span><span class='line'><span class="l-Scalar-Plain">HUB-1</span>
-</span><span class='line'><span class="l-Scalar-Plain">HUB-2</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">[SPOKES:children]</span>
-</span><span class='line'><span class="l-Scalar-Plain">GREEN</span>
-</span><span class='line'><span class="l-Scalar-Plain">BLUE</span>
-</span><span class='line'><span class="l-Scalar-Plain">RED</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">[RED]</span>
-</span><span class='line'><span class="l-Scalar-Plain">SPOKE-1_1</span>
-</span><span class='line'><span class="l-Scalar-Plain">SPOKE-1_2</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">[BLUE]</span>
-</span><span class='line'><span class="l-Scalar-Plain">SPOKE-2</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">[GREEN]</span>
-</span><span class='line'><span class="l-Scalar-Plain">SPOKE-3</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>[FLEXVPN:children]
+HUBS
+SPOKES
 
+[HUBS]
+HUB-1
+HUB-2
 
-<h2>Front-door VRF configuration</h2>
+[SPOKES:children]
+GREEN
+BLUE
+RED
+
+[RED]
+SPOKE-1_1
+SPOKE-1_2
+
+[BLUE]
+SPOKE-2
+
+[GREEN]
+SPOKE-3 
+</code></pre>
+
+<h1 id="front-door-vrf-configuration">Front-door VRF configuration</h1>
 
 <p>Another assumption is that all routers will have their Front-door VRF configured. Normally this would imply configuring an IP address on Internet-facing interface and a vrf-specific default route. In case of HUB-1, where there are two physical links in a single VRF, it is assumed that appropriate SLA-tied static routes are configured to enable dynamic failover between the two links. Here&rsquo;s the example of how it&rsquo;s done on HUB-1:</p>
 
-<figure class='code'><figcaption><span>show run vrf FVRF-1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>interface Ethernet0/0
-</span><span class='line'> vrf forwarding FVRF-1
-</span><span class='line'> ip address 120.0.0.2 255.0.0.0
-</span><span class='line'>!
-</span><span class='line'>interface Ethernet0/1
-</span><span class='line'> vrf forwarding FVRF-1
-</span><span class='line'> ip address 121.0.0.2 255.0.0.0
-</span><span class='line'>!
-</span><span class='line'>ip route vrf FVRF-1 0.0.0.0 0.0.0.0 120.0.0.1 track 1
-</span><span class='line'>ip route vrf FVRF-1 0.0.0.0 0.0.0.0 121.0.0.1 250
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>interface Ethernet0/0
+ vrf forwarding FVRF-1
+ ip address 120.0.0.2 255.0.0.0
+!
+interface Ethernet0/1
+ vrf forwarding FVRF-1
+ ip address 121.0.0.2 255.0.0.0
+!
+ip route vrf FVRF-1 0.0.0.0 0.0.0.0 120.0.0.1 track 1
+ip route vrf FVRF-1 0.0.0.0 0.0.0.0 121.0.0.1 250
+</code></pre>
 
-
-<h2>Environment variables and the DRY principle</h2>
+<h1 id="environment-variables-and-the-dry-principle">Environment variables and the DRY principle</h1>
 
 <p>One of the most obvious things to turn into a variable is the FVRF name and interface. We&rsquo;ll put it into an Ansible&rsquo;s global variable file <code>./group_vars/all</code>. The same file will have a default BGP AS number for iBGP routing and a table mapping different OU values to their corresponding bandwidth in Kbps.</p>
 
-<figure class='code'><figcaption><span>./group_vars/all</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="l-Scalar-Plain">bgp_asn</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">1</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">fvrf</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">FVRF</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">interface</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Ethernet0/0</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">bandwidth</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">RED</span><span class="p-Indicator">:</span>   <span class="l-Scalar-Plain">50000</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">GREEN</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">20000</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">BLUE</span><span class="p-Indicator">:</span>  <span class="l-Scalar-Plain">10000</span>
-</span></code></pre></td></tr></table></div></figure>
+<pre><code>---
+bgp_asn: 1
 
+fvrf: 
+  name: FVRF
+  interface: Ethernet0/0
 
-<p>Each of these variables can be overridden by a more specific host variable located in <code>./host_vars/</code> directory like it is the case with <a href="https://github.com/networkop/flexvpn/blob/master/host_vars/SPOKE-1_1">SPOKE1</a>.  All host-specific variables, like domain names, FlexVPN subnets, public addresses for Hub devices are also being stored in the same directory. Here&rsquo;s an example of how HUB-1 overrides the default FVRF name and defines a few variables of its own:</p>
+bandwidth:
+  RED:   50000
+  GREEN: 20000
+  BLUE:  10000
+</code></pre>
 
-<figure class='code'><figcaption><span>./host_vars/HUB-1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="l-Scalar-Plain">primary</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">true</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">domain_name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cloud.one</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">nbma_ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">dynamic</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">dynamic</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">120.0.0.2</span>
-</span><span class='line'>  <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">121.0.0.2</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">vpn_ip</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">169.254.1.1</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">subnet</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">169.254.1.0/24</span>
-</span><span class='line'>
-</span><span class='line'><span class="l-Scalar-Plain">fvrf</span><span class="p-Indicator">:</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">FVRF-1</span>
-</span></code></pre></td></tr></table></div></figure>
+<p>Each of these variables can be overridden by a more specific host variable located in <code>./host_vars/</code> directory like it is the case with <a href="https://github.com/networkop/flexvpn/blob/master/host_vars/SPOKE-1_1" target="_blank">SPOKE1</a>.  All host-specific variables, like domain names, FlexVPN subnets, public addresses for Hub devices are also being stored in the same directory. Here&rsquo;s an example of how HUB-1 overrides the default FVRF name and defines a few variables of its own:</p>
 
+<pre><code>---
+primary: true
 
-<p></p>
+domain_name: cloud.one
+
+nbma_ip: dynamic
+
+dynamic:
+  - 120.0.0.2
+  - 121.0.0.2
+
+vpn_ip: 169.254.1.1
+
+subnet: 169.254.1.0/24
+
+fvrf: 
+  name: FVRF-1
+
+</code></pre>
 
 <p>Here it makes sense to talk about the <strong>DRY principle</strong>. All Spokes in their configuration files will use information like Hub&rsquo;s NBMA address and domain name. So, in theory, we could have created a host variable file for each Spoke and stored that information there. However, in that case we would have multiple duplicate variables all storing the same value. This, obviously, creates a lot of problems when it comes to updating those variables. Instead of updating a value in a single place we now have to go and update every single Spoke&rsquo;s host variables file. That&rsquo;s why it&rsquo;s important to NOT have ANY duplicates of ANY information in ANY part of your code, even if it comes at a price of an increased code complexity. This is widely accepted as best practice and used in almost every programming language and CS discipline.</p>
 
-<h2>FlexVPN configuration templates</h2>
+<h1 id="flexvpn-configuration-templates">FlexVPN configuration templates</h1>
 
-<p>I will omit the actual configuration templates for the sake of brevity. Those who are interested can check out my <a href="https://github.com/networkop/flexvpn">FlexVPN Github repository</a>. Here&rsquo;s how you can generate a full-blown config for FlexVPN network:</p>
+<p>I will omit the actual configuration templates for the sake of brevity. Those who are interested can check out my <a href="https://github.com/networkop/flexvpn" target="_blank">FlexVPN Github repository</a>. Here&rsquo;s how you can generate a full-blown config for FlexVPN network:</p>
 
-<figure class='code'><figcaption><span>1. Clone Github repository</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>git clone https://github.com/networkop/flexvpn.git
-</span></code></pre></td></tr></table></div></figure>
+<p>1 - Clone the Github repository</p>
 
+<pre><code>$ git clone https://github.com/networkop/flexvpn.git
+</code></pre>
 
+<p>2 - Update variables to match the network design</p>
 
+<pre><code>./hosts
+./group_vars/all
+./host_vars/
+</code></pre>
 
-<figure class='code'><figcaption><span>2. Update variables to match the network design</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='text'><span class='line'>./hosts
-</span><span class='line'>./group_vars/all
-</span><span class='line'>./host_vars/
-</span></code></pre></td></tr></table></div></figure>
+<p>3 - Generate configuration files</p>
 
-
-
-
-<figure class='code'><figcaption><span>3. Generate configuration files</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ansible-playbook site.yml
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code>$ ansible-playbook site.yml
+</code></pre>
 
 <p>All generated configuration files will be stored in <code>./files/</code> directory.</p>
 
-<h2>Conclusion</h2>
+<h1 id="conclusion">Conclusion</h1>
 
-<p>Thanks to DRY and Convention over Configuration principles it&rsquo;s possible to devise a configuration template that will be the same for all Spokes. The actual configuration will consist of multiple components like IKEv2, dynamic VTI, AAA and BGP configuration. I&rsquo;ll try to explain how they all tie together in my upcoming post on <a href="http://packetpushers.com">Packetpushers</a>.</p>
+<p>Thanks to DRY and Convention over Configuration principles it&rsquo;s possible to devise a configuration template that will be the same for all Spokes. The actual configuration will consist of multiple components like IKEv2, dynamic VTI, AAA and BGP configuration. I&rsquo;ll try to explain how they all tie together in my upcoming post on <a href="http://packetpushers.net/cisco-flexvpn-dmvpn-high-level-design/" target="_blank">Packetpushers</a>.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-ansible">network-ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible">Ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-11-13T00:00:00+00:00"  data-updated="true" itemprop="datePublished dateCreated">13/11/2015</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/automation/'>automation</a> <a class='category label label-primary' href='/blog/categories/network/'>network</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/" data-via="" data-counturl="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2015/09/03/automating-bgp-config/">Automating New Network Build - Part 2 (BGP)</a></li>
+    
+    <li><a href="/blog/2015/08/26/automating-network-build-p1/">Automating New Network Build - Part 1</a></li>
+    
+    <li><a href="/blog/2015/08/14/automating-legacy-networks/">Automating Legacy Network Configuration</a></li>
+    
+    <li><a href="/blog/2015/08/07/configuration-automation/">Network Configuration Automation</a></li>
+    
+    <li><a href="/blog/2015/07/17/tdd-quickstart/">Network TDD Quickstart Guide</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2015/09/03/automating-bgp-config/" title="Previous Post: Automating new network build - Part 2 (BGP)">&laquo; Automating new network build - Part 2 (BGP)</a></li>
-            
-            
-            <li class="next"><a href="/blog/2016/01/01/rest-for-neteng/" title="Next Post: REST API for Network Engineers">REST API for Network Engineers &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/';
-        var disqus_url = 'http://networkop.github.io/blog/2015/11/13/automating-flexvpn-config/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+

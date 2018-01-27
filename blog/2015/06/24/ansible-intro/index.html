@@ -1,189 +1,350 @@
 <!DOCTYPE html>
-<html class="no-js" lang="en">
+<html lang="en-us">
 <head>
+
   <meta charset="utf-8">
-  <title>Getting Started With Ansible for Cisco IOS - Network-oriented programming</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.31" />
   <meta name="author" content="Michael Kashin">
 
-  <meta name="description" content="Learn how to use Ansible to run commands on Cisco IOS">
   
-
-  <!-- http://t.co/dKP3o1e -->
-  <meta name="HandheldFriendly" content="True">
-  <meta name="MobileOptimized" content="320">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Ansible is well-known for it&rsquo;s low entry threshold. All what&rsquo;s required to get started is just one inventory file. However Cisco IOS devices require special considerations. Passwordless SSH RSA-based authentication is still a novelty and in most cases users are authenticated based on their passwords. Another problem is the lack of Python execution environment on IOS devices, which seriously limits the choice of Ansible modules that can be used. In this post I will show how to setup Ansible environment to control Cisco IOS devices">
 
   
-  <link rel="canonical" href="http://networkop.github.io/blog/2015/06/24/ansible-intro/">
-  <link href="/favicon.png" type="image/png" rel="icon">
-  <link href="/atom.xml" rel="alternate" title="Network-oriented programming" type="application/atom+xml">
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2015/06/24/ansible-intro/">
 
-  <!-- http://opengraphprotocol.org/ -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="http://networkop.github.io/blog/2015/06/24/ansible-intro/">
-  <meta property="og:title" content="Getting Started With Ansible for Cisco IOS - Network-oriented programming">
-  <meta property="og:description" content="Learn how to use Ansible to run commands on Cisco IOS">
-
-  <script src="/javascripts/libs/jquery/jquery-2.1.3.min.js"></script>
-
-<link href="/assets/bootstrap/dist/css/bootstrap.min.css" rel="stylesheet" type="text/css">
-
+  
 
 
   
-  <link href="/stylesheets/screen.css" media="screen, projection" rel="stylesheet" type="text/css">
 
   
-   <script>
-    (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
-    (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
-    m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
-    })(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
 
-    ga('create', 'UA-31517751-2', 'auto');
-    ga('send', 'pageview');
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
 
-  </script>
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="Network-oriented programming">
+  
 
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2015/06/24/ansible-intro/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="Network-oriented programming">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2015/06/24/ansible-intro/">
+  <meta property="og:title" content="Getting Started With Ansible for Cisco IOS | Network-oriented programming">
+  <meta property="og:description" content="Ansible is well-known for it&rsquo;s low entry threshold. All what&rsquo;s required to get started is just one inventory file. However Cisco IOS devices require special considerations. Passwordless SSH RSA-based authentication is still a novelty and in most cases users are authenticated based on their passwords. Another problem is the lack of Python execution environment on IOS devices, which seriously limits the choice of Ansible modules that can be used. In this post I will show how to setup Ansible environment to control Cisco IOS devices">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2015-06-22T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2015-06-22T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Getting Started With Ansible for Cisco IOS | Network-oriented programming</title>
 
 </head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
 
-  <body   >
-    <a href="#content" class="sr-only sr-only-focusable">Skip to main content</a>
-    <div id="wrap">
-      <header role="banner">
-        <nav class="navbar navbar-default" role="navigation">
-    <div class="container">
-        <div class="navbar-header">
-            <button type="button" class="navbar-toggle" title="toggle navbar" data-toggle="collapse" data-target=".navbar-collapse">
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-                <span class="icon-bar"></span>
-            </button>
-            <a class="navbar-brand" href="/">Network-oriented programming</a>
-        </div>
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
 
-        <div class="navbar-collapse collapse">
-            <ul class="nav navbar-nav">
-                <li class="active">
-                    <a rel="index" href="/">Blog</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/automation/index.html">Network Automation</a>
-                </li>
-                <li>
-                    <a href="/blog/categories/sdn/index.html">SDN</a>
-                </li>
-                <li>
-                    <a href="/blog/archives">Archives</a>
-                </li>
-				<li >
-                    <a href="/about">About</a>
-                </li>
-            </ul>
-            <ul class="nav navbar-nav navbar-right">
-                <li>
-                    <a class="subscribe-rss" href="/atom.xml" title="subscribe via RSS">
-                        <span class="visible-xs">RSS</span>
-                        <img class="hidden-xs" src="/images/rss.png" alt="RSS">
-                    </a>
-                </li>
-                
-            </ul>
-            
-                <form class="navbar-form navbar-right" action="https://www.google.com/search" method="GET">
-                    <input type="hidden" name="sitesearch" value="networkop.github.io">
-                    <div class="form-group">
-                        <input class="form-control" type="text" name="q" placeholder="Search">
-                    </div>
-                </form>
-            
-        </div>
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/">Network-oriented programming</a>
     </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
 </nav>
 
 
-      </header>
-      <div id="main" role="main" class="container">
-        <div id="content">
-          <div class="row">
-  <div class="page-content col-md-9" itemscope itemtype="http://schema.org/Blog">
-    <meta itemprop="name" content="Network-oriented programming" />
-    <meta itemprop="description" content="description goes here" />
-    <meta itemprop="url" content="http://networkop.github.io" />
-    <article class="hentry" role="article" itemprop="blogPost" itemscope itemtype="http://schema.org/BlogPosting">
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Getting Started With Ansible for Cisco IOS</h1>
+
       
-  <header class="page-header">
+
+<div class="article-metadata">
+
+  <span class="article-date">
     
-      <p class="meta text-muted text-uppercase">
+    <time datetime="2015-06-22 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      22 Jun 2015
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    7 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2015/06/24/ansible-intro/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Getting%20Started%20With%20Ansible%20for%20Cisco%20IOS&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f06%2f24%2fansible-intro%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f06%2f24%2fansible-intro%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f06%2f24%2fansible-intro%2f&amp;title=Getting%20Started%20With%20Ansible%20for%20Cisco%20IOS"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Getting%20Started%20With%20Ansible%20for%20Cisco%20IOS&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2015%2f06%2f24%2fansible-intro%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
         
 
-
-
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-24T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">24/06/2015</time>
-        
-           | <a href="#disqus_thread" itemprop="discussionUrl"
-             data-disqus-identifier="http://networkop.github.io">Comments</a>
-        
-      </p>
-    
-    
-    <h1 class="entry-title" itemprop="name headline">
-        Getting Started With Ansible for Cisco IOS
-        
-    </h1>
-    
-  </header>
-
-
-<div class="entry-content clearfix" itemprop="articleBody description"><p>Ansible is well-known for it&rsquo;s low entry threshold. All what&rsquo;s required to get started is just one inventory file. However Cisco IOS devices require special considerations.
-Passwordless SSH RSA-based authentication is still a novelty and in most cases users are authenticated based on their passwords. Another problem is the lack of Python execution
-environment on IOS devices, which seriously limits the choice of Ansible modules that can be used. In this post I will show how to setup Ansible
+<p>Ansible is well-known for it&rsquo;s low entry threshold. All what&rsquo;s required to get started is just one inventory file. However Cisco IOS devices require special considerations.
+Passwordless SSH RSA-based authentication is still a novelty and in most cases users are authenticated based on their passwords. Another problem is the lack of Python execution environment on IOS devices, which seriously limits the choice of Ansible modules that can be used. In this post I will show how to setup Ansible
 environment to control Cisco IOS devices</p>
 
-<!--more-->
+<h1 id="ansible-overview">Ansible overview</h1>
 
-
-<h2>Ansible overview</h2>
-
-<p>There&rsquo;s been a lot written about what Ansible is and what it was built to accomplish. I will just provide a brief summary of its features focusing on what we&rsquo;re gonna be using it for, leaving an in-depth explanation to the official <a href="http://docs.ansible.com/">Ansible documentation</a>.</p>
+<p>There&rsquo;s been a lot written about what Ansible is and what it was built to accomplish. I will just provide a brief summary of its features focusing on what we&rsquo;re gonna be using it for, leaving an in-depth explanation to the official <a href="http://docs.ansible.com/" target="_blank">Ansible documentation</a>.</p>
 
 <ul>
 <li>What is it?</li>
 </ul>
 
-
-<blockquote><p>Ansible is an IT automation and orchestration framework</p></blockquote>
+<blockquote>
+<p>Ansible is an IT automation and orchestration framework</p>
+</blockquote>
 
 <ul>
 <li>What was it built to accomplish?</li>
 </ul>
 
-
-<blockquote><p>Ansible was designed to automate routine tasks like server/application deployment and configuration</p></blockquote>
+<blockquote>
+<p>Ansible was designed to automate routine tasks like server/application deployment and configuration</p>
+</blockquote>
 
 <ul>
 <li>How does it work?</li>
 </ul>
 
+<blockquote>
+<p>It connects to several hosts at the same time and executes small programs called &ldquo;modules&rdquo; in the order specified in a file called &ldquo;playbook&rdquo;</p>
+</blockquote>
 
-<blockquote><p>It connects to several hosts at the same time and executes small programs called &ldquo;modules&rdquo; in the order specified in a file called &ldquo;playbook&rdquo;</p></blockquote>
+<p>To build what we&rsquo;ve set out to accomplish I&rsquo;m gonna be using the latter feature. I am not gonna be using Ansible for system provisioning or service orchestration. Instead, I will be exploiting Ansible&rsquo;s ability to run multiple parallel connections to remote hosts, execute commands on them and return their result. Due to that, I will diverge from some of the <a href="https://docs.ansible.com/playbooks_best_practices.html" target="_blank">Ansible&rsquo;s best practices</a> of splitting functions into roles and I will use one flat playbook file segregating different functions with tags.</p>
 
-<p>To build what we&rsquo;ve set out to accomplish I&rsquo;m gonna be using the latter feature. I am not gonna be using Ansible for system provisioning or service orchestration. Instead, I will be exploiting Ansible&rsquo;s ability to run multiple parallel connections to remote hosts, execute commands on them and return their result. Due to that, I will diverge from some of the <a href="https://docs.ansible.com/playbooks_best_practices.html">Ansible&rsquo;s best practices</a> of splitting functions into roles and I will use one flat playbook file segregating different functions with tags.</p>
+<h1 id="ansible-configuration-file">Ansible configuration file</h1>
 
-<h2>Ansible configuration file</h2>
-
-<p>Ansible configuration file <code>ansible.cfg</code> contains <a href="http://docs.ansible.com/intro_configuration.html">application-wide settings</a> like default timeouts, port numbers and other flags. The default Ansible configuration file is located in <code>/etc/ansible/</code> directory. However, instead of overwriting the defaults it is possible to create a configuration file in a local directory with only the settings that need to be overridden. To better work with Cisco devices the following settings will need to be modified:</p>
+<p>Ansible configuration file <code>ansible.cfg</code> contains <a href="http://docs.ansible.com/intro_configuration.html" target="_blank">application-wide settings</a> like default timeouts, port numbers and other flags. The default Ansible configuration file is located in <code>/etc/ansible/</code> directory. However, instead of overwriting the defaults it is possible to create a configuration file in a local directory (e.g. <code>~/tdd_ansible/ansible.cfg</code>) with only the settings that need to be overridden. To better work with Cisco devices the following settings will need to be modified:</p>
 
 <ul>
 <li>Default SSH library (transport) needs to be set to <code>paramiko</code> which is more stable than its alternative, OpenSSH, when working with Cisco IOS.</li>
@@ -192,250 +353,145 @@ environment to control Cisco IOS devices</p>
 <li>Default SSH timeout is decreased to 5 seconds reflecting a small size of the testing environment.</li>
 </ul>
 
+<pre><code class="language-bash">[defaults]
+transport=paramiko
+hostfile = ./myhosts
+host_key_checking=False
+timeout = 5
+</code></pre>
 
-<figure class='code'><figcaption><span>~/tdd_ansible/ansible.cfg</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>defaults<span class="o">]</span>
-</span><span class='line'><span class="nv">transport</span><span class="o">=</span>paramiko
-</span><span class='line'><span class="nv">hostfile</span> <span class="o">=</span> ./myhosts
-</span><span class='line'><span class="nv">host_key_checking</span><span class="o">=</span>False
-</span><span class='line'><span class="nv">timeout</span> <span class="o">=</span> 5
-</span></code></pre></td></tr></table></div></figure>
+<h1 id="inventory-file">Inventory file</h1>
 
+<p>Inventory <code>~/tdd_ansible/myhosts</code> contains the list of hosts to be managed by Ansible. Hosts are normally combined into groups (<code>cisco-devices</code> in our case) and Ansible performs actions on all hosts in the group in parallel.</p>
 
-<h2>Inventory file</h2>
+<pre><code class="language-bash">[cisco-devices]
+R1
+R2
+R3
+R4
+</code></pre>
 
-<p>Inventory contains the list of hosts to be managed by Ansible. Hosts are normally combined into groups (<code>cisco-devices</code> in our case) and Ansible performs actions on all hosts in the group in parallel.</p>
+<p>It is considered a <a href="https://docs.ansible.com/playbooks_best_practices.html#group-and-host-variables" target="_blank">best practice</a> to keep all variables in separate folders and files. We need to define additional host variables to let Ansible know which IP address to use to connect to a remote device. I will also add SSH password to a host variable file which is a VERY bad practice, however this will prevent me from typing password every time I run a playbook. If I ever did this in production, I&rsquo;d add host variables directory to <code>.gitignore</code> file so that it doesn&rsquo;t get uploaded to Github. Host variables files must follow YAML formatting, must be stored in a <code>./host_vars</code> directory and must match the name of the host they are being assigned to. Below example is <code>~/tdd_ansible/host_vars/R1</code> for host R1:</p>
 
-<figure class='code'><figcaption><span>~/tdd_ansible/myhosts</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="o">[</span>cisco-devices<span class="o">]</span>
-</span><span class='line'>R1
-</span><span class='line'>R2
-</span><span class='line'>R3
-</span><span class='line'>R4
-</span></code></pre></td></tr></table></div></figure>
-
-
-<p>It is considered a <a href="https://docs.ansible.com/playbooks_best_practices.html#group-and-host-variables">best practice</a> to keep all variables in separate folders and files. We need to define additional host variables to let Ansible know which IP address to use to connect to a remote device. I will also add SSH password to a host variable file which is a VERY bad practice, however this will prevent me from typing password every time I run a playbook. If I ever did this in production, I&rsquo;d add host variables directory to <code>.gitignore</code> file so that it doesn&rsquo;t get uploaded to Github. Host variables files must follow YAML formatting, must be stored in a <code>./host_vars</code> directory and must match the name of the host they are being assigned to.</p>
-
-<figure class='code'><figcaption><span>~/tdd_ansible/host_vars/R1</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_host</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">10.0.0.1</span>
-</span><span class='line'><span class="l-Scalar-Plain">ansible_ssh_pass</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
-</span></code></pre></td></tr></table></div></figure>
-
+<pre><code class="language-yaml">+++
+ansible_ssh_host: 10.0.0.1
+ansible_ssh_pass: cisco
+</code></pre>
 
 <p>Similar files need to be created for R2, R3 and R4.</p>
 
-<h2>Run a test traceroute commands</h2>
+<h1 id="run-a-test-traceroute-commands">Run a test traceroute commands</h1>
 
 <p>Now it is time to finally see Ansible in action. Let&rsquo;s first see if we can run a standalone traceroute command. I will manually define SSH username with <code>-u</code> flag and use a module called <code>raw</code> passing traceroute command as an argument with <code>-a</code> option.</p>
 
-<figure class='code'><figcaption><span>Ad-hoc traceroute command</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-<span class='line-number'>28</span>
-<span class='line-number'>29</span>
-<span class='line-number'>30</span>
-<span class='line-number'>31</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ansible cisco-devices -u cisco -m raw -a <span class="s2">&quot;traceroute 10.0.0.4 source Loopback0 probe 1 numeric&quot;</span>
-</span><span class='line'>SSH password:
-</span><span class='line'>R1 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.0.4
-</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
-</span><span class='line'>  <span class="m">1</span> 14.14.14.4 <span class="m">0</span> msec *  <span class="m">0</span> msec
-</span><span class='line'>
-</span><span class='line'>R2 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.0.4
-</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
-</span><span class='line'>  <span class="m">1</span> 12.12.12.1 <span class="m">0</span> msec <span class="m">0</span> msec <span class="m">0</span> msec
-</span><span class='line'>  <span class="m">2</span>  *  *
-</span><span class='line'>    14.14.14.4 <span class="m">0</span> msec
-</span><span class='line'>
-</span><span class='line'>R3 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.0.4
-</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
-</span><span class='line'>  <span class="m">1</span> 34.34.34.4 <span class="m">0</span> msec <span class="m">0</span> msec *
-</span><span class='line'>
-</span><span class='line'>R4 <span class="p">|</span> success <span class="p">|</span> <span class="nv">rc</span><span class="o">=</span><span class="m">0</span> &gt;&gt;
-</span><span class='line'>
-</span><span class='line'>Type escape sequence to abort.
-</span><span class='line'>Tracing the route to 10.0.0.4
-</span><span class='line'>VRF info: <span class="o">(</span>vrf in name/id, vrf out name/id<span class="o">)</span>
-</span><span class='line'>  <span class="m">1</span> 10.0.0.4 <span class="m">0</span> msec <span class="m">0</span> msec *
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">$ ansible cisco-devices -u cisco -m raw -a &quot;traceroute 10.0.0.4 source Loopback0 probe 1 numeric&quot;
+SSH password:
+R1 | success | rc=0 &gt;&gt;
 
+Type escape sequence to abort.
+Tracing the route to 10.0.0.4
+VRF info: (vrf in name/id, vrf out name/id)
+  1 14.14.14.4 0 msec *  0 msec
 
-<p></p>
+R2 | success | rc=0 &gt;&gt;
+
+Type escape sequence to abort.
+Tracing the route to 10.0.0.4
+VRF info: (vrf in name/id, vrf out name/id)
+  1 12.12.12.1 0 msec 0 msec 0 msec
+  2  *  *
+    14.14.14.4 0 msec
+
+R3 | success | rc=0 &gt;&gt;
+
+Type escape sequence to abort.
+Tracing the route to 10.0.0.4
+VRF info: (vrf in name/id, vrf out name/id)
+  1 34.34.34.4 0 msec 0 msec *
+
+R4 | success | rc=0 &gt;&gt;
+
+Type escape sequence to abort.
+Tracing the route to 10.0.0.4
+VRF info: (vrf in name/id, vrf out name/id)
+  1 10.0.0.4 0 msec 0 msec *
+</code></pre>
 
 <p>Ansible ad-hoc commands are a good way to quickly test something out and learn how things work. Next step would be to create a playbook file which will contain several of those commands in a more structured way. Playbooks use YAML syntax and follow strict formatting rules. At the top of the file there&rsquo;s a name of the play along with the target hosts group. Following that are a list of tasks, each of which calls its own module and passes arguments to it. In this example playbook does the following:</p>
 
 <ol>
 <li>Defines a <code>loopbacks</code> variable which stores in a hash a list of devices along with their loopback IP addresses.</li>
 <li>Uses <code>raw</code> module to run traceroute commands. This is the only module that doesn&rsquo;t require Python to be installed on a target machine.</li>
-<li>For each host in <code>cisco-devices</code> group runs traceroute to every other hosts' loopback IP</li>
+<li>For each host in <code>cisco-devices</code> group runs traceroute to every other hosts&rsquo; loopback IP</li>
 <li>Stores the result in a <code>trace_result</code> variable</li>
 </ol>
 
+<pre><code class="language-yaml">+++
+- name: Run traceroute commands
+  hosts: cisco-devices
+  gather_facts: false
+  remote_user: cisco
+  
+  vars:
+    loopbacks: {
+    &quot;R1&quot;: &quot;10.0.0.1&quot;,
+    &quot;R2&quot;: &quot;10.0.0.2&quot;,
+    &quot;R3&quot;: &quot;10.0.0.3&quot;,
+    &quot;R4&quot;: &quot;10.0.0.4&quot;,
+    }
+  
+  tasks:
 
-<figure class='code'><figcaption><span>~/tdd_ansible/cisco-trace-run.yml</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-</pre></td><td class='code'><pre><code class='yaml'><span class='line'><span class="nn">---</span>
-</span><span class='line'><span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">Run traceroute commands</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">hosts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco-devices</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">gather_facts</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">false</span>
-</span><span class='line'>  <span class="l-Scalar-Plain">remote_user</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">cisco</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">vars</span><span class="p-Indicator">:</span>
-</span><span class='line'>    <span class="l-Scalar-Plain">loopbacks</span><span class="p-Indicator">:</span> <span class="p-Indicator">{</span>
-</span><span class='line'>    <span class="s">&quot;R1&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.1&quot;</span><span class="p-Indicator">,</span>
-</span><span class='line'>    <span class="s">&quot;R2&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.2&quot;</span><span class="p-Indicator">,</span>
-</span><span class='line'>    <span class="s">&quot;R3&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.3&quot;</span><span class="p-Indicator">,</span>
-</span><span class='line'>    <span class="s">&quot;R4&quot;</span><span class="p-Indicator">:</span> <span class="s">&quot;10.0.0.4&quot;</span><span class="p-Indicator">,</span>
-</span><span class='line'>    <span class="p-Indicator">}</span>
-</span><span class='line'>
-</span><span class='line'>  <span class="l-Scalar-Plain">tasks</span><span class="p-Indicator">:</span>
-</span><span class='line'>
-</span><span class='line'>    <span class="p-Indicator">-</span> <span class="l-Scalar-Plain">name</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">run traceroute to every other host</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">raw</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">traceroute {{ item.value }} source Loopback0 probe 1 numeric</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">when</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">item.key != inventory_hostname</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">with_dict</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">loopbacks</span>
-</span><span class='line'>      <span class="l-Scalar-Plain">register</span><span class="p-Indicator">:</span> <span class="l-Scalar-Plain">trace_result</span>
-</span><span class='line'>
-</span><span class='line'><span class="c1">#    - name: Debug registered variables</span>
-</span><span class='line'><span class="c1">#      debug: var=trace_result</span>
-</span></code></pre></td></tr></table></div></figure>
+    - name: run traceroute to every other host
+      raw: traceroute {{ item.value }} source Loopback0 probe 1 numeric
+      when: item.key != inventory_hostname
+      with_dict: loopbacks
+      register: trace_result
 
+#    - name: Debug registered variables
+#      debug: var=trace_result
+</code></pre>
 
 <p>In this Playbook I use several useful Ansible features:</p>
 
 <ul>
-<li><a href="https://docs.ansible.com/playbooks_variables.html#variables-defined-in-a-playbook">Variables defined in playbooks</a></li>
-<li><a href="https://docs.ansible.com/playbooks_loops.html#looping-over-hashes">Looping over hashes</a></li>
-<li><a href="https://docs.ansible.com/playbooks_conditionals.html">Conditionals</a></li>
-<li><a href="https://docs.ansible.com/playbooks_variables.html#registered-variables">Registered variables</a></li>
+<li><a href="https://docs.ansible.com/playbooks_variables.html#variables-defined-in-a-playbook" target="_blank">Variables defined in playbooks</a></li>
+<li><a href="https://docs.ansible.com/playbooks_loops.html#looping-over-hashes" target="_blank">Looping over hashes</a></li>
+<li><a href="https://docs.ansible.com/playbooks_conditionals.html" target="_blank">Conditionals</a></li>
+<li><a href="https://docs.ansible.com/playbooks_variables.html#registered-variables" target="_blank">Registered variables</a></li>
 </ul>
-
 
 <p>The end result of this task is that traceroute is run 12 times - one time from each of the hosts to each other host except for when source and destination are equal.</p>
 
-<figure class='code'><figcaption><span>Running the playbook</span></figcaption><div class="highlight"><table><tr><td class="gutter"><pre class="line-numbers"><span class='line-number'>1</span>
-<span class='line-number'>2</span>
-<span class='line-number'>3</span>
-<span class='line-number'>4</span>
-<span class='line-number'>5</span>
-<span class='line-number'>6</span>
-<span class='line-number'>7</span>
-<span class='line-number'>8</span>
-<span class='line-number'>9</span>
-<span class='line-number'>10</span>
-<span class='line-number'>11</span>
-<span class='line-number'>12</span>
-<span class='line-number'>13</span>
-<span class='line-number'>14</span>
-<span class='line-number'>15</span>
-<span class='line-number'>16</span>
-<span class='line-number'>17</span>
-<span class='line-number'>18</span>
-<span class='line-number'>19</span>
-<span class='line-number'>20</span>
-<span class='line-number'>21</span>
-<span class='line-number'>22</span>
-<span class='line-number'>23</span>
-<span class='line-number'>24</span>
-<span class='line-number'>25</span>
-<span class='line-number'>26</span>
-<span class='line-number'>27</span>
-</pre></td><td class='code'><pre><code class='bash'><span class='line'><span class="nv">$ </span>ansible-playbook cisco-trace-run.yml
-</span><span class='line'>
-</span><span class='line'>PLAY <span class="o">[</span>Run traceroute commands<span class="o">]</span> ************************************************
-</span><span class='line'>
-</span><span class='line'>TASK: <span class="o">[</span>run traceroute to every other host<span class="o">]</span> ************************************
-</span><span class='line'>skipping: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
-</span><span class='line'>skipping: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R1<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
-</span><span class='line'>skipping: <span class="o">[</span>R3<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R4&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.4&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R1&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.1&#39;</span><span class="o">})</span>
-</span><span class='line'>skipping: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R2&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.2&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R2<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
-</span><span class='line'>ok: <span class="o">[</span>R4<span class="o">]</span> <span class="o">=</span>&gt; <span class="o">(</span><span class="nv">item</span><span class="o">={</span><span class="s1">&#39;key&#39;</span>: <span class="s1">&#39;R3&#39;</span>, <span class="s1">&#39;value&#39;</span>: <span class="s1">&#39;10.0.0.3&#39;</span><span class="o">})</span>
-</span><span class='line'>
-</span><span class='line'>PLAY RECAP ********************************************************************
-</span><span class='line'>R1                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R2                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R3                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span><span class='line'>R4                         : <span class="nv">ok</span><span class="o">=</span><span class="m">1</span>    <span class="nv">changed</span><span class="o">=</span><span class="m">0</span>    <span class="nv">unreachable</span><span class="o">=</span><span class="m">0</span>    <span class="nv">failed</span><span class="o">=</span>0
-</span></code></pre></td></tr></table></div></figure>
+<pre><code class="language-bash">$ ansible-playbook cisco-trace-run.yml
 
+PLAY [Run traceroute commands] ************************************************
+
+TASK: [run traceroute to every other host] ************************************
+skipping: [R4] =&gt; (item={'key': 'R4', 'value': '10.0.0.4'})
+ok: [R1] =&gt; (item={'key': 'R4', 'value': '10.0.0.4'})
+skipping: [R1] =&gt; (item={'key': 'R1', 'value': '10.0.0.1'})
+ok: [R3] =&gt; (item={'key': 'R4', 'value': '10.0.0.4'})
+ok: [R4] =&gt; (item={'key': 'R1', 'value': '10.0.0.1'})
+ok: [R1] =&gt; (item={'key': 'R2', 'value': '10.0.0.2'})
+ok: [R3] =&gt; (item={'key': 'R1', 'value': '10.0.0.1'})
+ok: [R1] =&gt; (item={'key': 'R3', 'value': '10.0.0.3'})
+ok: [R3] =&gt; (item={'key': 'R2', 'value': '10.0.0.2'})
+skipping: [R3] =&gt; (item={'key': 'R3', 'value': '10.0.0.3'})
+ok: [R2] =&gt; (item={'key': 'R4', 'value': '10.0.0.4'})
+ok: [R2] =&gt; (item={'key': 'R1', 'value': '10.0.0.1'})
+skipping: [R2] =&gt; (item={'key': 'R2', 'value': '10.0.0.2'})
+ok: [R4] =&gt; (item={'key': 'R2', 'value': '10.0.0.2'})
+ok: [R2] =&gt; (item={'key': 'R3', 'value': '10.0.0.3'})
+ok: [R4] =&gt; (item={'key': 'R3', 'value': '10.0.0.3'})
+
+PLAY RECAP ********************************************************************
+R1                         : ok=1    changed=0    unreachable=0    failed=0
+R2                         : ok=1    changed=0    unreachable=0    failed=0
+R3                         : ok=1    changed=0    unreachable=0    failed=0
+R4                         : ok=1    changed=0    unreachable=0    failed=0
+
+</code></pre>
 
 <p>The above shows that all 12 tasks were completed successfully, meaning the command was executed and result was stored in a registered variable. To view the actual output of <code>traceroute</code> commands uncomment the two debug lines at the end of the playbook and rerun it.</p>
 
@@ -449,325 +505,158 @@ environment to control Cisco IOS devices</p>
 <li>Verify TDD scenarios against traceroute outputs and produce an intelligible result of this verification.</li>
 </ul>
 
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-tdd">network-TDD</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible">Ansible</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
 </div>
 
 
-      <footer>
-        <p class="meta text-muted">
-          
-  
 
-<span class="glyphicon glyphicon-user"></span> <span class="byline author vcard" itemprop="author" itemscope itemtype="http://schema.org/Person">Posted by <span class="fn" itemprop="name">Michael Kashin</span></span>
+    </div>
+  </div>
 
-          
+</article>
 
 
 
-
-
-
-
-
-
-
-
-
-<span class="glyphicon glyphicon-calendar"></span> <time datetime="2015-06-24T00:00:00+01:00"  data-updated="true" itemprop="datePublished dateCreated">24/06/2015</time>
-          
-
-<span class="glyphicon glyphicon-tags"></span>&nbsp;
-<span class="categories">
-  
-    <a class='category label label-primary' href='/blog/categories/ansible/'>ansible</a> <a class='category label label-primary' href='/blog/categories/cisco/'>cisco</a>
-  
-</span>
-
-
-        </p>
-        
-          <div class="sharing">
-  
-  <a href="//twitter.com/share" class="twitter-share-button" data-url="http://networkop.github.io/blog/2015/06/24/ansible-intro/" data-via="" data-counturl="http://networkop.github.io/blog/2015/06/24/ansible-intro/" >Tweet</a>
-  
-  
-  
-    <div class="fb-like" data-layout="button_count" data-action="like" data-show-faces="false" data-share="true"></div>
-  
-	
-	  <script src="//platform.linkedin.com/in.js" type="text/javascript"> lang: en_US</script>
-    <script type="IN/Share" data-url="http://networkop.github.io/blog/2015/06/24/ansible-intro/" data-counter="right"></script>
-	
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2015/06/17/dev-env-setup/">Development Environment Setup</a></li>
+    
+    <li><a href="/blog/2015/06/15/simple-tdd-framework/">Building a Simple Network TDD Framework</a></li>
+    
+    <li><a href="/blog/2015/06/22/dev-file-sync/">Windows-Linux File Synchronisation</a></li>
+    
+  </ul>
 </div>
 
-        
-        
-          <ul class="meta text-muted pager">
-            
-            <li class="previous"><a href="/blog/2015/06/22/dev-file-sync/" title="Previous Post: Windows-Linux file synchronisation">&laquo; Windows-Linux file synchronisation</a></li>
-            
-            
-            <li class="next"><a href="/blog/2015/07/03/parser-modules/" title="Next Post: IP address information collection with custom Ansible modules">IP address information collection with custom Ansible modules &raquo;</a></li>
-            
-          </ul>
-        
-      </footer>
-    </article>
-    
-      <section>
-        <h2>Comments</h2>
-        <div id="disqus_thread" aria-live="polite"><noscript>Please enable JavaScript to view the <a href="http://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
-</div>
-      </section>
-    
-  </div>
 
+
+
+<div class="article-container">
   
-  <aside class="sidebar col-md-3">
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
     
-      <section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Recent Posts</h3>
-  </div>
-  
-  <div id="recent_posts" class="list-group">
     
-    <a class="list-group-item " href="/blog/2018/01/02/os-contrail/">Openstack SDN - OpenContrail With BGP VPN</a>
     
-    <a class="list-group-item " href="/blog/2017/12/15/os-odl-netvirt/">OpenStack SDN - OpenDaylight With BGP VPN</a>
-    
-    <a class="list-group-item " href="/blog/2017/11/23/os-nfv-mano/">Openstack SDN - NFV Management and Orchestration</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/15/os-sfc-skydive/">Openstack SDN - Skydiving Into Service Function Chaining</a>
-    
-    <a class="list-group-item " href="/blog/2017/09/08/os-lab-docker/">Openstack SDN - Building a Containerized OpenStack Lab</a>
-    
-  </div>
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
 </section>
-<section class="panel panel-default">
-  <div class="panel-heading">
-    <h3 class="panel-title">Categories</h3>
-  </div>  
-  <div class="list-group">
-	
-    
-    
-    <a class="list-group-item " href="/blog/categories/automation/index.html">
-        <span class="badge">18</span>
-        automation
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/openstack/index.html">
-        <span class="badge">16</span>
-        openstack
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/sdn/index.html">
-        <span class="badge">15</span>
-        sdn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/network/index.html">
-        <span class="badge">11</span>
-        network
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/unetlab/index.html">
-        <span class="badge">6</span>
-        unetlab
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ansible/index.html">
-        <span class="badge">6</span>
-        ansible
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/yang/index.html">
-        <span class="badge">4</span>
-        yang
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/devops/index.html">
-        <span class="badge">4</span>
-        devops
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/rest/index.html">
-        <span class="badge">4</span>
-        rest
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/cisco/index.html">
-        <span class="badge">4</span>
-        cisco
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/restconf/index.html">
-        <span class="badge">2</span>
-        restconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/ovn/index.html">
-        <span class="badge">2</span>
-        ovn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/howto/index.html">
-        <span class="badge">2</span>
-        howto
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/tdd/index.html">
-        <span class="badge">2</span>
-        tdd
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/bgp/index.html">
-        <span class="badge">2</span>
-        bgp
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/routing/index.html">
-        <span class="badge">2</span>
-        routing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/odl/index.html">
-        <span class="badge">1</span>
-        odl
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/netconf/index.html">
-        <span class="badge">1</span>
-        netconf
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/pycharm/index.html">
-        <span class="badge">1</span>
-        pycharm
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/git/index.html">
-        <span class="badge">1</span>
-        git
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/syncthing/index.html">
-        <span class="badge">1</span>
-        syncthing
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/trick/index.html">
-        <span class="badge">1</span>
-        trick
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/troubleshooting/index.html">
-        <span class="badge">1</span>
-        troubleshooting
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/l3vpn/index.html">
-        <span class="badge">1</span>
-        l3vpn
-      </a>
-    
-    
-    <a class="list-group-item " href="/blog/categories/best-practice/index.html">
-        <span class="badge">1</span>
-        best practice
-      </a>
-    
-  </div>
-</section>
-    
-  </aside>
-  
+
+
 </div>
 
-        </div>
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
       </div>
     </div>
-    <footer role="contentinfo"><div class="container">
-    <p class="text-muted credits">
-  Copyright &copy; 2018 - Michael Kashin<br>
-  <small>
-      <span class="credit">Powered by <a href="http://octopress.org">Octopress</a></span>,
-      <span class="credit">customized with <a href="https://github.com/kAworu/octostrap3">octostrap3</a></span>.
-  </small>
-</p>
-
+  </div>
 </div>
-</footer>
+
     
 
-<script type="text/javascript">
-      var disqus_shortname = 'networkop';
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
       
-        
-        // var disqus_developer = 1;
-        var disqus_identifier = 'http://networkop.github.io/blog/2015/06/24/ansible-intro/';
-        var disqus_url = 'http://networkop.github.io/blog/2015/06/24/ansible-intro/';
-        var disqus_script = 'embed.js';
       
-    (function () {
-      var dsq = document.createElement('script'); dsq.type = 'text/javascript'; dsq.async = true;
-      dsq.src = '//' + disqus_shortname + '.disqus.com/' + disqus_script;
-      (document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(dsq);
-    }());
-</script>
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
 
+      
 
+      
 
-<div id="fb-root"></div>
-<script>(function(d, s, id) {
-  var js, fjs = d.getElementsByTagName(s)[0];
-  if (d.getElementById(id)) {return;}
-  js = d.createElement(s); js.id = id; js.async = true;
-  js.src = "//connect.facebook.net/en_US/all.js#appId=212934732101925&xfbml=1";
-  fjs.parentNode.insertBefore(js, fjs);
-}(document, 'script', 'facebook-jssdk'));</script>
+      <script>hljs.initHighlightingOnLoad();</script>
+    
 
-
-
-
-
-  <script type="text/javascript">
-    (function(){
-      var twitterWidgets = document.createElement('script');
-      twitterWidgets.type = 'text/javascript';
-      twitterWidgets.async = true;
-      twitterWidgets.src = '//platform.twitter.com/widgets.js';
-      document.getElementsByTagName('head')[0].appendChild(twitterWidgets);
-    })();
-  </script>
-
-
-<script src="/assets/bootstrap/dist/js/bootstrap.min.js"></script>
-<script src="/javascripts/modernizr.js"></script>
-
+    
+    
 
   </body>
 </html>
+
