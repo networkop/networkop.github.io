@@ -3,7 +3,7 @@ title = "OpenStack SDN - OpenContrail With BGP VPN"
 date = 2018-01-02T00:00:00Z
 categories = ["SDN"]
 url = "/blog/2018/01/02/os-contrail/"
-tags = ["OpenStack-SDN", "Contrail"]
+tags = ["OpenStack-SDN", "Contrail", "EVPN"]
 summary = "In this post I'll show how to build a dockerized OpenStack and OpenContrail lab, integrate it with Juniper MX80 DC-GW and demonstrate one of Contrail's most interesting and unique features called BGP-as-a-Service"
 +++
 

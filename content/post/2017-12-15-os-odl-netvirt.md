@@ -3,7 +3,7 @@ title = "OpenStack SDN - OpenDaylight With BGP VPN"
 date = 2017-12-15T00:00:00Z
 categories = ["SDN"]
 url = "/blog/2017/12/15/os-odl-netvirt/"
-tags = ["OpenStack-SDN", "ODL"]
+tags = ["OpenStack-SDN", "ODL", "EVPN"]
 summary = "In this post I'll demonstrate how to build a simple OpenStack lab with OpenDaylight-managed virtual networking and integrate it with a Cisco IOS-XE data centre gateway using EVPN"
 +++
 
