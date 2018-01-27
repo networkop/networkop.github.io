@@ -17,10 +17,7 @@
       
     
   
-  <meta name="description" content="Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
-To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
-Local development environment contains the following files describing the modelled topology:
- Configuration files for each node under the ./config directory Network topology in .">
+  <meta name="description" content="Current network overview Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.">
 
   
   <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/">
@@ -92,21 +89,18 @@ Local development environment contains the following files describing the modell
   
   <meta property="og:site_name" content="Network-oriented programming">
   <meta property="og:url" content="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/">
-  <meta property="og:title" content="Network-CI Part 2 - Small Network Demo | Network-oriented programming">
-  <meta property="og:description" content="Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
-To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
-Local development environment contains the following files describing the modelled topology:
- Configuration files for each node under the ./config directory Network topology in .">
+  <meta property="og:title" content="Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC | Network-oriented programming">
+  <meta property="og:description" content="Current network overview Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.">
   <meta property="og:locale" content="en-us">
   
-  <meta property="article:published_time" content="2016-03-03T00:00:00&#43;00:00">
+  <meta property="article:published_time" content="2016-03-23T00:00:00&#43;00:00">
   
-  <meta property="article:modified_time" content="2016-03-03T00:00:00&#43;00:00">
-  
-
+  <meta property="article:modified_time" content="2016-03-23T00:00:00&#43;00:00">
   
 
-  <title>Network-CI Part 2 - Small Network Demo | Network-oriented programming</title>
+  
+
+  <title>Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC | Network-oriented programming</title>
 
 </head>
 <body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
@@ -228,7 +222,7 @@ Local development environment contains the following files describing the modell
 
   <div class="article-container">
     <div class="article-inner">
-      <h1 itemprop="name">Network-CI Part 2 - Small Network Demo</h1>
+      <h1 itemprop="name">Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC</h1>
 
       
 
@@ -236,8 +230,8 @@ Local development environment contains the following files describing the modell
 
   <span class="article-date">
     
-    <time datetime="2016-03-03 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
-      3 Mar 2016
+    <time datetime="2016-03-23 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      23 Mar 2016
     </time>
   </span>
   <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
@@ -247,7 +241,7 @@ Local development environment contains the following files describing the modell
   
   <span class="middot-divider"></span>
   <span class="article-reading-time">
-    5 min read
+    4 min read
   </span>
   
 
@@ -277,7 +271,7 @@ Local development environment contains the following files describing the modell
   <ul class="share">
     <li>
       <a class="twitter"
-         href="https://twitter.com/intent/tweet?text=Network-CI%20Part%202%20-%20Small%20Network%20Demo&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f"
+         href="https://twitter.com/intent/tweet?text=Network-CI%20Part%203%20-%20OSPF%20to%20BGP%20Migration%20in%20Active%2fStandby%20DC&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f"
          target="_blank" rel="noopener">
         <i class="fa fa-twitter"></i>
       </a>
@@ -291,14 +285,14 @@ Local development environment contains the following files describing the modell
     </li>
     <li>
       <a class="linkedin"
-         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f&amp;title=Network-CI%20Part%202%20-%20Small%20Network%20Demo"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f&amp;title=Network-CI%20Part%203%20-%20OSPF%20to%20BGP%20Migration%20in%20Active%2fStandby%20DC"
          target="_blank" rel="noopener">
         <i class="fa fa-linkedin"></i>
       </a>
     </li>
     <li>
       <a class="email"
-         href="mailto:?subject=Network-CI%20Part%202%20-%20Small%20Network%20Demo&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f">
+         href="mailto:?subject=Network-CI%20Part%203%20-%20OSPF%20to%20BGP%20Migration%20in%20Active%2fStandby%20DC&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-small%2f">
         <i class="fa fa-envelope"></i>
       </a>
     </li>
@@ -314,104 +308,85 @@ Local development environment contains the following files describing the modell
       <div class="article-style" itemprop="articleBody">
         
 
-<h1 id="demo-network-overview">Demo network overview</h1>
+<h1 id="current-network-overview">Current network overview</h1>
 
-<p>The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.</p>
+<p>Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</p>
 
-<p><img src="/img/ci-acme-small.jpg" alt="Small demo topology" /></p>
+<p><img src="/img/network-ci-dc-before.png" alt="Current network topology" /></p>
 
-<p>To create a local development environment you can clone my <a href="https://github.com/networkop/network-ci/tree/master/acme-small" target="_blank">repository</a> and reset it to work with your own Github account using <code>git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git</code> command.<br />
-Local development environment contains the following files describing the modelled topology:</p>
+<h1 id="target-network-overview">Target network overview</h1>
+
+<p>The task is to replace OSPF with BGP as the core routing protocol inside the Data Centre. There are many advantages to using BGP inside a DC, in our case they are:</p>
+
+<ul>
+<li>Enhanced traffic routing and filtering policies</li>
+<li>Reduced number of redistribution points</li>
+<li>Because Ivan Pepelnjak <a href="http://blog.ipspace.net/2016/02/using-bgp-in-data-center-fabrics.html" target="_blank">said so</a></li>
+</ul>
+
+<p>We&rsquo;re not going getting rid of OSPF completely, but rather reduce its function to a simple distribution of <em>internal</em> DC prefixes. BGP will be running on top of OSPF and distribute all the DC and WAN <em>summary</em> prefixes.</p>
+
+<p><img src="/img/network-ci-dc-after.png" alt="Target network topology" /></p>
+
+<h1 id="physical-topology-overview">Physical topology overview</h1>
+
+<p>Now let&rsquo;s take a closer look at the network that we&rsquo;re going to emulate. All green devices on the left-hand side constitute the <strong>Active</strong> Data Centre, that is where all the traffic will flow under normal conditions. All green devices have red <strong>Standby</strong> counterparts. These devices will pick up the function of traffic forwarding in case their green peer becomes unavailable.</p>
+
+<p><img src="/img/network-ci-dc-full.png" alt="Full demo topology" /></p>
+
+<p>When simulating a real-life network it&rsquo;s often impossible to fit an exact replica inside a network emulator. That&rsquo;s why using <strong>mock</strong> devices is a crucial part in every simulation. The function of a mock is to approximate a set of network devices. There&rsquo;s a number of mock devices on our diagram colour-coded in purple. These devices simulate the remaining parts of the network. For example, <strong>Cloud</strong> devices may represent <a href="abbr: Top-Of-the-Rack" target="_blank">TOR</a> switches, while <strong>MPLS/DMVPN</strong> devices represent remote WAN sites. Normally these devices will have some made-up configuration that best reflects real life, but not necessarily a copy-paste from an existing network device.</p>
+
+<p>It&rsquo;s also important to pick the right amount of mock devices to strike the balance between accuracy and complexity. For example, for WAN sites it may suffice to create one site per unique combination of WAN links to make sure WAN failover works as expected.</p>
+
+<h1 id="traffic-flow-definition">Traffic flow definition</h1>
+
+<p>Let&rsquo;s define how we would expect the traffic to flow through our network. Let&rsquo;s assume that we should always try to use MPLS links when possible and only use DMVPN when both MPLS links are down. This translates to the following order of WAN links&rsquo; precedence:</p>
 
 <ol>
-<li>Configuration files for each node under the <code>./config</code> directory</li>
-<li>Network topology in <code>./network/topology.py</code> modelled as a list of pairs of interconnected devices</li>
-<li>UNetLab configuration file containing the IP address and username/passwords to access the server</li>
-<li>Traffic flow test definitions under <code>./network/test</code> directory</li>
+<li>Primary MPLS link</li>
+<li>Standby MPLS link</li>
+<li>Primary DMVPN link</li>
+<li>Standby DMVPN link</li>
 </ol>
 
-<h1 id="test-definitions">Test definitions</h1>
+<p>Based on that we can create the following traffic flows definition for network working under normal conditions.</p>
 
-<p>Traffic flow test file contains an ordered set of test scenarios that will be performed automatically. The following is an example that illustrates main capabilities of our test tools:</p>
-
-<pre><code class="language-text"># Normal operations
-1 Failed None
-  From R1 to R3 via R2 or R4, R3
-  From R2 to R3 via R3
-  From R2 to R4 via R1 or R3
-
-# Failed link between R1 and R2
-2 Failed R1 Gig1/1, R2 Gig0/0
-  From R1 to R2 via not R2, R3
-  From R2 to R4 via not R1, R4
+<pre><code>1 Failed None
+  From FW to MPLS-DMVPN via Primary-WAN, Primary-MPLS
+  From FW to DMVPN-ONLY via Primary-CORE-SW, Primary-DMVPN
+  From FW to MPLS-ONLY via Primary-WAN, Primary-MPLS
+  From Cloud-1 to FW Loopback0 via Primary-CORE-SW
+  From Cloud-2 to MPLS-DMVPN via Primary-WAN, Primary-MPLS
 </code></pre>
 
-<p>Each scenario starts with a <strong>failure definition</strong>. It could be either <em>None</em>, which represents normal network conditions, or it could contain a list of interfaces that need to be failed. Following the failure definition are the actual tests. On each line we define source, destination and the path we expect the traffic to take. Path definition (everything following the &lsquo;via&rsquo; keyword) contains an ordered set of nodes and can use simple boolean operators like <strong>or</strong> or <strong>not</strong>.</p>
+<p>We expect all traffic to flow through active devices even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt" target="_blank">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS link and a complete outage of the primary core switch.</p>
 
-<p>Ping flow definition file is a lot shorter and simply contains a list of source/destination pairs to run a ping test between. All ping tests will execute concurrently and issue only 2 pings, therefore we&rsquo;ll only be able to detect connectivity loss if it lasts for more than 4 seconds.</p>
+<h1 id="workflow-example">Workflow example</h1>
 
-<h1 id="jenkins-setup">Jenkins setup</h1>
-
-<p>In the previous post we&rsquo;ve automatically built a VM with Jenkins and UNetLab pre-installed. Before we can start using Jenkins we need to install a Github plugin, which can be done very easily from Jenkins GUI. Power up your <strong>vm-network-ci</strong> and open Jenkins home page at <code>http://VM_IP:8080</code>. From there navigate to <strong>Manage Jenkins -&gt; Manage Plugins -&gt; Available</strong>, search for and install the <strong>GitHub plugin</strong>.</p>
-
-<h1 id="a-quick-jenkins-intro">A quick Jenkins intro</h1>
-
-<p>Inside Jenkins, <strong>a job</strong> represents a set of tasks that need to be automated for a particular project. Each job first waits for a trigger, which can be either a manual or an automatic event. When triggered, it connects to Github repository, downloads all the code to a local machine and executes a set of build steps defined in this job. A very simple workflow would looks like this:</p>
+<p>This is how you would approach a project like this.</p>
 
 <ol>
-<li>Developer commits and pushes a change to a Github repository</li>
-<li>Github notifies Jenkins server by sending an HTTP POST request</li>
-<li>Jenkins identifies the job that needs to be run and clones Github repo into a local directory</li>
-<li>It then goes through and executes a set of build steps defined for this job</li>
-<li>At the end you can optionally configure Jenkins to update the status of the build as described <a href="http://stackoverflow.com/questions/14274293/show-current-state-of-jenkins-build-on-github-repo" target="_blank">here</a></li>
+<li>Get a copy of network-ci <a href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/" target="_blank">VM</a></li>
+<li>Get a local copy of network-ci <a href="https://github.com/networkop/network-ci/tree/master/acme-large" target="_blank">tools</a></li>
+<li>Copy configuration from real-life devices into the <a href="https://github.com/networkop/network-ci/tree/master/acme-large/config" target="_blank">config directory</a></li>
+<li>Add configuration files for mock devices to the same directory</li>
+<li>Review the <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/topology.py" target="_blank">topology definition file</a> to make sure it reflects our physical diagram</li>
+<li>Review the UNL <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/unetlab.yml" target="_blank">configuration file</a> to make sure it points to the correct IP address assigned to your network-ci VM</li>
+<li>Kick-off topology build inside UNL by running <code>./0_built_topo.py</code> script</li>
+<li>Verify that traffic flows as expected with <code>2_test.py</code> script</li>
+<li>Start the real-time monitoring with <code>1_monitor.py</code> script</li>
+<li>Implement required changes on individual devices (all required changes can be found in <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/ospf-bgp.txt" target="_blank">ospf-bgp.txt</a> file)</li>
+<li>Make sure that the network still behaves as before by running <code>2_test.py</code> script</li>
+<li>Destroy the topology in UNL by running <code>3_destroy_topo.py</code></li>
 </ol>
 
-<h1 id="using-jenkins-for-network-testing">Using Jenkins for network testing</h1>
+<h1 id="continuous-integration">Continuous Integration</h1>
 
-<ol>
-<li>From Jenkins home page click on <strong>create new jobs</strong> and create a <em>Freestyle project</em> called <strong>acme-small</strong>.</li>
-<li>Select the <strong>Github project</strong> option and enter a url of your Github repository (in my case its <a href="https://github.com/networkop/network-ci" target="_blank">https://github.com/networkop/network-ci</a>).</li>
-<li>Under <strong>Source Code Management</strong> select <em>Git</em> and enter the same repository URL.</li>
-<li>Under <strong>Additional Behaviours</strong> add a <em>Polling ignores commits in certain paths</em>.<br />
-Since I&rsquo;m keeping multiple subprojects in the same Github repo, I need to make sure that this job is only triggered if commit affected a particular directory.</li>
-<li>Under <strong>Included Regions</strong> add <code>acme-small/.*</code> to only trigger builds for changes made to <strong>acme-small</strong> directory.</li>
-<li>Optionally you can specify the build triggers to either build periodically or wait for changes to be pushed to Github.</li>
+<p>In the <a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/" target="_blank">previous post</a> I&rsquo;ve showed how to use Jenkins to setup the CI environment for a small demo network. The same method can be applied to setup the job for our small Data Centre. It is simply a matter of changing the directory name from <strong>acme-small</strong> to <strong>acme-large</strong> in the first build step.</p>
 
-<li><p>Under <strong>Build</strong> add a new build step with the following shell commands:</p>
+<h1 id="source-code">Source code</h1>
 
-<pre><code>export UNL_IP=&quot;unl_ip_address&quot;
-export PYTHONUNBUFFERED=1
-cd acme-small
-chmod +x 0_built_topo.py
-chmod +x 2_test.py
-chmod +x 3_destroy_topo.py
-./0_built_topo.py
-./2_test.py
-./3_destroy_topo.py
-</code></pre>
-
-<p>The first two env variables setup the UNL&rsquo;s IP address of and disable IO buffering so that we can see the output produced by our scripts in real time. The remaining steps simply execute the build, test and destroy scripts in order.</p></li>
-
-<li><p>Save the job and click on the <strong>Build Now</strong> to trigger the build manually.</p></li>
-
-<li><p>In the <strong>Build History</strong> pane click on the latest build number (should be #1) and go to <em>Console Output</em>.</p></li>
-
-<li><p>Observe how Jenkins builds, tests and destroys our demo topology</p></li>
-</ol>
-
-<h1 id="network-upgrade-workflow">Network upgrade workflow</h1>
-
-<p>Now imagine that a new requirements has come in to make sure that traffic from R1 to R3&rsquo;s Gig0/1 does not traverse R4 and goes via R2 instead, only falling back to R4 when R1-R2 link is down. In the following video I&rsquo;ll show how to use network-ci tools locally to implement and test this traffic engineering requirement.</p>
-
-
-<div style="position: relative; padding-bottom: 56.25%; padding-top: 30px; height: 0; overflow: hidden;">
-  <iframe src="//www.youtube.com/embed/GLOG9KZzP90" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%;" allowfullscreen frameborder="0" title="YouTube Video"></iframe>
- </div>
-
-
-<h1 id="coming-up">Coming up</h1>
-
-<p>In the next post I&rsquo;ll show how to apply the same workflow to automate the build, test and ugprade of a large 14-node topology.</p>
+<p>All code from this and previous posts is available on <a href="https://github.com/networkop/network-ci/tree/master/acme-large" target="_blank">Github</a></p>
 
       </div>
 
@@ -440,6 +415,8 @@ chmod +x 3_destroy_topo.py
   <h3>Related</h3>
   <ul>
     
+    <li><a href="/blog/2016/03/03/network-ci-demo-small/">Network-CI Part 2 - Small Network Demo</a></li>
+    
     <li><a href="/blog/2016/02/25/network-ci-dev-setup/">Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins</a></li>
     
     <li><a href="/blog/2016/02/19/network-ci-intro/">Network Continuous Integration and Delivery</a></li>
@@ -447,8 +424,6 @@ chmod +x 3_destroy_topo.py
     <li><a href="/blog/2016/01/17/rest-unl-advanced/">REST for Network Engineers Part 3 - Advanced Operations With UnetLab</a></li>
     
     <li><a href="/blog/2016/01/06/rest-basic-operations/">REST for Network Engineers Part 2 - Basic Operations With UnetLab</a></li>
-    
-    <li><a href="/blog/2016/01/03/dev-env-setup-rest/">REST for Network Engineers Part 1 - Development Environment Setup</a></li>
     
   </ul>
 </div>
@@ -562,6 +537,15 @@ chmod +x 3_destroy_topo.py
       
 
       <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
+lightingOnLoad();</script>
     
 
     
