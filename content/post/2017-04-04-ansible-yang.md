@@ -20,7 +20,7 @@ I hope this promise is exciting enough so without further ado, let's get crackin
 # Environment setup
 The test environment will consist of a single instance of CSR1000v running IOS-XE version 16.4.1 and a single instance of vMX running JUNOS version 17.1R1.8. The VMs containing the two devices are deployed within a single hypervisor and connected with one interface to the management network and back-to-back with the second  pair of interfaces for BGP peering.
 
-![](/img/ansible-YANG.png )
+![](/img/ansible-yang.png )
 
 Each device contains some basic initial configuration to allow it be reachable from the Ansible server.
 
