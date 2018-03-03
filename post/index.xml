@@ -11,6 +11,244 @@
     <atom:link href="/post/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>The problem of unpredictable interface order in multi-network Docker containers</title>
+      <link>https://networkop.co.uk/post/2018-03-03-docker-multinet/</link>
+      <pubDate>Sat, 03 Mar 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2018-03-03-docker-multinet/</guid>
+      <description>
+
+&lt;p&gt;Whether we like it or not, the era of DevOps is upon us, fellow network engineers, and with it come opportunities to approach and solve common networking problems
+in new, innovative ways. One such problem is automated network change validation and testing in virtual environments, something I&amp;rsquo;ve already &lt;a href=&#34;https://networkop.co.uk/blog/2016/02/19/network-ci-intro/&#34;&gt;written about&lt;/a&gt; a few years ago. The biggest problem with my original approach was that I had to create a custom &lt;a href=&#34;https://networkop.co.uk/blog/2016/01/01/rest-for-neteng/&#34;&gt;REST API SDK&lt;/a&gt; to work with a network simulation environment (UnetLab) that was never designed to be interacted with in a programmatic way. On the other hand, technologies like Docker have been very interesting since they were built around the idea of non-interactive lifecycle management and came with all &lt;a href=&#34;http://docker-py.readthedocs.io/en/stable/containers.html&#34; target=&#34;_blank&#34;&gt;API batteries&lt;/a&gt; already included. However, Docker was never intended to be used for network simulations and its support for multiple network interfaces is&amp;hellip; somewhat problematic.&lt;/p&gt;
+
+&lt;h1 id=&#34;problem-demonstration&#34;&gt;Problem demonstration&lt;/h1&gt;
+
+&lt;p&gt;The easiest way to understand the problem is to see it. Let&amp;rsquo;s start with a blank Docker host and create a few networks:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker network create net1
+docker network create net2
+docker network create net3
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s see what prefixes have been allocated to those networks:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker network inspect -f &amp;quot;{{range .IPAM.Config }}{{.Subnet}}{{end}}&amp;quot; net1
+172.17.0.0/16
+docker network inspect -f &amp;quot;{{range .IPAM.Config }}{{.Subnet}}{{end}}&amp;quot; net2
+172.18.0.0/16
+docker network inspect -f &amp;quot;{{range .IPAM.Config }}{{.Subnet}}{{end}}&amp;quot; net3
+172.19.0.0/16
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, let&amp;rsquo;s create a container and attach it to these networks:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker create --name test -it alpine sh
+docker network connect net1 test
+docker network connect net2 test
+docker network connect net3 test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now obviously you would expect for networks to appear in the same order as they were attached, right? Let&amp;rsquo;s see if it&amp;rsquo;s true:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker start test
+docker exec -it test sh -c &amp;quot;ip a | grep &#39;inet&#39;&amp;quot;
+inet 127.0.0.1/8 scope host lo
+inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
+inet 172.17.0.2/16 brd 172.17.255.255 scope global eth1
+inet 172.18.0.2/16 brd 172.18.255.255 scope global eth2
+inet 172.19.0.2/16 brd 172.19.255.255 scope global eth3
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Looks good so far. The first interface (172.26.0.2/16) is the docker bridge that was attached by default in &lt;code&gt;docker create&lt;/code&gt; command. Now let&amp;rsquo;s add another network.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker network create net4
+docker stop test
+docker network connect net4 test
+docker start test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Let&amp;rsquo;s examine our interfaces again:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker exec -it test sh -c &amp;quot;ip a | egrep &#39;eth\d|inet&#39;&amp;quot;
+inet 127.0.0.1/8 scope host lo
+inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
+inet 172.20.0.2/16 brd 172.20.255.255 scope global eth3
+inet 172.17.0.2/16 brd 172.17.255.255 scope global eth2
+inet 172.18.0.2/16 brd 172.18.255.255 scope global eth1
+inet 172.19.0.2/16 brd 172.19.255.255 scope global eth4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we&amp;rsquo;re seeing that networks are in a completely different order. Looks like net1 is connected to eth2, net2 to eth1, net3 to eth4 and net4 to eth3. In fact, this issue should manifest itself even with 2 or 3 networks, however, I&amp;rsquo;ve found that it doesn&amp;rsquo;t always reorder them in that case.&lt;/p&gt;
+
+&lt;h1 id=&#34;cnm-and-libnetwork-architecture&#34;&gt;CNM and libnetwork architecture&lt;/h1&gt;
+
+&lt;p&gt;In order to better understand the issue, it help to know the CNM terminology and network lifecycle events which are explained in libnetwork&amp;rsquo;s &lt;a href=&#34;https://github.com/docker/libnetwork/blob/master/docs/design.md&#34; target=&#34;_blank&#34;&gt;design document&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://github.com/docker/libnetwork/raw/master/docs/cnm-model.jpg?raw=true&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Each time we run a &lt;code&gt;docker network create&lt;/code&gt; command a new &lt;strong&gt;CNM network&lt;/strong&gt; object is created. This object has a specific network type (&lt;code&gt;bridge&lt;/code&gt; by default) which identifies the driver to be used for the actual network implementation.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;network, err := controller.NewNetwork(&amp;quot;bridge&amp;quot;, &amp;quot;net1&amp;quot;, &amp;quot;&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;When container gets attached to its networks, first time in &lt;code&gt;docker create&lt;/code&gt; and subsequently in &lt;code&gt;docket network connect&lt;/code&gt; commands, an &lt;strong&gt;endpoint object&lt;/strong&gt; is created on each of the networks being connected. This endpoint object represents container&amp;rsquo;s point of attachment (similar to a switch port) to docker networks and may allocate IP settings for a future network interface.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;ep, err := network.CreateEndpoint(&amp;quot;ep1&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At the time when container gets attached to its first network, a &lt;strong&gt;sandbox object&lt;/strong&gt; is created. This object represents a container inside CNM object model and stores pointers to all attached network endpoints.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;sbx, err := controller.NewSandbox(&amp;quot;test&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, when we start a container using &lt;code&gt;docker start&lt;/code&gt; command, the corresponding &lt;strong&gt;sandbox gets attached&lt;/strong&gt; to all associated network endpoints using the &lt;code&gt;ep.Join(sandbox)&lt;/code&gt; call:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;for _, ep := range epList {
+	if err := ep.Join(sb); err != nil {
+		logrus.Warnf(&amp;quot;Failed attach sandbox %s to endpoint %s: %v\n&amp;quot;, sb.ID(), ep.ID(), err)
+	}
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;going-down-the-rabbit-hole&#34;&gt;Going down the rabbit hole&lt;/h1&gt;
+
+&lt;p&gt;Looking at the above snippet from &lt;code&gt;sandbox.go&lt;/code&gt;, we can assume that the order in which networks will be attached to a container will depend on the order of elements inside the &lt;code&gt;epList&lt;/code&gt; array, which gets built earlier in the function:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;epList := sb.getConnectedEndpoints()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s see what happens inside that method call:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func (sb *sandbox) getConnectedEndpoints() []*endpoint {
+	sb.Lock()
+	defer sb.Unlock()
+
+	eps := make([]*endpoint, len(sb.endpoints))
+	for i, ep := range sb.endpoints {
+		eps[i] = ep
+	}
+
+	return eps
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;So &lt;code&gt;epList&lt;/code&gt; is just an array of endpoints that gets built by copying values from &lt;code&gt;sb.endoints&lt;/code&gt;, which itself is an attribute (or field) inside the &lt;code&gt;sb&lt;/code&gt; struct.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;type epHeap []*endpoint
+
+type sandbox struct {
+  id                 string
+  containerID        string
+...
+  endpoints          epHeap
+...
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At this point it looks like &lt;code&gt;endpoints&lt;/code&gt; is just an array of pointers to endpoint objects, which still doesn&amp;rsquo;t explain the issue we&amp;rsquo;re investigating. Perhaps it would make more sense if we saw how a sandbox object gets created.&lt;/p&gt;
+
+&lt;p&gt;Since sandbox object gets created by calling &lt;code&gt;controller.NewSandbox()&lt;/code&gt; method, let&amp;rsquo;s see exactly how this is done by looking at the code inside the &lt;code&gt;controller.go&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (Sandbox, error) {
+...
+  // Create sandbox and process options first. Key generation depends on an option
+  if sb == nil {
+    sb = &amp;amp;sandbox{
+      id:                 sandboxID,
+      containerID:        containerID,
+      endpoints:          epHeap{},
+...
+    }
+  }
+
+  heap.Init(&amp;amp;sb.endpoints)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The last statement explains why sandbox connects networks in random order. The &lt;code&gt;endpoints&lt;/code&gt; array is, in fact, a &lt;a href=&#34;https://golang.org/pkg/container/heap/&#34; target=&#34;_blank&#34;&gt;heap&lt;/a&gt; - an ordered tree, where parent node is always smaller than (or equal to) its children (minheap). Heap is used to implement a priority queue, which should be familiar to every network engineer who knows QoS. One of heap&amp;rsquo;s properties is that it re-orders elements every time an element gets added or removed, in order to maintain the heap invariant (parent &amp;lt;= child).&lt;/p&gt;
+
+&lt;h1 id=&#34;problem-solution&#34;&gt;Problem solution&lt;/h1&gt;
+
+&lt;p&gt;It turns out the problem demonstrated above is a very well-known problem with multiple opened issues on Github [&lt;a href=&#34;https://github.com/moby/moby/issues/25181&#34; target=&#34;_blank&#34;&gt;1&lt;/a&gt;,&lt;a href=&#34;https://github.com/moby/moby/issues/23742&#34; target=&#34;_blank&#34;&gt;2&lt;/a&gt;,&lt;a href=&#34;https://github.com/moby/moby/issues/35221&#34; target=&#34;_blank&#34;&gt;3&lt;/a&gt;]. I was lucky enough to have discovered this problem right after &lt;a href=&#34;https://github.com/docker/libnetwork/issues/2093&#34; target=&#34;_blank&#34;&gt;this pull request&lt;/a&gt; got submitted, which is what helped me understand what the issue was in the first place. This pull request reference a &lt;a href=&#34;https://github.com/cziebuhr/libnetwork/commit/d047825d4d156bc4cf01bfe410cb61b3bc33f572&#34; target=&#34;_blank&#34;&gt;patch&lt;/a&gt; that swaps the heapified array with a normal one. Below I&amp;rsquo;ll show how to build a custom docker daemon binary using this patch. We&amp;rsquo;ll start with a privileged centos-based Docker container:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker run --privileged -it centos bash
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Inside this container we need to install all the dependencies along with Docker. Yes, you need Docker to build Docker:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;yum install -y git iptables \
+            make &amp;quot;Development Tools&amp;quot; \
+            yum-utils device-mapper-persistent-data \
+            lvm2
+
+yum-config-manager --add-repo \
+    https://download.docker.com/linux/centos/docker-ce.repo
+
+yum install docker-ce -y
+
+# Start docker in the background
+/usr/bin/dockerd &amp;gt;/dev/null &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next let&amp;rsquo;s clone the Docker master branch and the patched fork of libnetwork:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;git clone --depth=1 https://github.com/docker/docker.git /tmp/docker-repo
+git clone https://github.com/cziebuhr/libnetwork.git /tmp/libnetwork-patch
+cd /tmp/libnetwork-patch
+git checkout d047825d4d156bc4cf01bfe410cb61b3bc33f572
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;I tried using &lt;a href=&#34;https://github.com/LK4D4/vndr&#34; target=&#34;_blank&#34;&gt;VNDR&lt;/a&gt; to update the libnetwork files inside the Docker repository, however I ran into problems with incompatible git options on CentOS. So instead I&amp;rsquo;ll update libnetwork manually, with just the files that are different from the original repo:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;cd /tmp/libnetwork-patch
+/usr/bin/cp controller.go endpoint.go sandbox.go sandbox_store.go /tmp/docker-repo/vendor/github.com/docker/libnetwork/
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Final step is to build docker binaries. This step may require up to 100G of free disk space and may take up to 60 minutes depending on your network speed.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;cd /tmp/docker-repo
+make build
+make binary
+...
+Created binary: bundles/binary-daemon/dockerd-dev
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;verification&#34;&gt;Verification&lt;/h1&gt;
+
+&lt;p&gt;Once done, we can retrieve the binaries outside of the build container:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;find /var/lib/docker -name dockerd
+/var/lib/docker/overlay2/ac310ef5172acac7e8cb748092a9c9d1ddc3c25a91e636ab581cfde0869f5d76/diff/tmp/docker-repo/bundles/binary-daemon/dockerd
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we can swap the current docker daemon with the patched one:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;yum install which -y
+systemctl stop docker.service
+DOCKERD=$(which dockerd)
+mv $DOCKERD $DOCKERD-old
+cp /tmp/docker-repo/bundles/latest/binary-daemon/dockerd $DOCKERD
+systemctl start docker.service
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If we re-run our tests now, the interfaces are returned in the same exact order they were added:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker start test
+docker exec -it test sh -c &amp;quot;ip a | grep &#39;inet&#39;&amp;quot;
+inet 127.0.0.1/8 scope host lo
+inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
+inet 172.17.0.2/16 brd 172.17.255.255 scope global eth1
+inet 172.18.0.2/16 brd 172.18.255.255 scope global eth2
+inet 172.19.0.2/16 brd 172.19.255.255 scope global eth3
+inet 172.20.0.2/16 brd 172.20.255.255 scope global eth4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;Huge kudos to the original &lt;a href=&#34;https://github.com/cziebuhr&#34; target=&#34;_blank&#34;&gt;author&lt;/a&gt; of the &lt;a href=&#34;https://github.com/cziebuhr/libnetwork/commit/d047825d4d156bc4cf01bfe410cb61b3bc33f572&#34; target=&#34;_blank&#34;&gt;libnetwork patch&lt;/a&gt; which is the sole reason this blogpost exists. I really hope that this issue will get resolved, in this form or another (could it be possible to keep track of the order in which endpoints are added to a sandbox and use that as a criteria for heap sort?), as this will make automated network testing much more approachable.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>OpenStack SDN - OpenContrail With BGP VPN</title>
       <link>https://networkop.co.uk/blog/2018/01/02/os-contrail/</link>
       <pubDate>Tue, 02 Jan 2018 00:00:00 +0000</pubDate>
@@ -3513,454 +3751,6 @@ Destination        Type RtRef Next hop           Type Index    NhRef Netif
 &lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
 
 &lt;p&gt;So why all the hassle configuring EPVN on data centre switches? For one, you can &lt;a href=&#34;http://forums.juniper.net/t5/Data-Center-Technologists/MC-LAG-is-dead-Long-live-EVPN-Multi-homing/ba-p/298924&#34; target=&#34;_blank&#34;&gt;get rid&lt;/a&gt; of MLAG in TOR switches and replace it with EVPN multihoming. However, the main benefit is that you can stretch L2 broadcast domains across your whole data centre without the need for an SDN controller. So, for example, we can now easily satisfy the requirement of having external floating IP network on all compute nodes introduced by &lt;a href=&#34;https://networkop.co.uk/blog/2016/10/13/os-dvr/&#34;&gt;Neutron DVR&lt;/a&gt;. EVPN-enabled switches can also now perform functions similar to DC gateway routers (the likes of ASR, MX or SR) while giving you the benefits of horizontal scaling of Leaf/Spine networks. As &lt;a href=&#34;https://docs.cumulusnetworks.com/display/DOCS/Ethernet+Virtual+Private+Network+-+EVPN&#34; target=&#34;_blank&#34;&gt;more&lt;/a&gt; and &lt;a href=&#34;https://eos.arista.com/forum/evpn-control-plane-support-for-vxlan/&#34; target=&#34;_blank&#34;&gt;more&lt;/a&gt; vendors introduce EVPN support, it is poised to become the ultimate DC routing protocol, complementing the functions already performed by the host-based virtual switches, and with all the DC switches &lt;a href=&#34;https://networkop.co.uk/blog/2016/09/09/os-lab-p2/&#34;&gt;running BGP&lt;/a&gt; already, introducing EVPN may be as easy as enabling a new address family.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN - Distributed Virtual Routing</title>
-      <link>https://networkop.co.uk/blog/2016/10/13/os-dvr/</link>
-      <pubDate>Thu, 13 Oct 2016 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2016/10/13/os-dvr/</guid>
-      <description>
-
-&lt;h2&gt;Table of Contents&lt;/h2&gt;
-&lt;nav id=&#34;TableOfContents&#34;&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&#34;#virtual-topology-overview&#34;&gt;Virtual topology overview&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#virtual-topology-setup&#34;&gt;Virtual topology setup&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#non-dvr-traffic-flow&#34;&gt;non-DVR traffic flow&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#enabling-dvr&#34;&gt;Enabling DVR&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#dvr-east-west-traffic-flow&#34;&gt;DVR East-West traffic flow&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#external-connectivity&#34;&gt;External connectivity&lt;/a&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&#34;#case-1-overload-nat-vm2-with-no-fip&#34;&gt;Case 1 - Overload NAT (VM2 with no FIP)&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#case-2-static-nat-vm1-with-fip&#34;&gt;Case 2 - Static NAT (VM1 with FIP)&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#dvr-pros-and-cons&#34;&gt;DVR Pros and Cons&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/nav&gt;
-
-
-&lt;p&gt;To be honest I was a little hesitant to write this post because the topic of Neutron&amp;rsquo;s DVR has already been &lt;a href=&#34;abbr:beaten to death&#34; target=&#34;_blank&#34;&gt;exhaustively covered&lt;/a&gt; by many, including &lt;a href=&#34;https://assafmuller.com/category/dvr/&#34; target=&#34;_blank&#34;&gt;Assaf Muller&lt;/a&gt;, &lt;a href=&#34;http://blog.gampel.net/2014/12/openstack-neutron-distributed-virtual.html&#34; target=&#34;_blank&#34;&gt;Eran Gampel&lt;/a&gt; and in the official OpenStack &lt;a href=&#34;http://docs.openstack.org/mitaka/networking-guide/scenario-dvr-ovs.html&#34; target=&#34;_blank&#34;&gt;networking guide&lt;/a&gt;. The coverage of the topic was so thorough that I barely had anything to add. However I still decided to write a DVR post of my own for the following two reasons:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;I often use my own posts as references and it&amp;rsquo;s always easier for me to find information in my own writings.&lt;/li&gt;
-&lt;li&gt;I wanted to use this post as a reference platform for subsequent posts about dynamic routing and OVN project.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;The topic of Neutron&amp;rsquo;s DVR is quite vast so I had to compromise between the length of this post and the level of details. In the end, I edited out most of the repeated content and replaced it with references to my older posts. I think I left everything that should be needed to follow along the narrative so hopefully it won&amp;rsquo;t seem too patchy.&lt;/p&gt;
-
-&lt;h1 id=&#34;virtual-topology-overview&#34;&gt;Virtual topology overview&lt;/h1&gt;
-
-&lt;p&gt;Let&amp;rsquo;s see what we&amp;rsquo;re going to be dealing with in this post. This is a simple virtual topology with two VMs sitting in two different subnets. VM1 has a floating IP assigned that is used for external access.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/dvr-topo.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Before we get to the packet walk details, let me briefly describe how to build the above topology using Neutron CLI. I&amp;rsquo;ll assume that OpenStack has just been installed and nothing has been configured yet, effectively we&amp;rsquo;ll pick up from where we left our lab in the &lt;a href=&#34;http://networkop.github.io/blog/2016/09/09/os-lab-p2/&#34; target=&#34;_blank&#34;&gt;previous post&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h1 id=&#34;virtual-topology-setup&#34;&gt;Virtual topology setup&lt;/h1&gt;
-
-&lt;ol&gt;
-&lt;li&gt;&lt;p&gt;Upload Cirros Linux image to OpenStack&amp;rsquo;s image repository&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
-     image-create --name=&#39;IMG-CIRROS&#39; \
-     --visibility=public \
-     --container-format=bare \
-     --disk-format=qcow2
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Create 2 virtual subnets - RED and BLUE&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;neutron net-create NET-BLUE
-neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24 \
-  --dns-nameserver 8.8.8.8
-    
-neutron net-create NET-RED
-neutron subnet-create --name SUB-RED NET-RED 10.0.1.0/24 \
-  --dns-nameserver 8.8.8.8
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Create external network&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;neutron net-create EXT-NET --provider:network_type flat \
-  --provider:physical_network extnet  \
-  --router:external \
-  --shared
-    
-neutron subnet-create --name EXT-SUB \
- --enable_dhcp=False \
- --allocation-pool=start=169.254.0.50,end=169.254.0.99 \
- --gateway=169.254.0.1 EXT-NET 169.254.0.0/24
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Create a router and attach it to all three networks created above&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;neutron router-create R1
-neutron router-interface-add R1 SUB-RED
-neutron router-interface-add R1 SUB-BLUE
-neutron router-gateway-set R1 EXT-NET
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Create two host aggregates to spread the VMs across two different hosts&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;nova aggregate-create AGG-RED AZ-RED
-nova aggregate-create AGG-BLUE AZ-BLUE
-nova aggregate-add-host AGG-BLUE compute-2
-nova aggregate-add-host AGG-RED compute-3
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Boot VMs on two different hypervisors&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;nova boot --flavor m1.tiny --image &#39;IMG-CIRROS&#39; \
-     --nic net-name=NET-BLUE \
-    --availability-zone AZ-BLUE \
-     VM1
-    
-nova boot --flavor m1.tiny --image &#39;IMG-CIRROS&#39; \
-    --nic net-name=NET-RED \
-    --availability-zone AZ-RED \
-    VM2
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Assign a floating IP (Static NAT) to VM1&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;nova floating-ip-create EXT-NET
-nova floating-ip-associate VM1 169.254.0.55
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Enable ingress ICMP and SSH access&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;nova secgroup-add-rule default tcp 22 22 0.0.0.0/0
-nova secgroup-add-rule default icmp -1 -1 0.0.0.0/0
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Make sure that both VMs are up and running.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-| ID                                   | Name | Status | Task State | Power State | Networks                         |
-+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-| 92263ae8-43d1-4cd0-b271-2b11f0efbe7f | VM1  | ACTIVE | -          | Running     | NET-BLUE=10.0.0.12, 169.254.0.55 |
-| b4562f24-2461-49fb-875b-fa1bf869dc4a | VM2  | ACTIVE | -          | Running     | NET-RED=10.0.1.4                 |
-+--------------------------------------+------+--------+------------+-------------+----------------------------------+
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;h1 id=&#34;non-dvr-traffic-flow&#34;&gt;non-DVR traffic flow&lt;/h1&gt;
-
-&lt;p&gt;Using the technique described in my &lt;a href=&#34;http://networkop.github.io/blog/2016/04/22/neutron-native/&#34; target=&#34;_blank&#34;&gt;earlier post&lt;/a&gt; I&amp;rsquo;ve collected the dynamically allocated port numbers and created a physical representation of our virtual network.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/dvr-before.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;For the sake of brevity I will omit the verification commands. The traffic flow between VM1 and VM2 will follow the standard path that I&amp;rsquo;ve explored in my &lt;a href=&#34;http://networkop.github.io/blog/2016/04/22/neutron-native/&#34; target=&#34;_blank&#34;&gt;native Neutron SDN post&lt;/a&gt;.&lt;br /&gt;
-It is obvious that in this case traffic flows are suboptimal. Instead of going directly between the peer compute nodes, the packet has to hairpin through a Neutron router. This adds to the end-to-end latency and creates unnecessary load on the Network node. These are one of the main reasons why Distributed Virtual Routing was introduced in OpenStack Juno.&lt;/p&gt;
-
-&lt;h1 id=&#34;enabling-dvr&#34;&gt;Enabling DVR&lt;/h1&gt;
-
-&lt;p&gt;Enabling DVR requires configuration changes of multiple files on all OpenStack nodes. At a high level, all compute nodes will now run Neutron&amp;rsquo;s L3-agent service which will be responsible for provisioning of DVR and other auxiliary namespaces. The details of specific configuration options that need to be enabled can be found in the official OpenStack &lt;a href=&#34;http://docs.openstack.org/mitaka/networking-guide/scenario-dvr-ovs.html&#34; target=&#34;_blank&#34;&gt;Networking guide&lt;/a&gt;. As usual, I&amp;rsquo;ve incorporated all the necessary changes into a single Chef &lt;a href=&#34;https://github.com/networkop/chef-unl-os/tree/master/cookbooks/neutron&#34; target=&#34;_blank&#34;&gt;cookbook&lt;/a&gt;, so in order to enable DVR in our lab all what you need to do is run the following commands from the UNetLab VM:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;git pull origin master
-chef-client -z -E lab neutron.rb
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Once all changes has been made, we need to either create a new router or update the existing one to enable the DVR functionality:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;neutron router-update --admin-state-up False --distributed True R1
-neutron router-update --admin-state-up True R1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;dvr-east-west-traffic-flow&#34;&gt;DVR East-West traffic flow&lt;/h1&gt;
-
-&lt;p&gt;Now let&amp;rsquo;s see how the traffic flows have changed with the introduction of DVR.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/dvr-ew.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;We&amp;rsquo;re going to be examining the following traffic flow:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;From VM1 (10.0.0.12/fa:16:3e:83:92:96)&lt;/li&gt;
-&lt;li&gt;Via router R1 (10.0.0.1/fa:16:3e:72:7a:50; 10.0.1.1/fa:16:3e:6a:2c:8b)&lt;/li&gt;
-&lt;li&gt;To VM2 (10.0.1.4/fa:16:3e:76:31:68)&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;R1 now has an instance on all compute nodes that have VMs in the BLUE or RED networks. That means that VM1 will send a packet directly to the R1&amp;rsquo;s BLUE interface via the integration bridge.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl fdb/show br-int
- port  VLAN  MAC                Age
-    2     1  fa:16:3e:83:92:96    1
-    4     1  fa:16:3e:72:7a:50    1
-    5     2  fa:16:3e:6a:2c:8b    1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This is dynamically populated MAC address table of the integration bridge. You can see that the MAC address of VM1 and both interfaces of R1 have been learned. That means that when VM1 sends a packet to its default gateway&amp;rsquo;s MAC address, it will go directly to R1&amp;rsquo;s BLUE interface on port 4.&lt;/p&gt;
-
-&lt;p&gt;In this post I will omit the details of ARP resolution process which remains the same as &lt;a href=&#34;http://networkop.github.io/blog/2016/05/06/neutron-l2pop/&#34; target=&#34;_blank&#34;&gt;before&lt;/a&gt;, however there&amp;rsquo;s one interesting detail that is worth mentioning before we move on. During the initial flood-and-learn phase on the &lt;strong&gt;br-int&lt;/strong&gt;, the ARP request will get flooded down to the tunnel bridge. As per the standard behaviour, the packet should get replicated to all nodes. However, in this case we don&amp;rsquo;t want to hear responses from other nodes, since the router is hosted locally. In order to help that, tunnel bridges explicitly drop all packets coming from integration bridges and destined for MAC addresses of locally hosted routers:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=fa:16:3e:72:7a:50 | grep -E &amp;quot;Rule|action&amp;quot;
-Rule: table=0 cookie=0xa3536ac94478bd1d priority=1,in_port=1
-OpenFlow actions=goto_table:1
-        Rule: table=1 cookie=0xa3536ac94478bd1d priority=2,dl_vlan=1,dl_dst=fa:16:3e:72:7a:50
-        OpenFlow actions=drop
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Getting back to our traffic flow, once the IP packet has reached the DVR instance of R1 on compute node #2, the routing lookup occurs and the packet is sent back to the integration bridge with a new source MAC of R1&amp;rsquo;s RED interface.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid ip route
-10.0.0.0/24 dev qr-102c4426-86  proto kernel  scope link  src 10.0.0.1
-10.0.1.0/24 dev qr-3779302e-62  proto kernel  scope link  src 10.0.1.1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Tunnel bridge will do its usual work by locating the target compute node based on the destination MAC address of VM2 (DVR requires &lt;a href=&#34;http://networkop.github.io/blog/2016/05/06/neutron-l2pop/&#34; target=&#34;_blank&#34;&gt;L2 population&lt;/a&gt; to be enabled) and will send the packet directly to the compute node #3.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=2,dl_src=fa:16:3e:6a:2c:8b,dl_dst=fa:16:3e:76:31:68 | grep -E &amp;quot;Rule|action&amp;quot;
-Rule: table=0 cookie=0xa3536ac94478bd1d priority=1,in_port=1
-OpenFlow actions=goto_table:1
-        Rule: table=1 cookie=0xa3536ac94478bd1d priority=1,dl_vlan=2,dl_src=fa:16:3e:6a:2c:8b
-        OpenFlow actions=set_field:fa:16:3f:d3:10:60-&amp;gt;eth_src,goto_table:2
-                Rule: table=2 cookie=0xa3536ac94478bd1d priority=0,dl_dst=00:00:00:00:00:00/01:00:00:00:00:00
-                OpenFlow actions=goto_table:20
-                        Rule: table=20 cookie=0xa3536ac94478bd1d priority=2,dl_vlan=2,dl_dst=fa:16:3e:76:31:68
-                        OpenFlow actions=pop_vlan,set_field:0x4d-&amp;gt;tun_id,output:3
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Since all instances of R1 have the same set of IP/MAC addresses, the MAC address of a local router can be learned by the remote integration bridge hosting the same instance of DVR. In order to prevent that from happening, the sending &lt;strong&gt;br-tun&lt;/strong&gt; replaces the source MAC address of the frame with the &lt;code&gt;set_field:fa:16:3f:d3:10:60-&amp;gt;eth_src&lt;/code&gt; action. This way the real R1&amp;rsquo;s MAC address gets masked as the frame leaves the node. These &amp;ldquo;mask&amp;rdquo; MACs are generated by and learned from the Neutron server, which ensures that each node gets a unique address.&lt;/p&gt;
-
-&lt;p&gt;The receiving node&amp;rsquo;s &lt;strong&gt;br-tun&lt;/strong&gt; will swap the VXLAN header with a VLAN ID and forward the frame up to the integration bridge.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl ofproto/trace br-tun in_port=3,tun_id=0x4d,dl_dst=fa:16:3e:76:31:68 | grep -E &amp;quot;Rule|action&amp;quot;
-Rule: table=0 cookie=0x8a7dedf35101427f priority=1,in_port=3
-OpenFlow actions=goto_table:4
-        Rule: table=4 cookie=0x8a7dedf35101427f priority=1,tun_id=0x4d
-        OpenFlow actions=push_vlan:0x8100,set_field:4097-&amp;gt;vlan_vid,goto_table:9
-                Rule: table=9 cookie=0x8a7dedf35101427f priority=0
-                OpenFlow actions=goto_table:10
-                        Rule: table=10 cookie=0x8a7dedf35101427f priority=1
-                        OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0x8a7dedf35101427f,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&amp;gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&amp;gt;NXM_NX_TUN_ID[],output:OXM_OF_IN_PORT[]),output:1
-                                Rule: table=0 cookie=0x9a1e0026794eadc5 priority=1
-                                OpenFlow actions=NORMAL
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Integration bridge of compute node #3 will lookup the destination MAC address and send the packet out port 2.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl fdb/show br-int
- port  VLAN  MAC                Age
-    2     1  fa:16:3e:76:31:68    0
-    4     2  fa:16:3e:72:7a:50    0
-    5     1  fa:16:3e:6a:2c:8b    0
-    1     1  fa:16:3e:29:de:20    0
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The reverse packet flow is similar - the packet will get routed on the compute node #3 and sent in a BLUE network to the compute node #2.&lt;/p&gt;
-
-&lt;h1 id=&#34;external-connectivity&#34;&gt;External connectivity&lt;/h1&gt;
-
-&lt;p&gt;External connectivity will be very different for VMs with and without a floating IP. We will examine each case individually.&lt;/p&gt;
-
-&lt;h2 id=&#34;case-1-overload-nat-vm2-with-no-fip&#34;&gt;Case 1 - Overload NAT (VM2 with no FIP)&lt;/h2&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/dvr-snat.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;External connectivity for VMs with no floating IP is still performed by the Network node. This time however, NATing is performed by a new element - SNAT namespace. As per the normal behaviour, VM2 will send a packet to its default gateway first. Let&amp;rsquo;s have a closer look at the routing table of the DVR:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid ip route
-10.0.0.0/24 dev qr-102c4426-86  proto kernel  scope link  src 10.0.0.1
-10.0.1.0/24 dev qr-3779302e-62  proto kernel  scope link  src 10.0.1.1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;There&amp;rsquo;s no default route in the main routing table, so how would it get routed out? DVRs extensively use &lt;a href=&#34;http://linux-ip.net/html/tools-ip-rule.html&#34; target=&#34;_blank&#34;&gt;Linux routing policy database&lt;/a&gt; (RPDB), a feature that has a lot in common with OpenFlow tables. The principle of RPDB is that every packet gets matched against a set of routing tables until there&amp;rsquo;s a hit. The tables are checked in the order of their priority (lowest to highest). One of the main features of RPDB is the ability to perform matches based on something other than the destination IP address, which is why it&amp;rsquo;s often referred to as policy-based routing. To view the contents of RPDB use the &lt;code&gt;ip rule&lt;/code&gt; command under the DVR namespace:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid ip rule
-0:      from all lookup local
-32766:  from all lookup main
-32767:  from all lookup default
-167772161:      from 10.0.0.1/24 lookup 167772161
-167772417:      from 10.0.1.1/24 lookup 167772417
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;In our case table 167772161 matches all packets sourced from the BLUE subnet and if we examine the corresponding routing table we&amp;rsquo;ll find the missing default route there.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid ip route list table 167772417
-default via 10.0.1.12 dev qr-3779302e-62
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The next hop of this default route points to the SNAT&amp;rsquo;s interface in the BLUE network. MAC address is statically programmed by the local L3-agent.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid ip neigh | grep 10.0.1.12
-10.0.1.12 dev qr-3779302e-62 lladdr fa:16:3e:29:de:20 PERMANENT
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Integration bridge sends the packet out port 1 to the tunnel bridge.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl fdb/show br-int | grep fa:16:3e:29:de:20
-    1     1  fa:16:3e:29:de:20    1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Tunnel bridge finds the corresponding match and sends the VXLAN-encapsulated packet to the Network node.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl ofproto/trace br-tun in_port=1,dl_vlan=1,dl_dst=fa:16:3e:29:de:20 | tail -n 1
-Datapath actions: set(tunnel(tun_id=0x4d,src=10.0.0.4,dst=10.0.0.0,ttl=64,flags(df|key))),pop_vlan,3
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Tunnel bridge of the Network node forwards the frame up to the integration bridge.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl ofproto/trace br-tun in_port=3,tun_id=0x4d,dl_dst=fa:16:3e:29:de:20 | grep output
-OpenFlow actions=learn(table=20,hard_timeout=300,priority=1,cookie=0xb9be3fe62922c800,NXM_OF_VLAN_TCI[0..11],NXM_OF_ETH_DST[]=NXM_OF_ETH_SRC[],load:0-&amp;gt;NXM_OF_VLAN_TCI[],load:NXM_NX_TUN_ID[]-&amp;gt;NXM_NX_TUN_ID[],output:OXM_OF_IN_PORT[]),output:1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Integration bridge sends the frame to port 10, which is where SNAT namespace is attached&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl fdb/show br-int | grep fa:16:3e:29:de:20
-   10     1  fa:16:3e:29:de:20    0
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;SNAT is a namespace with an interface in each of the subnets - BLUE, RED and External subnet&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec snat-uuid ip a | grep -E &amp;quot;UP|inet&amp;quot;
-16: sg-fefd493b-a5: &amp;lt;BROADCAST,MULTICAST,UP,LOWER_UP&amp;gt; mtu 1450 qdisc noqueue state UNKNOWN
-    link/ether fa:16:3e:99:5c:3a brd ff:ff:ff:ff:ff:ff
-    inet 10.0.0.6/24 brd 10.0.0.255 scope global sg-fefd493b-a5
-18: sg-b3d58360-b4: &amp;lt;BROADCAST,MULTICAST,UP,LOWER_UP&amp;gt; mtu 1450 qdisc noqueue state UNKNOWN
-    link/ether fa:16:3e:29:de:20 brd ff:ff:ff:ff:ff:ff
-    inet 10.0.1.12/24 brd 10.0.1.255 scope global sg-b3d58360-b4
-19: qg-765b5aca-ce: &amp;lt;BROADCAST,MULTICAST,UP,LOWER_UP&amp;gt; mtu 1500 qdisc noqueue state UNKNOWN
-    link/ether fa:16:3e:d5:75:0e brd ff:ff:ff:ff:ff:ff
-    inet 169.254.0.57/24 brd 169.254.0.255 scope global qg-765b5aca-ce
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;SNAT has a single default route pointing to the External network&amp;rsquo;s gateway.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec snat-uuid ip route | grep default
-default via 169.254.0.1 dev qg-765b5aca-ce
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Before sending the packet out, iptables will NAT the packet to hide it behind SNAT&amp;rsquo;s &lt;strong&gt;qg&lt;/strong&gt; external interface IP.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec snat-uuid iptables -t nat -L | grep SNAT
-SNAT       all  --  anywhere             anywhere             to:169.254.0.57
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;case-2-static-nat-vm1-with-fip&#34;&gt;Case 2 - Static NAT (VM1 with FIP)&lt;/h2&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/dvr-dnat.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;The first step in this scenario is the same - VM1 sends a packet to the MAC address of its default gateway. As before, the default route is missing in the main routing table.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid ip route list table main
-10.0.0.0/24 dev qr-102c4426-86  proto kernel  scope link  src 10.0.0.1
-10.0.1.0/24 dev qr-3779302e-62  proto kernel  scope link  src 10.0.1.1
-169.254.106.114/31 dev rfp-e4d4897e-7  proto kernel  scope link  src 169.254.106.114
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Looking at the &lt;strong&gt;ip rule&lt;/strong&gt; configuration we can find that table 16 matches all packets from that particular VM (10.0.0.12).&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid ip rule
-0:      from all lookup local
-32766:  from all lookup main
-32767:  from all lookup default
-57481:  from 10.0.0.12 lookup 16
-167772161:      from 10.0.0.1/24 lookup 167772161
-167772417:      from 10.0.1.1/24 lookup 167772417
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Routing table 16 sends the packet via a point-to-point veth pair link to the FIP namespace.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid ip route list table 16
-default via 169.254.106.115 dev rfp-e4d4897e-7
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Before sending the packet out, DVR translates the source IP of the packet to the FIP assigned to that VM.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid iptables -t nat -L | grep NAT
-SNAT       all  --  10.0.0.12            anywhere             to:169.254.0.55
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;A FIP namespace is a simple router designed to connect multiple DVRs to external network. This way all routers can share the same &amp;ldquo;uplink&amp;rdquo; namespace and don&amp;rsquo;t have to consume valuable addresses from external subnet.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec fip-uuid ip a | grep -E &amp;quot;UP|inet&amp;quot;
-2: fpr-e4d4897e-7: &amp;lt;BROADCAST,MULTICAST,UP,LOWER_UP&amp;gt; mtu 1500 qdisc pfifo_fast state UP qlen 1000
-    inet 169.254.106.115/31 scope global fpr-e4d4897e-7
-15: fg-d3bb699d-af: &amp;lt;BROADCAST,MULTICAST,UP,LOWER_UP&amp;gt; mtu 1500 qdisc noqueue state UNKNOWN
-    inet 169.254.0.58/24 brd 169.254.0.255 scope global fg-d3bb699d-af
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Default route inside the FIP namespace points to the External subnet&amp;rsquo;s gateway IP.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec fip-uuid ip route | grep default
-default via 169.254.0.1 dev fg-d3bb699d-af
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The MAC address of the gateway is statically configured by the L3 agent.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec fip-uuid ip neigh | grep 169.254.0.1
-169.254.0.1 dev fg-d3bb699d-af lladdr 32:3e:7d:13:ca:78 DELAY
-
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The packet is sent to the &lt;strong&gt;br-int&lt;/strong&gt; with the destination MAC address of the default gateway, which is learned on port 3.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl fdb/show br-int | grep 32:3e:7d:13:ca:78
-  3     3  32:3e:7d:13:ca:78    1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;External bridge strips the VLAN ID of the packet coming from the &lt;strong&gt;br-int&lt;/strong&gt; and does the lookup in the dynamic MAC address table.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl ofproto/trace br-ex in_port=2,dl_vlan=3 | grep actions=
-OpenFlow actions=pop_vlan,NORMAL
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The frame is forwarded out the physical interface.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-appctl fdb/show br-ex | grep 32:3e:7d:13:ca:78
-1     0  32:3e:7d:13:ca:78    1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Reverse packet flow will be quite similar, however in this case FIP namespace must be able to respond to ARP requests for the IPs that only exist on DVRs. In order to do that, it uses a proxy-ARP feature. First, L3 agent installs a static route for the FIP pointing back to the correct DVR over the veth pair interface:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec fip-uuid ip route get 169.254.0.55
-169.254.0.55 via 169.254.106.114 dev fpr-e4d4897e-7  src 169.254.106.115
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Now that the FIP namespace knows the route to the floating IP, it can respond to ARPs on behalf of DVR as long as proxy-ARP is enabled on the external &lt;strong&gt;fg&lt;/strong&gt; interface:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec fip-uuid
-cat /proc/sys/net/ipv4/conf/fg-d3bb699d-af/proxy_arp
-1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Finally, the DVR NATs the packet back to its internal IP in the BLUE subnet and forwards it straight to VM1.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ip netns exec qrouter-uuid iptables -t nat -L | grep DNAT
-DNAT       all  --  anywhere             169.254.0.55         to:10.0.0.12
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;dvr-pros-and-cons&#34;&gt;DVR Pros and Cons&lt;/h1&gt;
-
-&lt;p&gt;Without a doubt DVR has introduced a number of much needed &lt;strong&gt;improvements&lt;/strong&gt; to OpenStack networking:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;East-West traffic now follows the most optimal path thereby reducing the load on the Network node.&lt;/li&gt;
-&lt;li&gt;External connectivity to floating IPs now also follows the most optimal path directly to the compute node hosting the VM.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;However, there&amp;rsquo;s a number of &lt;strong&gt;issues&lt;/strong&gt; that either remain unaddressed or result directly from the current DVR architecture:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;DHCP and SNAT are still hosted on the Network node.&lt;/li&gt;
-&lt;li&gt;Asymmetric routing means that every DVR needs to have an interface in every configured subnet, even when there are no VMs that belong to those subnets on the current compute node.&lt;/li&gt;
-&lt;li&gt;Direct connectivity to FIP means that all compute nodes now need to have direct L2 adjacency to external subnets.&lt;/li&gt;
-&lt;li&gt;FIP namespace on compute nodes consumes IP addresses from external subnets which can be a problem if external subnet is in a public IPv4 address range.&lt;/li&gt;
-&lt;li&gt;DVR implementation as a network namespace creates additional overhead in packet processing.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Some of the above issues are not critical and can be fixed with a little effort:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;In order to reduce the scope of a External network VLAN span inside the DC, dedicate a subset of hosts that will have a direct L2 adjacency to external networks and only deploy external-facing VMs on those hosts.&lt;/li&gt;
-&lt;li&gt;Since FIP namespace only requires an external IP address for &lt;a href=&#34;http://lists.openstack.org/pipermail/openstack-dev/2016-June/096386.html&#34; target=&#34;_blank&#34;&gt;debugging purposes&lt;/a&gt;, we can create an additional, secondary, subnet in RFC1918 space for FIP connectivity. This is enabled by a feature called subnet &lt;a href=&#34;https://specs.openstack.org/openstack/neutron-specs/specs/newton/subnet-service-types.html&#34; target=&#34;_blank&#34;&gt;&amp;ldquo;Service types&amp;rdquo;&lt;/a&gt; and is &lt;a href=&#34;https://github.com/openstack/neutron-specs/blob/master/specs/newton/subnet-service-types.rst&#34; target=&#34;_blank&#34;&gt;available&lt;/a&gt; in the latest Newton release.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;However the main issue still remains unresolved. Every North-South packet has to hop several times between the global and DVR/FIP/NAT namespaces. These kind of operations are very expensive in terms of consumed CPU and memory resources and can be very detrimental to network performance. Using namespaces may be the most straight-forward and non-disruptive way of implementing DVR, however it&amp;rsquo;s definitely not the most optimal. Ideally we&amp;rsquo;d like to see both L2 and L3 pipelines implemented in OpenvSwitch tables. This way all packets can benefit from OVS &lt;a href=&#34;https://networkheresy.com/2014/11/13/accelerating-open-vswitch-to-ludicrous-speed/&#34; target=&#34;_blank&#34;&gt;fast-path flow caching&lt;/a&gt;. But fear not, the solution to this already exists in a shape of &lt;a href=&#34;https://www.openstack.org/summit/vancouver-2015/summit-videos/presentation/ovn-native-virtual-networking-for-open-vswitch&#34; target=&#34;_blank&#34;&gt;Open Virtual Network&lt;/a&gt;. OVN is a project spawned from the OVS and aims to &lt;a href=&#34;https://blog.russellbryant.net/2016/09/29/ovs-2-6-and-the-first-release-of-ovn/&#34; target=&#34;_blank&#34;&gt;address&lt;/a&gt; a number of shortcomings existing in current implementations of virtual networks.&lt;/p&gt;
 </description>
     </item>
     

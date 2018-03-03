@@ -11,6 +11,244 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>The problem of unpredictable interface order in multi-network Docker containers</title>
+      <link>https://networkop.co.uk/post/2018-03-03-docker-multinet/</link>
+      <pubDate>Sat, 03 Mar 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2018-03-03-docker-multinet/</guid>
+      <description>
+
+&lt;p&gt;Whether we like it or not, the era of DevOps is upon us, fellow network engineers, and with it come opportunities to approach and solve common networking problems
+in new, innovative ways. One such problem is automated network change validation and testing in virtual environments, something I&amp;rsquo;ve already &lt;a href=&#34;https://networkop.co.uk/blog/2016/02/19/network-ci-intro/&#34;&gt;written about&lt;/a&gt; a few years ago. The biggest problem with my original approach was that I had to create a custom &lt;a href=&#34;https://networkop.co.uk/blog/2016/01/01/rest-for-neteng/&#34;&gt;REST API SDK&lt;/a&gt; to work with a network simulation environment (UnetLab) that was never designed to be interacted with in a programmatic way. On the other hand, technologies like Docker have been very interesting since they were built around the idea of non-interactive lifecycle management and came with all &lt;a href=&#34;http://docker-py.readthedocs.io/en/stable/containers.html&#34; target=&#34;_blank&#34;&gt;API batteries&lt;/a&gt; already included. However, Docker was never intended to be used for network simulations and its support for multiple network interfaces is&amp;hellip; somewhat problematic.&lt;/p&gt;
+
+&lt;h1 id=&#34;problem-demonstration&#34;&gt;Problem demonstration&lt;/h1&gt;
+
+&lt;p&gt;The easiest way to understand the problem is to see it. Let&amp;rsquo;s start with a blank Docker host and create a few networks:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker network create net1
+docker network create net2
+docker network create net3
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s see what prefixes have been allocated to those networks:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker network inspect -f &amp;quot;{{range .IPAM.Config }}{{.Subnet}}{{end}}&amp;quot; net1
+172.17.0.0/16
+docker network inspect -f &amp;quot;{{range .IPAM.Config }}{{.Subnet}}{{end}}&amp;quot; net2
+172.18.0.0/16
+docker network inspect -f &amp;quot;{{range .IPAM.Config }}{{.Subnet}}{{end}}&amp;quot; net3
+172.19.0.0/16
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, let&amp;rsquo;s create a container and attach it to these networks:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker create --name test -it alpine sh
+docker network connect net1 test
+docker network connect net2 test
+docker network connect net3 test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now obviously you would expect for networks to appear in the same order as they were attached, right? Let&amp;rsquo;s see if it&amp;rsquo;s true:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker start test
+docker exec -it test sh -c &amp;quot;ip a | grep &#39;inet&#39;&amp;quot;
+inet 127.0.0.1/8 scope host lo
+inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
+inet 172.17.0.2/16 brd 172.17.255.255 scope global eth1
+inet 172.18.0.2/16 brd 172.18.255.255 scope global eth2
+inet 172.19.0.2/16 brd 172.19.255.255 scope global eth3
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Looks good so far. The first interface (172.26.0.2/16) is the docker bridge that was attached by default in &lt;code&gt;docker create&lt;/code&gt; command. Now let&amp;rsquo;s add another network.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker network create net4
+docker stop test
+docker network connect net4 test
+docker start test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Let&amp;rsquo;s examine our interfaces again:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker exec -it test sh -c &amp;quot;ip a | egrep &#39;eth\d|inet&#39;&amp;quot;
+inet 127.0.0.1/8 scope host lo
+inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
+inet 172.20.0.2/16 brd 172.20.255.255 scope global eth3
+inet 172.17.0.2/16 brd 172.17.255.255 scope global eth2
+inet 172.18.0.2/16 brd 172.18.255.255 scope global eth1
+inet 172.19.0.2/16 brd 172.19.255.255 scope global eth4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we&amp;rsquo;re seeing that networks are in a completely different order. Looks like net1 is connected to eth2, net2 to eth1, net3 to eth4 and net4 to eth3. In fact, this issue should manifest itself even with 2 or 3 networks, however, I&amp;rsquo;ve found that it doesn&amp;rsquo;t always reorder them in that case.&lt;/p&gt;
+
+&lt;h1 id=&#34;cnm-and-libnetwork-architecture&#34;&gt;CNM and libnetwork architecture&lt;/h1&gt;
+
+&lt;p&gt;In order to better understand the issue, it help to know the CNM terminology and network lifecycle events which are explained in libnetwork&amp;rsquo;s &lt;a href=&#34;https://github.com/docker/libnetwork/blob/master/docs/design.md&#34; target=&#34;_blank&#34;&gt;design document&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://github.com/docker/libnetwork/raw/master/docs/cnm-model.jpg?raw=true&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Each time we run a &lt;code&gt;docker network create&lt;/code&gt; command a new &lt;strong&gt;CNM network&lt;/strong&gt; object is created. This object has a specific network type (&lt;code&gt;bridge&lt;/code&gt; by default) which identifies the driver to be used for the actual network implementation.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;network, err := controller.NewNetwork(&amp;quot;bridge&amp;quot;, &amp;quot;net1&amp;quot;, &amp;quot;&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;When container gets attached to its networks, first time in &lt;code&gt;docker create&lt;/code&gt; and subsequently in &lt;code&gt;docket network connect&lt;/code&gt; commands, an &lt;strong&gt;endpoint object&lt;/strong&gt; is created on each of the networks being connected. This endpoint object represents container&amp;rsquo;s point of attachment (similar to a switch port) to docker networks and may allocate IP settings for a future network interface.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;ep, err := network.CreateEndpoint(&amp;quot;ep1&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At the time when container gets attached to its first network, a &lt;strong&gt;sandbox object&lt;/strong&gt; is created. This object represents a container inside CNM object model and stores pointers to all attached network endpoints.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;sbx, err := controller.NewSandbox(&amp;quot;test&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, when we start a container using &lt;code&gt;docker start&lt;/code&gt; command, the corresponding &lt;strong&gt;sandbox gets attached&lt;/strong&gt; to all associated network endpoints using the &lt;code&gt;ep.Join(sandbox)&lt;/code&gt; call:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;for _, ep := range epList {
+	if err := ep.Join(sb); err != nil {
+		logrus.Warnf(&amp;quot;Failed attach sandbox %s to endpoint %s: %v\n&amp;quot;, sb.ID(), ep.ID(), err)
+	}
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;going-down-the-rabbit-hole&#34;&gt;Going down the rabbit hole&lt;/h1&gt;
+
+&lt;p&gt;Looking at the above snippet from &lt;code&gt;sandbox.go&lt;/code&gt;, we can assume that the order in which networks will be attached to a container will depend on the order of elements inside the &lt;code&gt;epList&lt;/code&gt; array, which gets built earlier in the function:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;epList := sb.getConnectedEndpoints()
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s see what happens inside that method call:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func (sb *sandbox) getConnectedEndpoints() []*endpoint {
+	sb.Lock()
+	defer sb.Unlock()
+
+	eps := make([]*endpoint, len(sb.endpoints))
+	for i, ep := range sb.endpoints {
+		eps[i] = ep
+	}
+
+	return eps
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;So &lt;code&gt;epList&lt;/code&gt; is just an array of endpoints that gets built by copying values from &lt;code&gt;sb.endoints&lt;/code&gt;, which itself is an attribute (or field) inside the &lt;code&gt;sb&lt;/code&gt; struct.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;type epHeap []*endpoint
+
+type sandbox struct {
+  id                 string
+  containerID        string
+...
+  endpoints          epHeap
+...
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At this point it looks like &lt;code&gt;endpoints&lt;/code&gt; is just an array of pointers to endpoint objects, which still doesn&amp;rsquo;t explain the issue we&amp;rsquo;re investigating. Perhaps it would make more sense if we saw how a sandbox object gets created.&lt;/p&gt;
+
+&lt;p&gt;Since sandbox object gets created by calling &lt;code&gt;controller.NewSandbox()&lt;/code&gt; method, let&amp;rsquo;s see exactly how this is done by looking at the code inside the &lt;code&gt;controller.go&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func (c *controller) NewSandbox(containerID string, options ...SandboxOption) (Sandbox, error) {
+...
+  // Create sandbox and process options first. Key generation depends on an option
+  if sb == nil {
+    sb = &amp;amp;sandbox{
+      id:                 sandboxID,
+      containerID:        containerID,
+      endpoints:          epHeap{},
+...
+    }
+  }
+
+  heap.Init(&amp;amp;sb.endpoints)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The last statement explains why sandbox connects networks in random order. The &lt;code&gt;endpoints&lt;/code&gt; array is, in fact, a &lt;a href=&#34;https://golang.org/pkg/container/heap/&#34; target=&#34;_blank&#34;&gt;heap&lt;/a&gt; - an ordered tree, where parent node is always smaller than (or equal to) its children (minheap). Heap is used to implement a priority queue, which should be familiar to every network engineer who knows QoS. One of heap&amp;rsquo;s properties is that it re-orders elements every time an element gets added or removed, in order to maintain the heap invariant (parent &amp;lt;= child).&lt;/p&gt;
+
+&lt;h1 id=&#34;problem-solution&#34;&gt;Problem solution&lt;/h1&gt;
+
+&lt;p&gt;It turns out the problem demonstrated above is a very well-known problem with multiple opened issues on Github [&lt;a href=&#34;https://github.com/moby/moby/issues/25181&#34; target=&#34;_blank&#34;&gt;1&lt;/a&gt;,&lt;a href=&#34;https://github.com/moby/moby/issues/23742&#34; target=&#34;_blank&#34;&gt;2&lt;/a&gt;,&lt;a href=&#34;https://github.com/moby/moby/issues/35221&#34; target=&#34;_blank&#34;&gt;3&lt;/a&gt;]. I was lucky enough to have discovered this problem right after &lt;a href=&#34;https://github.com/docker/libnetwork/issues/2093&#34; target=&#34;_blank&#34;&gt;this pull request&lt;/a&gt; got submitted, which is what helped me understand what the issue was in the first place. This pull request reference a &lt;a href=&#34;https://github.com/cziebuhr/libnetwork/commit/d047825d4d156bc4cf01bfe410cb61b3bc33f572&#34; target=&#34;_blank&#34;&gt;patch&lt;/a&gt; that swaps the heapified array with a normal one. Below I&amp;rsquo;ll show how to build a custom docker daemon binary using this patch. We&amp;rsquo;ll start with a privileged centos-based Docker container:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker run --privileged -it centos bash
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Inside this container we need to install all the dependencies along with Docker. Yes, you need Docker to build Docker:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;yum install -y git iptables \
+            make &amp;quot;Development Tools&amp;quot; \
+            yum-utils device-mapper-persistent-data \
+            lvm2
+
+yum-config-manager --add-repo \
+    https://download.docker.com/linux/centos/docker-ce.repo
+
+yum install docker-ce -y
+
+# Start docker in the background
+/usr/bin/dockerd &amp;gt;/dev/null &amp;amp;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next let&amp;rsquo;s clone the Docker master branch and the patched fork of libnetwork:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;git clone --depth=1 https://github.com/docker/docker.git /tmp/docker-repo
+git clone https://github.com/cziebuhr/libnetwork.git /tmp/libnetwork-patch
+cd /tmp/libnetwork-patch
+git checkout d047825d4d156bc4cf01bfe410cb61b3bc33f572
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;I tried using &lt;a href=&#34;https://github.com/LK4D4/vndr&#34; target=&#34;_blank&#34;&gt;VNDR&lt;/a&gt; to update the libnetwork files inside the Docker repository, however I ran into problems with incompatible git options on CentOS. So instead I&amp;rsquo;ll update libnetwork manually, with just the files that are different from the original repo:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;cd /tmp/libnetwork-patch
+/usr/bin/cp controller.go endpoint.go sandbox.go sandbox_store.go /tmp/docker-repo/vendor/github.com/docker/libnetwork/
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Final step is to build docker binaries. This step may require up to 100G of free disk space and may take up to 60 minutes depending on your network speed.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;cd /tmp/docker-repo
+make build
+make binary
+...
+Created binary: bundles/binary-daemon/dockerd-dev
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;verification&#34;&gt;Verification&lt;/h1&gt;
+
+&lt;p&gt;Once done, we can retrieve the binaries outside of the build container:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;find /var/lib/docker -name dockerd
+/var/lib/docker/overlay2/ac310ef5172acac7e8cb748092a9c9d1ddc3c25a91e636ab581cfde0869f5d76/diff/tmp/docker-repo/bundles/binary-daemon/dockerd
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we can swap the current docker daemon with the patched one:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;yum install which -y
+systemctl stop docker.service
+DOCKERD=$(which dockerd)
+mv $DOCKERD $DOCKERD-old
+cp /tmp/docker-repo/bundles/latest/binary-daemon/dockerd $DOCKERD
+systemctl start docker.service
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If we re-run our tests now, the interfaces are returned in the same exact order they were added:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker start test
+docker exec -it test sh -c &amp;quot;ip a | grep &#39;inet&#39;&amp;quot;
+inet 127.0.0.1/8 scope host lo
+inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
+inet 172.17.0.2/16 brd 172.17.255.255 scope global eth1
+inet 172.18.0.2/16 brd 172.18.255.255 scope global eth2
+inet 172.19.0.2/16 brd 172.19.255.255 scope global eth3
+inet 172.20.0.2/16 brd 172.20.255.255 scope global eth4
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;Huge kudos to the original &lt;a href=&#34;https://github.com/cziebuhr&#34; target=&#34;_blank&#34;&gt;author&lt;/a&gt; of the &lt;a href=&#34;https://github.com/cziebuhr/libnetwork/commit/d047825d4d156bc4cf01bfe410cb61b3bc33f572&#34; target=&#34;_blank&#34;&gt;libnetwork patch&lt;/a&gt; which is the sole reason this blogpost exists. I really hope that this issue will get resolved, in this form or another (could it be possible to keep track of the order in which endpoints are added to a sandbox and use that as a criteria for heap sort?), as this will make automated network testing much more approachable.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>OpenStack SDN</title>
       <link>https://networkop.co.uk/tags/openstack-sdn/</link>
       <pubDate>Tue, 02 Jan 2018 00:00:00 +0000</pubDate>
@@ -3100,241 +3338,6 @@ table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
 &lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
 
 &lt;p&gt;OpenStack networking has always been one of the first use cases of any new SDN controller. All the major SDN platforms like ACI, NSX, Contrail, VSP or ODL have some form of OpenStack integration. And it made sense, since native Neutron networking has always been one of the biggest pain points in OpenStack deployments. As I&amp;rsquo;ve just demonstrated, OVN can now do all of the common networking functionality natively, without having to rely on 3rd party agents. In addition to that it has a fantastic &lt;a href=&#34;http://openvswitch.org/support/dist-docs/&#34; target=&#34;_blank&#34;&gt;documentation&lt;/a&gt;, implements all forwarding inside a single OVS bridge and it is an open-source project. As an OpenStack networking solution it is still, perhaps, a few months away from being production ready - active/active HA is not supported with OVSDB, GW router scheduling options are limited, lack of native support for DNS and Metadata proxy. However I anticipate that starting from the next OpenStack release (Ocata, Feb 2017) OVN will be ready for mass deployment even by companies without an army of OVS/OpenStack developers. And when that happens there will even less need for proprietary OpenStack SDN platforms.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN With OVN (Part 1) - Build and Install</title>
-      <link>https://networkop.co.uk/blog/2016/11/27/ovn-part1/</link>
-      <pubDate>Sun, 27 Nov 2016 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2016/11/27/ovn-part1/</guid>
-      <description>
-
-&lt;p&gt;Vanilla OpenStack networking has many functional, performance and scaling limitations. Projects like &lt;a href=&#34;https://networkop.co.uk/blog/2016/05/06/neutron-l2pop/&#34;&gt;L2 population&lt;/a&gt;, &lt;a href=&#34;https://networkop.co.uk/blog/2016/05/06/neutron-l2pop/&#34;&gt;local ARP responder&lt;/a&gt;, &lt;a href=&#34;https://networkop.co.uk/blog/2016/05/21/neutron-l2gw/&#34;&gt;L2 Gateway&lt;/a&gt; and &lt;a href=&#34;https://networkop.co.uk/blog/2016/10/13/os-dvr/&#34;&gt;DVR&lt;/a&gt; were conceived to address those issues. However good a job these projects do, they still remain a collection of separate projects, each with its own limitations, configuration options and sets of dependencies. That led to an effort outside of OpenStack to develop a special-purpose OVS-only SDN controller that would address those issues in a centralised and consistent manner. This post will be about one such SDN controller, coming directly from the people responsible for OpenvSwitch, Open Virtual Network (OVN).&lt;/p&gt;
-
-&lt;h1 id=&#34;ovn-quick-introduction&#34;&gt;OVN quick introduction&lt;/h1&gt;
-
-&lt;p&gt;OVN is a distributed SDN controller implementing virtual networks with the help OVS. Even though it is positioned as a &lt;a href=&#34;abbr:Cloud Management System&#34; target=&#34;_blank&#34;&gt;CMS&lt;/a&gt;-independent controller, the main use case is still OpenStack. OVN was designed to address the following limitations of vanilla OpenStack networking:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Security groups could not be implemented directly on OVS ports and, therefore, required a dedicated Linux bridge between the VM and the OVS integration bridge.&lt;/li&gt;
-&lt;li&gt;Routing and DHCP agents required dedicated network namespaces.&lt;/li&gt;
-&lt;li&gt;NAT was implemented using a combination of network namespaces, iptables and proxy-ARP.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;OVN implements security groups, distributed virtual routing, NAT and distributed DHCP server all inside a single OVS bridge. This dramatically improves performance by reducing the number of inter-process packet handling and ensures that all flows can benefit from kernel fast-path switching.&lt;/p&gt;
-
-&lt;p&gt;At a high level, OVN consists of 3 main components:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;OVN ML2 Plugin - performs translation between Neutron data model and OVN logical data model stored in Northbound DB.&lt;/li&gt;
-&lt;li&gt;OVN northd - the brains of OVN, translates the high level networking abstractions (logical switches, routers and ports) into logical flows. These &lt;a href=&#34;https://blog.russellbryant.net/2016/11/11/ovn-logical-flows-and-ovn-trace/&#34; target=&#34;_blank&#34;&gt;logical flows&lt;/a&gt; are not yet OpenFlow flows but similar in concept and a very powerful abstraction. All translated information is stored in Southbound DB.&lt;/li&gt;
-&lt;li&gt;OVN controllers - located on each compute node, receive identical copies of logical flows (centralised network view) and exchange logical port to overlay IP binding information via the central Southbound DB. This information is used to perform logical flow translation into OpenFlow which are then programmed into the local OVS instance.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-arch.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;If you want to learn more about OVN architecture and use cases, &lt;a href=&#34;http://docs.openstack.org/developer/networking-ovn/readme.html&#34; target=&#34;_blank&#34;&gt;OpenStack OVN page&lt;/a&gt; has an excellent collection of resources for further reading.&lt;/p&gt;
-
-&lt;h1 id=&#34;openstack-installation&#34;&gt;OpenStack installation&lt;/h1&gt;
-
-&lt;p&gt;I&amp;rsquo;ll use RDO packstack to help me build a 1 controller and 2 compute nodes OpenStack lab on CentOS7. I&amp;rsquo;ll use the master trunk to deploy the latest OpenStack Ocata packages. This is required since at the time of writing (Nov 2016) some of the OVN features were not available in OpenStack Newton.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;cd /etc/yum.repos.d/
-wget http://trunk.rdoproject.org/centos7/delorean-deps.repo
-wget https://trunk.rdoproject.org/centos7-master/current/delorean.repo
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;On the controller node, generate a sample answer file and modify settings to match the IPs of individual nodes. Optionally, you can disable some of the unused components like Nagios and Ceilometer similar to how I did it in my &lt;a href=&#34;http://networkop.co.uk/blog/2016/04/18/os-unl-lab/&#34; target=&#34;_blank&#34;&gt;earlier post&lt;/a&gt;.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;yum install -y openstack-packstack crudini
-packstack --gen-answer-file=/root/packstack.answer
-crudini --set --existing defautl CONFIG_COMPUTE_HOSTS 169.254.0.12,169.254.0.13
-crudini --set --existing defautl CONFIG_CONTROLLER_HOST 169.254.0.11
-crudini --set --existing defautl CONFIG_NETWORK_HOSTS 169.254.0.11
-packstack --answer-file=/root/packstack.answer
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;After the last step we should have a working 3-node OpenStack lab, similar to the one depicted below. If you want to learn about how to automate this process, refer to my older posts about &lt;a href=&#34;https://networkop.co.uk/blog/2016/08/26/os-lab-p1/&#34;&gt;OpenStack&lt;/a&gt; and &lt;a href=&#34;https://networkop.co.uk/blog/2016/09/09/os-lab-p2/&#34;&gt;underlay Leaf-Spine fabric&lt;/a&gt; build using Chef.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-openstack.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h1 id=&#34;ovn-build&#34;&gt;OVN Build&lt;/h1&gt;
-
-&lt;p&gt;OVN can be built directly from OVS source code. Instead of building and installing OVS on each of the OpenStack nodes individually, I&amp;rsquo;ll build a set of RPM&amp;rsquo;s on the Controller and will use them to install and upgrade OVS/OVN components on the remaining nodes.&lt;/p&gt;
-
-&lt;p&gt;Part of OVN build process includes building an OVS kernel module. In order to be able to use kmod RPM on all nodes we need to make sure all nodes use the same version of Linux kernel. The easiest way would be to fetch the latest updates from CentOS repos and reboot the nodes. This step should result in same kernel version on all nodes, which can be checked with &lt;code&gt;uname -r&lt;/code&gt; command.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;yum -y update kernel
-reboot
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The official &lt;a href=&#34;https://github.com/openvswitch/ovs/blob/master/INSTALL.Fedora.rst&#34; target=&#34;_blank&#34;&gt;OVS installation procedure for CentOS7&lt;/a&gt; is pretty accurate and requires only a few modifications to account for the packages missing in the minimal CentOS image I&amp;rsquo;ve used as a base OS.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;yum install rpm-build autoconf automake libtool systemd-units openssl openssl-devel python python-twisted-core python-zope-interface python-six desktop-file-utils groff graphviz procps-ng libcap-ng libcap-ng-devel
-
-yum install selinux-policy-devel kernel-devel-`uname -r` git
-
-git clone https://github.com/openvswitch/ovs.git &amp;amp;&amp;amp; cd ovs
-./boot.sh
-./configure
-make rpm-fedora RPMBUILD_OPT=&amp;quot;--without check&amp;quot;
-make rpm-fedora-kmod
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At the end of the process we should have a set of rpms inside the &lt;code&gt;ovs/rpm/rpmbuild/RPMS/&lt;/code&gt; directory.&lt;/p&gt;
-
-&lt;h1 id=&#34;ovn-install&#34;&gt;OVN Install&lt;/h1&gt;
-
-&lt;p&gt;Before we can begin installing OVN, we need to prepare the existing OpenStack environment by disabling and removing legacy Neutron OpenvSwitch agents. Since OVN natively implements L2 and L3 forwarding, DHCP and NAT, we won&amp;rsquo;t need L3 and DHCP agents on any of the Compute nodes. Network node that used to provide North-South connectivity will no longer be needed.&lt;/p&gt;
-
-&lt;h2 id=&#34;openstack-preparation&#34;&gt;OpenStack preparation&lt;/h2&gt;
-
-&lt;p&gt;First, we need to make sure all Compute nodes have a bridge that would provide access to external provider networks. In my case, I&amp;rsquo;ll move the &lt;code&gt;eth1&lt;/code&gt; interface under the OVS &lt;code&gt;br-ex&lt;/code&gt; on all Compute nodes.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;DEVICE=eth1
-NAME=eth1
-DEVICETYPE=ovs
-TYPE=OVSPort
-OVS_BRIDGE=br-ex
-ONBOOT=yes
-BOOTPROTO=none
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;IP address needs to be moved to &lt;code&gt;br-ex&lt;/code&gt; interface. Below example is for Compute node #2:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ONBOOT=yes
-DEFROUTE=yes
-IPADDR=169.254.0.12
-PREFIX=24
-GATEWAY=169.254.0.1
-DNS1=8.8.8.8
-DEVICE=br-ex
-NAME=br-ex
-DEVICETYPE=ovs
-OVSBOOTPROTO=none
-TYPE=OVSBridge
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At the same time OVS configuration on Network/Controller node will need to be completely wiped out. Once that&amp;rsquo;s done, we can remove the Neutron OVS package from all nodes.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;yum remove openstack-neutron-openvswitch
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;ovs-packages-installation&#34;&gt;OVS packages installation&lt;/h2&gt;
-
-&lt;p&gt;Now everything is ready for OVN installation. First step is to install the kernel module and upgrade the existing OVS package. Reboot may be needed in order for the correct kernel module to be loaded.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;rpm -i openvswitch-kmod-2.6.90-1.el7.centos.x86_64.rpm
-rpm -U openvswitch-2.6.90-1.el7.centos.x86_64.rpm
-reboot
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Now we can install OVN. Controllers will be running the &lt;code&gt;ovn-northd&lt;/code&gt; process which can be installed as follows:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;rpm -i openvswitch-ovn-common-*.x86_64.rpm
-rpm -i openvswitch-ovn-central-*.x86_64.rpm
-systemctl start ovn-northd
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The following packages install the &lt;code&gt;ovn-controller&lt;/code&gt; on all Compute nodes:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;rpm -i openvswitch-ovn-common-*.x86_64.rpm
-rpm -i openvswitch-ovn-host-*.x86_64.rpm
-systemctl start ovn-controller
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The last thing is to install the OVN ML2 plugin, a python library that allows Neutron server to talk to OVN Northbound database.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;yum install python-networking-ovn
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;ovn-configuration&#34;&gt;OVN Configuration&lt;/h1&gt;
-
-&lt;p&gt;Now that we have all the required packages in place, it&amp;rsquo;s time to reconfigure Neutron to start using OVN instead of a default openvswitch plugin. The installation procedure is described in the official &lt;a href=&#34;http://docs.openstack.org/developer/networking-ovn/index.html&#34; target=&#34;_blank&#34;&gt;Neutron integration guide&lt;/a&gt;. At the end, once we&amp;rsquo;ve restarted &lt;code&gt;ovn-northd&lt;/code&gt; on the controller and &lt;code&gt;ovn-controller&lt;/code&gt; on the compute nodes, we should see the following output on the controller node:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ovs-sbctl show
-Chassis &amp;quot;d03bdd51-e687-4078-aa54-0ff8007db0b5&amp;quot;
-    hostname: &amp;quot;compute-3&amp;quot;
-    Encap geneve
-        ip: &amp;quot;10.0.0.4&amp;quot;
-        options: {csum=&amp;quot;true&amp;quot;}
-    Encap vxlan
-        ip: &amp;quot;10.0.0.4&amp;quot;
-        options: {csum=&amp;quot;true&amp;quot;}
-Chassis &amp;quot;b89b8683-7c74-43df-8ac6-1d57ddefec77&amp;quot;
-    hostname: &amp;quot;compute-2&amp;quot;
-    Encap vxlan
-        ip: &amp;quot;10.0.0.2&amp;quot;
-        options: {csum=&amp;quot;true&amp;quot;}
-    Encap geneve
-        ip: &amp;quot;10.0.0.2&amp;quot;
-        options: {csum=&amp;quot;true&amp;quot;}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This means that all instances of a distributed OVN controller located on each compute node have successfully registered with Southbound OVSDB and provided information about their physical overlay addresses and supported encapsulation types.&lt;/p&gt;
-
-&lt;h1 id=&#34;optional-automating-everything-with-chef&#34;&gt;(Optional) Automating everything with Chef&lt;/h1&gt;
-
-&lt;p&gt;At this point of time there&amp;rsquo;s no way to automate OVN deployment with Packstack (TripleO already has OVN integration templates). For those who want to bypass the manual build process I have created a new Chef cookbook, automating all steps described above. This Chef playbook assumes that OpenStack environment has been built as described in my &lt;a href=&#34;https://networkop.co.uk/blog/2016/08/26/os-lab-p1/&#34;&gt;earlier post&lt;/a&gt;. Optionally, you can automate the build of underlay network as well by following my &lt;a href=&#34;https://networkop.co.uk/blog/2016/09/09/os-lab-p2/&#34;&gt;other post&lt;/a&gt;. Once you&amp;rsquo;ve got both OpenStack and underlay built, you can use the following scripts to build, install and configure OVN:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;git clone https://github.com/networkop/chef-unl-os.git
-cd chef-unl-os
-chef-client -z -E lab ovn.rb
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;test-topology-setup&#34;&gt;Test topology setup&lt;/h1&gt;
-
-&lt;p&gt;Now we should be able to create a test topology with two tenant subnets and an external network interconnected by a virtual router.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;neutron net-create NET-RED
-neutron net-create NET-BLUE
-neutron subnet-create --name SUB-BLUE NET-BLUE 10.0.0.0/24
-neutron subnet-create --name SUB-RED NET-RED 20.0.0.0/24
-neutron net-create NET-EXT --provider:network_type flat \
-                           --provider:physical_network extnet \
-                           --router:external --shared
-neutron subnet-create --name SUB-EXT --enable_dhcp=False \
-                      --allocation-pool=start=169.254.0.50,end=169.254.0.99 \
-                      --gateway=169.254.0.1 NET-EXT 169.254.0.0/24
-neutron router-create R1
-neutron router-interface-add R1 SUB-BLUE
-neutron router-interface-add R1 SUB-RED
-neutron router-gateway-set R1 NET-EXT
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;When we attach a few test VMs to each subnet we should be able to successfully ping between the VMs, assuming the security groups are setup to allow ICMP/ND.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;curl http://download.cirros-cloud.net/0.3.4/cirros-0.3.4-x86_64-disk.img | glance \
-image-create --name=&#39;IMG-CIRROS&#39; \
-  --visibility=public \
-  --container-format=bare \
-  --disk-format=qcow2
-nova aggregate-create AGG-RED AZ-RED
-nova aggregate-create AGG-BLUE AZ-BLUE
-nova aggregate-add-host AGG-BLUE compute-2
-nova aggregate-add-host AGG-RED compute-3
-nova boot --flavor m1.tiny --image &#39;IMG-CIRROS&#39; \
-  --nic net-name=NET-BLUE \
-  --availability-zone AZ-BLUE \
-  VM1
-
-nova boot --flavor m1.tiny --image &#39;IMG-CIRROS&#39; \
-  --nic net-name=NET-RED \
-  --availability-zone AZ-RED \
-  VM2
-nova boot --flavor m1.tiny --image &#39;IMG-CIRROS&#39; \
-  --nic net-name=NET-BLUE \
-  --availability-zone AZ-RED \
-  VM3
-openstack floating ip create NET-EXT
-openstack server add floating ip VM3 169.254.0.53
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-topo.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;In the next post we will use the above virtual topology to explore the dataplane packet flow inside an OVN-managed OpenvSwitch and how it uses the new encapsulation protocol GENEVE to optimise egress forwarding lookups on remote compute nodes.&lt;/p&gt;
 </description>
     </item>
     
