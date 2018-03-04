@@ -69,7 +69,7 @@ docker start test
 
 &lt;p&gt;Let&amp;rsquo;s examine our interfaces again:&lt;/p&gt;
 
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker exec -it test sh -c &amp;quot;ip a | egrep &#39;eth\d|inet&#39;&amp;quot;
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker exec -it test sh -c &amp;quot;ip a | grep &#39;inet&#39;&amp;quot;
 inet 127.0.0.1/8 scope host lo
 inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
 inet 172.20.0.2/16 brd 172.20.255.255 scope global eth3
@@ -82,7 +82,7 @@ inet 172.19.0.2/16 brd 172.19.255.255 scope global eth4
 
 &lt;h1 id=&#34;cnm-and-libnetwork-architecture&#34;&gt;CNM and libnetwork architecture&lt;/h1&gt;
 
-&lt;p&gt;In order to better understand the issue, it help to know the CNM terminology and network lifecycle events which are explained in libnetwork&amp;rsquo;s &lt;a href=&#34;https://github.com/docker/libnetwork/blob/master/docs/design.md&#34; target=&#34;_blank&#34;&gt;design document&lt;/a&gt;.&lt;/p&gt;
+&lt;p&gt;In order to better understand the issue, it helps to know the CNM terminology and network lifecycle events which are explained in libnetwork&amp;rsquo;s &lt;a href=&#34;https://github.com/docker/libnetwork/blob/master/docs/design.md&#34; target=&#34;_blank&#34;&gt;design document&lt;/a&gt;.&lt;/p&gt;
 
 &lt;p&gt;&lt;img src=&#34;https://github.com/docker/libnetwork/raw/master/docs/cnm-model.jpg?raw=true&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
 

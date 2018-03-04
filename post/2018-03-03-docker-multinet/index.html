@@ -359,7 +359,7 @@ docker start test
 
 <p>Let&rsquo;s examine our interfaces again:</p>
 
-<pre><code class="language-bash">docker exec -it test sh -c &quot;ip a | egrep 'eth\d|inet'&quot;
+<pre><code class="language-bash">docker exec -it test sh -c &quot;ip a | grep 'inet'&quot;
 inet 127.0.0.1/8 scope host lo
 inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
 inet 172.20.0.2/16 brd 172.20.255.255 scope global eth3
@@ -372,7 +372,7 @@ inet 172.19.0.2/16 brd 172.19.255.255 scope global eth4
 
 <h1 id="cnm-and-libnetwork-architecture">CNM and libnetwork architecture</h1>
 
-<p>In order to better understand the issue, it help to know the CNM terminology and network lifecycle events which are explained in libnetwork&rsquo;s <a href="https://github.com/docker/libnetwork/blob/master/docs/design.md" target="_blank">design document</a>.</p>
+<p>In order to better understand the issue, it helps to know the CNM terminology and network lifecycle events which are explained in libnetwork&rsquo;s <a href="https://github.com/docker/libnetwork/blob/master/docs/design.md" target="_blank">design document</a>.</p>
 
 <p><img src="https://github.com/docker/libnetwork/raw/master/docs/cnm-model.jpg?raw=true" alt="" /></p>
 
