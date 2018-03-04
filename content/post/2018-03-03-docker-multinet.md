@@ -62,7 +62,7 @@ docker start test
 Let's examine our interfaces again:
 
 ```bash
-docker exec -it test sh -c "ip a | egrep 'eth\d|inet'"
+docker exec -it test sh -c "ip a | grep 'inet'"
 inet 127.0.0.1/8 scope host lo
 inet 172.26.0.2/16 brd 172.26.255.255 scope global eth0
 inet 172.20.0.2/16 brd 172.20.255.255 scope global eth3
@@ -75,7 +75,7 @@ Now we're seeing that networks are in a completely different order. Looks like n
 
 # CNM and libnetwork architecture
 
-In order to better understand the issue, it help to know the CNM terminology and network lifecycle events which are explained in libnetwork's [design document][libnet-arch]. 
+In order to better understand the issue, it helps to know the CNM terminology and network lifecycle events which are explained in libnetwork's [design document][libnet-arch]. 
 
 ![](https://github.com/docker/libnetwork/raw/master/docs/cnm-model.jpg?raw=true)
 
