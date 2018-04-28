@@ -240,6 +240,7 @@ mv $DOCKERD $DOCKERD-old
 cp /tmp/docker-repo/bundles/latest/binary-daemon/dockerd $DOCKERD
 systemctl start docker.service
 ```
+Make sure that SELinux security context on both $DOCKERD and $DOCKERD-old are the same 
 
 If we re-run our tests now, the interfaces are returned in the same exact order they were added:
 
