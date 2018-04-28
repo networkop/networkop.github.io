@@ -460,6 +460,10 @@ type sandbox struct {
 
 <p>It turns out the problem demonstrated above is a very well-known problem with multiple opened issues on Github [<a href="https://github.com/moby/moby/issues/25181" target="_blank">1</a>,<a href="https://github.com/moby/moby/issues/23742" target="_blank">2</a>,<a href="https://github.com/moby/moby/issues/35221" target="_blank">3</a>]. I was lucky enough to have discovered this problem right after <a href="https://github.com/docker/libnetwork/issues/2093" target="_blank">this pull request</a> got submitted, which is what helped me understand what the issue was in the first place. This pull request reference a <a href="https://github.com/cziebuhr/libnetwork/commit/d047825d4d156bc4cf01bfe410cb61b3bc33f572" target="_blank">patch</a> that swaps the heapified array with a normal one. Below I&rsquo;ll show how to build a custom docker daemon binary using this patch. We&rsquo;ll start with a privileged centos-based Docker container:</p>
 
+<blockquote>
+<p><strong>Update 2018-04-28</strong>: Much easier procedure is documented <a href="https://github.com/networkop/libnetwork-multinet.git" target="_blank">here</a></p>
+</blockquote>
+
 <pre><code class="language-bash">docker run --privileged -it centos bash
 </code></pre>
 

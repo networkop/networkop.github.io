@@ -170,6 +170,10 @@ type sandbox struct {
 
 &lt;p&gt;It turns out the problem demonstrated above is a very well-known problem with multiple opened issues on Github [&lt;a href=&#34;https://github.com/moby/moby/issues/25181&#34; target=&#34;_blank&#34;&gt;1&lt;/a&gt;,&lt;a href=&#34;https://github.com/moby/moby/issues/23742&#34; target=&#34;_blank&#34;&gt;2&lt;/a&gt;,&lt;a href=&#34;https://github.com/moby/moby/issues/35221&#34; target=&#34;_blank&#34;&gt;3&lt;/a&gt;]. I was lucky enough to have discovered this problem right after &lt;a href=&#34;https://github.com/docker/libnetwork/issues/2093&#34; target=&#34;_blank&#34;&gt;this pull request&lt;/a&gt; got submitted, which is what helped me understand what the issue was in the first place. This pull request reference a &lt;a href=&#34;https://github.com/cziebuhr/libnetwork/commit/d047825d4d156bc4cf01bfe410cb61b3bc33f572&#34; target=&#34;_blank&#34;&gt;patch&lt;/a&gt; that swaps the heapified array with a normal one. Below I&amp;rsquo;ll show how to build a custom docker daemon binary using this patch. We&amp;rsquo;ll start with a privileged centos-based Docker container:&lt;/p&gt;
 
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Update 2018-04-28&lt;/strong&gt;: Much easier procedure is documented &lt;a href=&#34;https://github.com/networkop/libnetwork-multinet.git&#34; target=&#34;_blank&#34;&gt;here&lt;/a&gt;&lt;/p&gt;
+&lt;/blockquote&gt;
+
 &lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker run --privileged -it centos bash
 &lt;/code&gt;&lt;/pre&gt;
 
