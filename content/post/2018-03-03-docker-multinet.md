@@ -172,6 +172,8 @@ The last statement explains why sandbox connects networks in random order. The `
 
 It turns out the problem demonstrated above is a very well-known problem with multiple opened issues on Github [[1][issue-1],[2][issue-2],[3][issue-3]]. I was lucky enough to have discovered this problem right after [this pull request][pull-fix] got submitted, which is what helped me understand what the issue was in the first place. This pull request reference a [patch][patch] that swaps the heapified array with a normal one. Below I'll show how to build a custom docker daemon binary using this patch. We'll start with a privileged centos-based Docker container:
 
+> **Update 2018-04-28**: Much easier procedure is documented [here](https://github.com/networkop/libnetwork-multinet.git)
+
 ```bash
 docker run --privileged -it centos bash
 ```
