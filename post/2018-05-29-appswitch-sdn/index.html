@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Virtual networking has been one of the hottest areas of research and development in recent years. Kubernetes alone has, at the time of writing, 20 different networking plugins, some of which can be combined to build even more plugins. However, if we dig a bit deeper, most of these plugins and solutions are built out of two very simple constructs:
+ a virtual switch - anything from a linux bridge through VPP and IOVisor to OVS ACL/NAT - most commonly implemented as iptables, with anything from netfilter to eBPF under the hood   Note1: for the purpose of this article I won&rsquo;t consider service meshes as a network solution, although it clearly is one, simply because it operates higher than TCP/IP and ultimately still requires network plumbing to be in place">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2018-05-29-appswitch-sdn/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2018-05-29-appswitch-sdn/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2018-05-29-appswitch-sdn/">
+  <meta property="og:title" content="Serverless SDN - Network Engineering Analysis of Appswitch | networkop">
+  <meta property="og:description" content="Virtual networking has been one of the hottest areas of research and development in recent years. Kubernetes alone has, at the time of writing, 20 different networking plugins, some of which can be combined to build even more plugins. However, if we dig a bit deeper, most of these plugins and solutions are built out of two very simple constructs:
+ a virtual switch - anything from a linux bridge through VPP and IOVisor to OVS ACL/NAT - most commonly implemented as iptables, with anything from netfilter to eBPF under the hood   Note1: for the purpose of this article I won&rsquo;t consider service meshes as a network solution, although it clearly is one, simply because it operates higher than TCP/IP and ultimately still requires network plumbing to be in place">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2018-06-21T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2018-06-21T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Serverless SDN - Network Engineering Analysis of Appswitch | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Serverless SDN - Network Engineering Analysis of Appswitch</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2018-06-21 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      21 Jun 2018
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    19 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2018-05-29-appswitch-sdn/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/sdn">SDN</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Serverless%20SDN%20-%20Network%20Engineering%20Analysis%20of%20Appswitch&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-05-29-appswitch-sdn%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-05-29-appswitch-sdn%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-05-29-appswitch-sdn%2f&amp;title=Serverless%20SDN%20-%20Network%20Engineering%20Analysis%20of%20Appswitch"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Serverless%20SDN%20-%20Network%20Engineering%20Analysis%20of%20Appswitch&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-05-29-appswitch-sdn%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>Virtual networking has been one of the hottest areas of research and development in recent years. Kubernetes alone has, at the time of writing, 20 different <a href="https://kubernetes.io/docs/concepts/cluster-administration/networking/" target="_blank">networking plugins</a>, some of which can be <a href="https://github.com/projectcalico/canal" target="_blank">combined</a> to build even more plugins. However, if we dig a bit deeper, most of these plugins and solutions are built out of two very simple constructs:</p>
+
+<ul>
+<li>a virtual switch - anything from a linux bridge through VPP and IOVisor to OVS</li>
+<li>ACL/NAT - most commonly implemented as iptables, with anything from netfilter to eBPF under the hood</li>
+</ul>
+
+<blockquote>
+<p>Note1: for the purpose of this article I won&rsquo;t consider service meshes as a network solution, although it clearly is one, simply because it operates higher than TCP/IP and ultimately still requires network plumbing to be in place</p>
+</blockquote>
+
+<p>If those look familiar, you&rsquo;re not mistaken, they are the <strong>same exact</strong> things that were used to connect VMs together and enforce network security policies at the dawn of SDN era almost a decade ago. Although some of these technologies have gone a long way in both features and performance, they still treat containers the same way they treated VMs. There are a few exceptions that don&rsquo;t involve the above constructs, like SR-IOV, macvlan/ipvlan and running containers in host namespace, however they represent a small fraction of corner case solutions and can be safely ignored for the purpose of this discussion. That&rsquo;s why for networking folk it won&rsquo;t be too big a mistake to think of containers as VMs, let&rsquo;s see why:</p>
+
+<p><img src="/img/docker-vs-vm.png" alt="" /></p>
+
+<p>At a high level both container and VM networking are exactly the same, doesn&rsquo;t matter what plugin, what networking model (CNM/CNI), what vSwitch flavour or what offload technology you use. Any virtual workload must have a virtual patch cable connecting it to a vSwitch, which implements forwarding and security policies programmed by an SDN controller. These tenets have gone unchallenged since the early days of containers and this is how I, personally, always imagined a typical virtual networking solution would look like. Until I read about <a href="https://apporbit.com/a-test-drive-of-appswitch-the-network-stack-from-the-future/" target="_blank">AppSwitch</a> and got so excited I decided to sign up for a <a href="https://apporbit.com/appswitch/" target="_blank">beta program</a> just to take it apart and see how it works. But before I dive deep into its architecture, I need to provide some theoretical background and I&rsquo;ll do that by zooming in on a part of the (Linux) networking stack that sits right above TCP/IP.</p>
+
+<h1 id="network-socket-api">Network Socket API</h1>
+
+<p>Let&rsquo;s start our exploration by examining what happens when a TCP client wants to communicate with a TCP server on a remote host. The first thing that the client library does is it creates a socket by making a <code>socket()</code> system call for a specific address family (local, IPv4, IPv6) and transport protocol (TCP, UDP). The returned value is a file descriptor that points to a socket. This file descriptor is used in all subsequent network calls.</p>
+
+<pre><code class="language-c">sockfd = socket(AF_INET, SOCK_STREAM, 0) /* Create an IPv4 TCP socket */
+</code></pre>
+
+<p>Next the client issues a <code>connect()</code> system call, where it passes the new socket file descriptor along with a pointer to <code>serv_addr</code> data structures that contains the destination IP and port of the TCP server.</p>
+
+<pre><code class="language-c">connect(sockfd, &amp;serv_addr, sizeof(serv_addr)) /* Returns 0 if connected */
+</code></pre>
+
+<p>Behind the scenes the last call initiates a TCP 3-way handshake with the remote server and returns 0 if TCP sessions transitions to the <strong>Established</strong> state.</p>
+
+<p>Finally, when TCP session is established, the client interacts with the socket the same way it does with any normal file by calling <code>read()</code> and <code>write()</code> to receive and send data to the remote server.</p>
+
+<pre><code class="language-c">read(sockfd, buffer, strlen(buffer))  /* Returns the number of bytes read */
+write(sockfd, buffer, strlen(buffer)) /* Returns the number of bytes written */
+</code></pre>
+
+<p>Below is a simplified diagram that shows the above syscalls and maps them to different stages of TCP connection. Note that only the layers relevant to the purpose of this discussion are shown. For a more comprehensive overview of Linux networking stack refer to <a href="http://140.120.7.21/LinuxRef/Network/LinuxNetworkStack.html" target="_blank">1</a>, <a href="http://www.microhowto.info/howto/listen_for_and_accept_tcp_connections_in_c.html" target="_blank">2</a> and <a href="https://www.ibm.com/developerworks/aix/library/au-tcpsystemcalls/index.html" target="_blank">3</a>.</p>
+
+<p><img src="/img/tcp-syscalls.png" alt="" /></p>
+
+<p>On the server side the sequence of system calls is a little different. After a server creates a socket with the <code>socket()</code> call, it tries to <code>bind()</code> to a particular IP and port number of the host:</p>
+
+<pre><code class="language-c">bind(sockfd, &amp;serv_addr, sizeof(serv_addr)) /* Returns 0 if successful */
+</code></pre>
+
+<p>In order to start accepting incoming TCP SYN requests, the socket needs to be marked as <strong>passive</strong> by making a <code>listen()</code> call, which also specifies the maximum size of a queue for pending TCP connections:</p>
+
+<pre><code class="language-c">listen(sockfd, SOMAXCONN) /* Returns 0 if successful */
+</code></pre>
+
+<p>Once the TCP 3-way handshake with the client is complete and the connection transitions to the <strong>Established</strong> state, it will be pulled off the queue by an <code>accept()</code> call, running in an infinite loop, which returns a new <strong>connected</strong> socket file descriptor back to the server.</p>
+
+<pre><code class="language-c">newsockfd = accept(sockfd, &amp;client_addr, &amp;client_len) /* Create a new socket */
+</code></pre>
+
+<p>The server application now proceeds to read and write data similar to the client side.</p>
+
+<h1 id="appswitch-high-level-architecture">Appswitch high-level architecture</h1>
+
+<p>Appswitch is a distributed virtual networking solution that intercepts application&rsquo;s network events at the system call interface level, before they get to the TCP/IP stack of the host. This allows it to make routing decisions and enforce security policies without the need for vSwitches or iptables. The way it abstracts host&rsquo;s TCP/IP stack (underlay) from the Appswitch-managed application IP address space (overlay) is not too much dissimilar from the way traditional routing protocols operate.</p>
+
+<p><img src="/img/ax-overview.png" alt="Appswitch architecture" /></p>
+
+<p>Just like a typical distributed routing protocol, Appswitch builds a database of all known local endpoint addresses at each node, distributes it to other members of a cluster with itself as the next-hop, calculates how to forward connection setup calls between local and remote endpoints and uses those results to steer network traffic between them. Sounds very much like something BGP/OSPF/IS-IS would do, doesn&rsquo;t it? Let&rsquo;s have a closer look at the actual elements involved, using the diagram from the original Appswitch <a href="http://hci.stanford.edu/cstr/reports/2017-01.pdf" target="_blank">research paper</a>:</p>
+
+<p><img src="/img/ax-highlevel.png" alt="Appswitch architecture" /></p>
+
+<p>The first thing Appswitch does when it starts is neighbor discovery. The element responsible for this is a <strong>Service Router</strong> which uses <a href="https://www.serf.io/docs/internals/gossip.html" target="_blank">Serf</a> to efficiently discover and disseminate information in a cluster of Appswitch nodes. Serf is Hashicorp&rsquo;s implementation of a <a href="https://pdfs.semanticscholar.org/8712/3307869ac84fc16122043a4a313604bd948f.pdf" target="_blank">gossip protocol</a> - a cluster membership and communication protocol. Serf should be very easy to understand for those familiar with flood-and-learn behaviour of OSPF and IS-IS on broadcast multiaccess links, with the biggest distinction being that designated routers are chosen randomly and independently by each node of the link.</p>
+
+<p>Whenever a new application is launched inside Appswitch, it gets moved to a dedicated network namespace, where a <strong>Trap Generator</strong> listens for network system calls and forwards them to a <strong>Trap Handler</strong> over a shared Unix domain socket. Together these two elements form the forwarding plane for network system calls. Every time an application issues a <code>socket()</code> syscall, the trap generator forwards it to the trap handler, which in turn creates a socket in the host namespace and passes its reference all the way back to the calling application. Once the connection is established, all <code>read()</code> and <code>write()</code> syscalls will be made using the returned <code>sockfd</code>, effectively achieving the same performance as if our application was running directly on host OS.</p>
+
+<p>The central element in Appswitch architecture is a <strong>Service Table</strong> - a distributed, eventually consistent database which stores mappings between running applications and their next-hop transport addresses. This information is used by the Trap Handler in <code>connect()</code> syscall to build the <code>serv_addr</code> data structure with the real IP and port of the target application. In a steady state each node in an Appswitch cluster will have the same view of this database and all updates to this database will be gossiped to other members of a cluster by a Service Router.</p>
+
+<h1 id="appswitch-detailed-overview">Appswitch detailed overview</h1>
+
+<p>Let&rsquo;s have a closer look at what happens at different stages of Appswitch lifecycle.</p>
+
+<h2 id="1-installation-and-startup">1. Installation and Startup</h2>
+
+<p>At the time of writing Appswitch is being distributed as a docker container hosted in a private docker repository on docker hub (access provided based on request). It contains a single binary executable called <code>ax</code> which needs to be started in PID and network namespaces of the host in order to be able to talk to host&rsquo;s syscall interface and track application threads. By default, Appswitch attaches to the TCP/IP stack of the host in two ways:</p>
+
+<ol>
+<li>It starts management REST API and Serf processes that bind to ports 6664 and 7946.</li>
+<li>It selects one of the host&rsquo;s IP addresses and reserves a pool of ports (e.g. 40000-60000) that will be dynamically allocated to applications in response to <code>bind()</code> and <code>connect()</code> system calls.</li>
+</ol>
+
+<h2 id="2-joining-a-cluster">2. Joining a cluster</h2>
+
+<p>One of the first things a running Appswitch instance has to do is discover all members of a cluster. This is accomplished by providing an IP address of at least one node of an existing cluster as a startup parameter, which is then used to discover all other members. The information exchanged during neighbor discovery phase, which includes host IPs, names and roles, gets recorded in the Service Table and can be viewed with <code>ax get nodes</code> command. The mechanism of neighbor discovery and monitoring inside a cluster is not Appswitch-specific so I won&rsquo;t spend much time on it here, however I highly recommend reading at least the protocol overview on the official <a href="https://www.serf.io/docs/internals/gossip.html" target="_blank">Serf website</a>, as this is a very common approach in modern-day eventually consistent cluster architectures.</p>
+
+<h2 id="3-cluster-scale-out">3. Cluster scale-out</h2>
+
+<p>A cluster is a set of nodes running Appswitch daemons that can directly communicate with one another and all use Serf to monitor state of other cluster members. Like any other cluster protocol, Serf has its limitations and Appswitch has a very neat mechanism to allow services to scale beyond a single cluster boundary, e.g. between a LAN and a WAN, called Federation. In principle, it&rsquo;s somewhat similar to hierarchical BGP RR design with route reflectors doing <code>next-hop self</code>. A set of Appswitch nodes can be designated as Federation gateways, which allows them to propagate information about running applications between two different clusters. When doing so they change the IP/port information to point to themselves, which forces all inter-cluster traffic to go via one of these nodes.</p>
+
+<h2 id="4-registering-a-server-application">4. Registering a server application</h2>
+
+<p>Once Appswitch instance has joined a cluster, it&rsquo;s ready to onboard its first application. Let&rsquo;s start with a web server that needs to be accessible from other Appswitch-managed applications (East-West) and externally (North-South). When starting a server application, we need to provide a unique identifier that will be used by other endpoints to reach it. That identifier can be either an IP address (provided with <code>--ip</code> argument) or a hostname (provided with <code>--name</code> argument). If only hostname is specified, IP address will still be allocated behind the scenes and Appswitch will program its embedded DNS to make sure all other applications can reach our web server by its name.</p>
+
+<p>Moments after it&rsquo;s been started, the web server issues a <code>bind()</code> syscall, specifying the IP/port it wants to bind to, which gets intercepted by the trap generator and forwarded to the trap handler. The latter generates another <code>bind()</code> syscall, however the new <code>bind()</code> has two notable differences:</p>
+
+<ul>
+<li>It contains the host IP and one of the reserved ports (40000 - 60000) specified at the startup</li>
+<li>It&rsquo;s destined towards a host&rsquo;s syscall interface</li>
+</ul>
+
+<p>The resulting mappings between the internal socket address of the web server, the overlay IP address assigned to it by the Appswitch and the &ldquo;real&rdquo; or underlay address of the host get recorded in the Service Table and gossiped to all other members of the cluster.</p>
+
+<h2 id="3-processing-client-requests">3. Processing client requests</h2>
+
+<p>Now let&rsquo;s see what happens when another Appswitch application tries to connect to the previously started web server. The client may try to connect to the web server by its hostname, assuming the server was configured with one, in which case the DNS request will get handled by an embedded DNS server running on all Appswitch nodes, as a part of the same binary that runs service table and service router, and the client library will receive the overlay IP address of the web server.</p>
+
+<p>As soon as the <code>connect()</code> syscall gets intercepted by the Trap Generator and forwarded to the Trap Handler, the latter consults the local Service Table and finds an entry for the web server, which was previously broadcasted to all members of the cluster. This is also a point at which Appswitch performs security isolation and load balancing:</p>
+
+<ul>
+<li><p>It checks whether security zone of a client matches the one of the server and only proceeds if they are the same. This allows users to split application into different security groups and enforce isolation between them without the need for any dataplane ACLs</p></li>
+
+<li><p>It also determines which exact server to include in the <code>connect()</code> syscall, in case multiple servers have registered with the same IP or hostname. This provides a fully-distributed client-side load-balancing solution without the need for any middleware.</p></li>
+</ul>
+
+<p>Once all the checks have passed and a destination server has been determined, Trap Handler issues a <code>connect()</code> syscall with the underlay IP and port of that server app. At the end of the 3-way TCP handshake the <code>connect()</code> call returns 0 and the two applications continue to <code>read()</code> and <code>write()</code> using the sockfd provided by Appswitch, as if they were running directly in host network namespace.</p>
+
+<h2 id="4-ingress-forwarding">4. Ingress forwarding</h2>
+
+<p>When starting a server-side application, we have an option to make it available externally to clients outside of an Appswitch cluster, by mapping a server port to an arbitrary port of the host. This is accomplished with an <code>--expose INSIDE:OUTSIDE</code> argument, which will map the <strong>INSIDE</strong> application port to a specified <strong>OUTSIDE</strong> port on the host. We can also simulate the behaviour of k8s <strong>NodePort</strong> by changing this argument to <code>--expose INSIDE:0.0.0.0:OUTSIDE</code>, which will expose the same port on ALL members of an Appswitch cluster.</p>
+
+<h2 id="5-egress-forwarding">5. Egress forwarding</h2>
+
+<p>All outbound client-side syscalls that don&rsquo;t find a match in the local Service Table, will be forwarded to one of the Egress Gateway nodes. Any number of Appswitch instances can be designated as Egress Gateway nodes at startup, which makes them pick a random port from a reserved pool, broadcast their presence to the rest of the cluster and start listening for incoming connections from other members. When the client-side Trap Handler intercepts the <code>connect()</code> syscall to an external service, it tweaks the address and sends it to one of the egress gateways instead. At the same time it communicates the real external service address to the egress gateway out-of-band. When the egress gateway receives the external service address, it will splice the two TCP sessions together connecting the Appswitch application to its intended external destination.</p>
+
+<h1 id="demo">Demo</h1>
+
+<p>Finally, the time has come for the proof of the pudding. To demonstrate how Appswitch works in real life I&rsquo;ll use the famous Docker <a href="https://github.com/dockersamples/example-voting-app" target="_blank">voting app</a> - a simple application comprised of 5 (micro)services that all interact over standard APIs. To make it more realistic, I&rsquo;ll split the voting app between two Docker hosts to demonstrate how different parts of the same application are able to communicate remotely, assisted by Appswitch. The following diagram shows how different application components are mapped to a pair docker hosts.</p>
+
+<p><img src="/img/ax-voting.png" alt="Appswitch demo" /></p>
+
+<p>Unlike the original voting app <a href="https://github.com/dockersamples/example-voting-app/blob/master/architecture.png" target="_blank">diagram</a> which shows the flow of data within the app, the arrows in the diagram above show the direction and destination of the initial TCP SYN, which will be important for the following explanation.</p>
+
+<blockquote>
+<p>Note that in the demo we&rsquo;ll deploy all necessary components manually, using <code>docker-compose</code> and <code>docker run</code> commands, which doesn&rsquo;t mean the same can&rsquo;t be done by an orchestrator. One of the goals of this demo is to be easy to reproduce and understand and I felt like using k8s would make it more confusing and distract the reader from the main point. For demonstration of how to use Appswitch inside k8s environment refer to the official <a href="http://appswitch.readthedocs.io/en/latest/integrations.html" target="_blank">integration manual</a>.</p>
+</blockquote>
+
+<h2 id="1-installation">1. Installation</h2>
+
+<p>In order to deploy all 5 components of this app, I&rsquo;ll use two docker-compose files, which are based on the original <a href="https://github.com/dockersamples/example-voting-app/blob/master/docker-compose.yml" target="_blank">docker-compose file</a>, with a few modifications to make them work with Appswitch:</p>
+
+<ul>
+<li>The command argument is now prepended with <code>/usr/bin/ax run</code>, which is an Appswitch wrapper that containts the Trap Generator to tracks the network system calls</li>
+<li>Network mode is set to none - we won&rsquo;t need <strong>any</strong> network interface inside a Docker container whatsoever</li>
+<li>Volumes now include three additional items:
+
+<ul>
+<li>/var/run/appswitch - a communication channel between a trap generator running inside a container and a trap handler running in the host namespace</li>
+<li>/usr/bin/ax - an Appswitch binary made available inside a container</li>
+<li>/etc/resolv.conf - overrides container DNS settings to redirect queries to an embedded Appswitch DNS service.</li>
+</ul></li>
+</ul>
+
+<p>These two docker-compose files are stored in my personal fork of the voting app and are the only thing that is different between my fork and the original repo. So the first step is to download the voting app:</p>
+
+<pre><code class="language-bash">git clone https://github.com/networkop/example-voting-app.git ax; cd ax
+</code></pre>
+
+<p>To be able to run everything on a single laptop, I simulate docker hosts by running Docker daemon inside a Docker container, a pattern commonly known as docker-in-docker or <a href="https://github.com/jpetazzo/dind" target="_blank">dind</a>. Additionally I expose the Docker API ports of the two dind containers to be able to manage them from my host OS.</p>
+
+<pre><code class="language-bash">docker run -d --privileged --name worker-1 --hostname=worker-1 \
+-p 5000:5000 -p 12375:2375 \
+-v /usr/local/bin/docker-compose:/usr/local/bin/docker-compose \
+-v $(pwd):$(pwd) \
+docker:stable-dind
+
+docker run -d --privileged --name worker-2 --hostname=worker-2 \
+-p 5001:5001 -p 22375:2375 \
+-v /usr/local/bin/docker-compose:/usr/local/bin/docker-compose \
+-v $(pwd):$(pwd) \
+docker:stable-dind
+</code></pre>
+
+<p>These two commands will create a simple two-node topology as shown below:</p>
+
+<p><img src="/img/ax-dind.png" alt="Appswitch dind" /></p>
+
+<p>Each docker host will have its own unique IP assigned to interface <code>eth0</code> and will most likely have the same IP assigned to internal <code>docker0</code> bridge. We can safely ignore the latter since docker bridge is not used by Appswitch, however we would need to know the IPs assigned to <code>eth0</code> in order to be able to bootstrap the Serf cluster.</p>
+
+<pre><code class="language-bash">export IP_1=$(docker inspect worker-1 -f &quot;{{ .NetworkSettings.Networks.bridge.IPAddress }}&quot;)
+export IP_2=$(docker inspect worker-2 -f &quot;{{ .NetworkSettings.Networks.bridge.IPAddress }}&quot;)
+</code></pre>
+
+<p>Next, on each node we need to start an Appswitch daemon and pass the above IPs as input parameters.</p>
+
+<pre><code class="language-bash">docker --host=localhost:12375 run -d --name=ax \
+--pid=host `# To identify and track application threads from host namespace` \
+--net=host `# To make host network available for the application` \
+--privileged `# To set seccomp filter` \
+-v /usr/bin:/hostbin `# To install ax to /hostbin/` \
+-v /var/run/appswitch:/var/run/appswitch `# To share the UNIX socket between app and ax daemon` \
+-e AX_NODE_INTERFACE=${IP_1} `# Make sure the right IP is selected`\
+-e AX_NEIGHBORS=${IP_2} `# IP of peer container`\
+docker.io/appswitch/ax `# Starting the main process`
+
+docker --host=localhost:22375 run -d --name=ax \
+--pid=host `# To identify and track application threads from host namespace` \
+--net=host `# To make host network available for the application` \
+--privileged `# To set seccomp filter` \
+-v /usr/bin:/hostbin `# To install ax to /hostbin/` \
+-v /var/run/appswitch:/var/run/appswitch `# To share the UNIX socket between app and ax daemon` \
+-e AX_NODE_INTERFACE=${IP_2} `# Make sure the right IP is selected`\
+-e AX_NEIGHBORS=${IP_1} `# IP of peer container`\
+docker.io/appswitch/ax `# Starting the main process`
+</code></pre>
+
+<p>At this point our Appswitch cluster should be bootstrapped and fully functional, which we can verify by listing its members from either one of the worker nodes:</p>
+
+<pre><code class="language-bash">docker exec -it worker-1 ax get nodes
+    NAME     CLUSTER       IP      EXTERNALIP    ROLE     APPCOUNT  
+------------------------------------------------------------------
+  worker-1  appswitch  172.17.0.2              [compute]  0         
+  worker-2  appswitch  172.17.0.3              [compute]  0         
+
+</code></pre>
+
+<p>Now the only thing that is left is to deploy our voting app using docker compose:</p>
+
+<pre><code class="language-bash">docker-compose --host localhost:12375 --file ./docker-compose-1.yml up -d
+docker-compose --host localhost:22375 --file ./docker-compose-2.yml up -d
+</code></pre>
+
+<p>A few minutes later the voting side of the app should become available on <a href="http://localhost:5000/" target="_blank">localhost:5000</a>, while the results can be viewed on <a href="http://localhost:5001/" target="_blank">localhost:5001</a>.You can put in more votes for cats or dogs by using &ldquo;a&rdquo; or &ldquo;b&rdquo; in the following command:</p>
+
+<pre><code class="language-bash">curl -sS -X POST --data &quot;vote=a&quot; http://localhost:5000 &gt; /dev/null
+</code></pre>
+
+<h2 id="2-verification">2. Verification</h2>
+
+<p>Now let&rsquo;s examine how Appswitch has managed to establish connectivity between all components of our voting app. The two internal server-side components are DB and Redis, and all client-side apps (vote, worker and result) are expecting to connect to them  by using their respective hostnames - <code>db</code> and <code>redis</code>. Appswitch enables that by running an embedded DNS server which gets programmed with hostnames based on the <code>--name</code> argument of <code>ax run</code> command, as shown in the following snippet from the Redis service in docker-compose-1.yml:</p>
+
+<pre><code class="language-yaml">command: /usr/bin/ax run --name redis redis-server
+</code></pre>
+
+<p>Embedded DNS server returns the overlay IP assigned to Redis, which will be used later by client-side apps in their syscalls. In our case we didn&rsquo;t specify this IP explicitly, so Appswitch picked a random IP address which can be viewed with <code>ax get apps</code> command:</p>
+
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>APPID</th>
+<th>NODEID</th>
+<th>CLUSTER</th>
+<th>APPIP</th>
+<th>DRIVER</th>
+<th>LABELS</th>
+<th>ZONES</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>redis</td>
+<td>f00005bb</td>
+<td>worker-2</td>
+<td>appswitch</td>
+<td>10.244.17.175</td>
+<td>user</td>
+<td>zone=default</td>
+<td>[zone==default]</td>
+</tr>
+
+<tr>
+<td>db</td>
+<td>f00004cd</td>
+<td>worker-1</td>
+<td>appswitch</td>
+<td>10.12.33.253</td>
+<td></td>
+<td>zone=default</td>
+<td>[zone==default]</td>
+</tr>
+</tbody>
+</table>
+
+<p>As soon as DB and Redis are fully initialised and issue a <code>listen()</code> syscall, Appswitch broadcasts the overlay-underlay address mapping to all other members of a cluster, so that each node ends up with an identical view of this table:</p>
+
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>CLUSTER</th>
+<th>APPID</th>
+<th>PROTO</th>
+<th>SERVICEADDR</th>
+<th>IPV4ADDR</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>worker-2</td>
+<td>appswitch</td>
+<td>f00005b9</td>
+<td>tcp</td>
+<td>redis:6379</td>
+<td>172.17.0.3:40000</td>
+</tr>
+
+<tr>
+<td>worker-1</td>
+<td>appswitch</td>
+<td>f000056d</td>
+<td>tcp</td>
+<td>db:5432</td>
+<td>172.17.0.2:40001</td>
+</tr>
+</tbody>
+</table>
+
+<p>Now, when a client-side app decides to establish a TCP session with <code>redis</code> on port 6379, it tries to <code>connect()</code> to <code>10.244.17.175:6379</code>, which makes the Trap Handler issue a new <code>connect()</code> to <code>172.17.0.3:40000</code>, the real/underlay address of redis on worker-2 node.</p>
+
+<p>At the same time we have two client-side apps that act as server-side apps for external connections - vote and result. Both of these apps were started with their internal http ports exposed, like in the following example from the vote service:</p>
+
+<pre><code class="language-yaml">command: /usr/bin/ax run --expose 80:5000 python app.py
+</code></pre>
+
+<p>When they attempt to <code>bind()</code> to port 80, Appswitch will not try to use the dynamic port range and will try to bind to the port specified in the expose command instead:</p>
+
+<table>
+<thead>
+<tr>
+<th>Name</th>
+<th>CLUSTER</th>
+<th>APPID</th>
+<th>PROTO</th>
+<th>SERVICEADDR</th>
+<th>IPV4ADDR</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>worker-1</td>
+<td>appswitch</td>
+<td>f00004cc</td>
+<td>tcp</td>
+<td>172.17.0.2:80</td>
+<td>172.17.0.2:5000</td>
+</tr>
+
+<tr>
+<td>worker-2</td>
+<td>appswitch</td>
+<td>f0000627</td>
+<td>tcp</td>
+<td>172.17.0.3:80</td>
+<td>172.17.0.3:5001</td>
+</tr>
+</tbody>
+</table>
+
+<p>This port mapping will only make these ports available inside their respective docker hosts, which is why we&rsquo;ve exposed ports 5000 and 5001 when starting dind containers earlier.</p>
+
+<table>
+<thead>
+<tr>
+<th>CONTAINER ID</th>
+<th>IMAGE</th>
+<th>COMMAND</th>
+<th>CREATED</th>
+<th>STATUS</th>
+<th>PORTS</th>
+<th>NAMES</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>303d5ae4d63d</td>
+<td>docker:stable-dind</td>
+<td>&ldquo;dockerd-entrypoint.…&rdquo;</td>
+<td>12 hours ago</td>
+<td>Up 7 hours</td>
+<td>0.0.0.0:5001-&gt;5001/tcp, 0.0.0.0:22375-&gt;2375/tcp</td>
+<td>worker-2</td>
+</tr>
+
+<tr>
+<td>2421e7556bc1</td>
+<td>docker:stable-dind</td>
+<td>&ldquo;dockerd-entrypoint.…&rdquo;</td>
+<td>12 hours ago</td>
+<td>Up 7 hours</td>
+<td>0.0.0.0:5000-&gt;5000/tcp, 0.0.0.0:12375-&gt;2375/tcp</td>
+<td>worker-1</td>
+</tr>
+</tbody>
+</table>
+
+<p>So a TCP SYN towards localhost:5000 will get PAT&rsquo;ed by Docker-managed iptables of the Docker host, will hit the TCP/IP stack of the worker-1 node, which, once the handshake is complete, will issue an accept() syscall towards a Trap Handler and ultimately towards port 80 of the vote app.</p>
+
+<h1 id="outro">Outro</h1>
+
+<p>The reason why I called this article &ldquo;Serverless SDN&rdquo; is because I find this to be a rather fitting description of what Appswitch is. Just like serverless computing, which abstracts away the underlying OS and server management, Appswitch abstracts away the networking stack of the host and provides networking abstractions at a well-defined socket layer. Reading through the <a href="https://appswitch.readthedocs.io/en/latest/index.html" target="_blank">official documentation</a> and Appswitch <a href="http://hci.stanford.edu/cstr/reports/2017-01.pdf" target="_blank">research paper</a>, I can&rsquo;t get rid of the thought that this is what container networking should have looked like in the first place - not linux bridges and veth pairs and not even macvlan and ipvlan devices. The original goal of containers was to encapsulate a single process and in majority of cases that single process does not need to have a full TCP/IP stack with its own interface, IP address, MAC address - all what it cares about is sending and receiving data - and this is exactly what Appswitch provides.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/docker">docker</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/container-sdn">container-sdn</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+

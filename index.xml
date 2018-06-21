@@ -11,6 +11,417 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Serverless SDN - Network Engineering Analysis of Appswitch</title>
+      <link>https://networkop.co.uk/post/2018-05-29-appswitch-sdn/</link>
+      <pubDate>Thu, 21 Jun 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2018-05-29-appswitch-sdn/</guid>
+      <description>
+
+&lt;p&gt;Virtual networking has been one of the hottest areas of research and development in recent years. Kubernetes alone has, at the time of writing, 20 different &lt;a href=&#34;https://kubernetes.io/docs/concepts/cluster-administration/networking/&#34; target=&#34;_blank&#34;&gt;networking plugins&lt;/a&gt;, some of which can be &lt;a href=&#34;https://github.com/projectcalico/canal&#34; target=&#34;_blank&#34;&gt;combined&lt;/a&gt; to build even more plugins. However, if we dig a bit deeper, most of these plugins and solutions are built out of two very simple constructs:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;a virtual switch - anything from a linux bridge through VPP and IOVisor to OVS&lt;/li&gt;
+&lt;li&gt;ACL/NAT - most commonly implemented as iptables, with anything from netfilter to eBPF under the hood&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Note1: for the purpose of this article I won&amp;rsquo;t consider service meshes as a network solution, although it clearly is one, simply because it operates higher than TCP/IP and ultimately still requires network plumbing to be in place&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;If those look familiar, you&amp;rsquo;re not mistaken, they are the &lt;strong&gt;same exact&lt;/strong&gt; things that were used to connect VMs together and enforce network security policies at the dawn of SDN era almost a decade ago. Although some of these technologies have gone a long way in both features and performance, they still treat containers the same way they treated VMs. There are a few exceptions that don&amp;rsquo;t involve the above constructs, like SR-IOV, macvlan/ipvlan and running containers in host namespace, however they represent a small fraction of corner case solutions and can be safely ignored for the purpose of this discussion. That&amp;rsquo;s why for networking folk it won&amp;rsquo;t be too big a mistake to think of containers as VMs, let&amp;rsquo;s see why:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/docker-vs-vm.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;At a high level both container and VM networking are exactly the same, doesn&amp;rsquo;t matter what plugin, what networking model (CNM/CNI), what vSwitch flavour or what offload technology you use. Any virtual workload must have a virtual patch cable connecting it to a vSwitch, which implements forwarding and security policies programmed by an SDN controller. These tenets have gone unchallenged since the early days of containers and this is how I, personally, always imagined a typical virtual networking solution would look like. Until I read about &lt;a href=&#34;https://apporbit.com/a-test-drive-of-appswitch-the-network-stack-from-the-future/&#34; target=&#34;_blank&#34;&gt;AppSwitch&lt;/a&gt; and got so excited I decided to sign up for a &lt;a href=&#34;https://apporbit.com/appswitch/&#34; target=&#34;_blank&#34;&gt;beta program&lt;/a&gt; just to take it apart and see how it works. But before I dive deep into its architecture, I need to provide some theoretical background and I&amp;rsquo;ll do that by zooming in on a part of the (Linux) networking stack that sits right above TCP/IP.&lt;/p&gt;
+
+&lt;h1 id=&#34;network-socket-api&#34;&gt;Network Socket API&lt;/h1&gt;
+
+&lt;p&gt;Let&amp;rsquo;s start our exploration by examining what happens when a TCP client wants to communicate with a TCP server on a remote host. The first thing that the client library does is it creates a socket by making a &lt;code&gt;socket()&lt;/code&gt; system call for a specific address family (local, IPv4, IPv6) and transport protocol (TCP, UDP). The returned value is a file descriptor that points to a socket. This file descriptor is used in all subsequent network calls.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;sockfd = socket(AF_INET, SOCK_STREAM, 0) /* Create an IPv4 TCP socket */
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next the client issues a &lt;code&gt;connect()&lt;/code&gt; system call, where it passes the new socket file descriptor along with a pointer to &lt;code&gt;serv_addr&lt;/code&gt; data structures that contains the destination IP and port of the TCP server.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;connect(sockfd, &amp;amp;serv_addr, sizeof(serv_addr)) /* Returns 0 if connected */
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Behind the scenes the last call initiates a TCP 3-way handshake with the remote server and returns 0 if TCP sessions transitions to the &lt;strong&gt;Established&lt;/strong&gt; state.&lt;/p&gt;
+
+&lt;p&gt;Finally, when TCP session is established, the client interacts with the socket the same way it does with any normal file by calling &lt;code&gt;read()&lt;/code&gt; and &lt;code&gt;write()&lt;/code&gt; to receive and send data to the remote server.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;read(sockfd, buffer, strlen(buffer))  /* Returns the number of bytes read */
+write(sockfd, buffer, strlen(buffer)) /* Returns the number of bytes written */
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Below is a simplified diagram that shows the above syscalls and maps them to different stages of TCP connection. Note that only the layers relevant to the purpose of this discussion are shown. For a more comprehensive overview of Linux networking stack refer to &lt;a href=&#34;http://140.120.7.21/LinuxRef/Network/LinuxNetworkStack.html&#34; target=&#34;_blank&#34;&gt;1&lt;/a&gt;, &lt;a href=&#34;http://www.microhowto.info/howto/listen_for_and_accept_tcp_connections_in_c.html&#34; target=&#34;_blank&#34;&gt;2&lt;/a&gt; and &lt;a href=&#34;https://www.ibm.com/developerworks/aix/library/au-tcpsystemcalls/index.html&#34; target=&#34;_blank&#34;&gt;3&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/tcp-syscalls.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;On the server side the sequence of system calls is a little different. After a server creates a socket with the &lt;code&gt;socket()&lt;/code&gt; call, it tries to &lt;code&gt;bind()&lt;/code&gt; to a particular IP and port number of the host:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;bind(sockfd, &amp;amp;serv_addr, sizeof(serv_addr)) /* Returns 0 if successful */
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;In order to start accepting incoming TCP SYN requests, the socket needs to be marked as &lt;strong&gt;passive&lt;/strong&gt; by making a &lt;code&gt;listen()&lt;/code&gt; call, which also specifies the maximum size of a queue for pending TCP connections:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;listen(sockfd, SOMAXCONN) /* Returns 0 if successful */
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Once the TCP 3-way handshake with the client is complete and the connection transitions to the &lt;strong&gt;Established&lt;/strong&gt; state, it will be pulled off the queue by an &lt;code&gt;accept()&lt;/code&gt; call, running in an infinite loop, which returns a new &lt;strong&gt;connected&lt;/strong&gt; socket file descriptor back to the server.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;newsockfd = accept(sockfd, &amp;amp;client_addr, &amp;amp;client_len) /* Create a new socket */
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The server application now proceeds to read and write data similar to the client side.&lt;/p&gt;
+
+&lt;h1 id=&#34;appswitch-high-level-architecture&#34;&gt;Appswitch high-level architecture&lt;/h1&gt;
+
+&lt;p&gt;Appswitch is a distributed virtual networking solution that intercepts application&amp;rsquo;s network events at the system call interface level, before they get to the TCP/IP stack of the host. This allows it to make routing decisions and enforce security policies without the need for vSwitches or iptables. The way it abstracts host&amp;rsquo;s TCP/IP stack (underlay) from the Appswitch-managed application IP address space (overlay) is not too much dissimilar from the way traditional routing protocols operate.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ax-overview.png&#34; alt=&#34;Appswitch architecture&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Just like a typical distributed routing protocol, Appswitch builds a database of all known local endpoint addresses at each node, distributes it to other members of a cluster with itself as the next-hop, calculates how to forward connection setup calls between local and remote endpoints and uses those results to steer network traffic between them. Sounds very much like something BGP/OSPF/IS-IS would do, doesn&amp;rsquo;t it? Let&amp;rsquo;s have a closer look at the actual elements involved, using the diagram from the original Appswitch &lt;a href=&#34;http://hci.stanford.edu/cstr/reports/2017-01.pdf&#34; target=&#34;_blank&#34;&gt;research paper&lt;/a&gt;:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ax-highlevel.png&#34; alt=&#34;Appswitch architecture&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;The first thing Appswitch does when it starts is neighbor discovery. The element responsible for this is a &lt;strong&gt;Service Router&lt;/strong&gt; which uses &lt;a href=&#34;https://www.serf.io/docs/internals/gossip.html&#34; target=&#34;_blank&#34;&gt;Serf&lt;/a&gt; to efficiently discover and disseminate information in a cluster of Appswitch nodes. Serf is Hashicorp&amp;rsquo;s implementation of a &lt;a href=&#34;https://pdfs.semanticscholar.org/8712/3307869ac84fc16122043a4a313604bd948f.pdf&#34; target=&#34;_blank&#34;&gt;gossip protocol&lt;/a&gt; - a cluster membership and communication protocol. Serf should be very easy to understand for those familiar with flood-and-learn behaviour of OSPF and IS-IS on broadcast multiaccess links, with the biggest distinction being that designated routers are chosen randomly and independently by each node of the link.&lt;/p&gt;
+
+&lt;p&gt;Whenever a new application is launched inside Appswitch, it gets moved to a dedicated network namespace, where a &lt;strong&gt;Trap Generator&lt;/strong&gt; listens for network system calls and forwards them to a &lt;strong&gt;Trap Handler&lt;/strong&gt; over a shared Unix domain socket. Together these two elements form the forwarding plane for network system calls. Every time an application issues a &lt;code&gt;socket()&lt;/code&gt; syscall, the trap generator forwards it to the trap handler, which in turn creates a socket in the host namespace and passes its reference all the way back to the calling application. Once the connection is established, all &lt;code&gt;read()&lt;/code&gt; and &lt;code&gt;write()&lt;/code&gt; syscalls will be made using the returned &lt;code&gt;sockfd&lt;/code&gt;, effectively achieving the same performance as if our application was running directly on host OS.&lt;/p&gt;
+
+&lt;p&gt;The central element in Appswitch architecture is a &lt;strong&gt;Service Table&lt;/strong&gt; - a distributed, eventually consistent database which stores mappings between running applications and their next-hop transport addresses. This information is used by the Trap Handler in &lt;code&gt;connect()&lt;/code&gt; syscall to build the &lt;code&gt;serv_addr&lt;/code&gt; data structure with the real IP and port of the target application. In a steady state each node in an Appswitch cluster will have the same view of this database and all updates to this database will be gossiped to other members of a cluster by a Service Router.&lt;/p&gt;
+
+&lt;h1 id=&#34;appswitch-detailed-overview&#34;&gt;Appswitch detailed overview&lt;/h1&gt;
+
+&lt;p&gt;Let&amp;rsquo;s have a closer look at what happens at different stages of Appswitch lifecycle.&lt;/p&gt;
+
+&lt;h2 id=&#34;1-installation-and-startup&#34;&gt;1. Installation and Startup&lt;/h2&gt;
+
+&lt;p&gt;At the time of writing Appswitch is being distributed as a docker container hosted in a private docker repository on docker hub (access provided based on request). It contains a single binary executable called &lt;code&gt;ax&lt;/code&gt; which needs to be started in PID and network namespaces of the host in order to be able to talk to host&amp;rsquo;s syscall interface and track application threads. By default, Appswitch attaches to the TCP/IP stack of the host in two ways:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;It starts management REST API and Serf processes that bind to ports 6664 and 7946.&lt;/li&gt;
+&lt;li&gt;It selects one of the host&amp;rsquo;s IP addresses and reserves a pool of ports (e.g. 40000-60000) that will be dynamically allocated to applications in response to &lt;code&gt;bind()&lt;/code&gt; and &lt;code&gt;connect()&lt;/code&gt; system calls.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;2-joining-a-cluster&#34;&gt;2. Joining a cluster&lt;/h2&gt;
+
+&lt;p&gt;One of the first things a running Appswitch instance has to do is discover all members of a cluster. This is accomplished by providing an IP address of at least one node of an existing cluster as a startup parameter, which is then used to discover all other members. The information exchanged during neighbor discovery phase, which includes host IPs, names and roles, gets recorded in the Service Table and can be viewed with &lt;code&gt;ax get nodes&lt;/code&gt; command. The mechanism of neighbor discovery and monitoring inside a cluster is not Appswitch-specific so I won&amp;rsquo;t spend much time on it here, however I highly recommend reading at least the protocol overview on the official &lt;a href=&#34;https://www.serf.io/docs/internals/gossip.html&#34; target=&#34;_blank&#34;&gt;Serf website&lt;/a&gt;, as this is a very common approach in modern-day eventually consistent cluster architectures.&lt;/p&gt;
+
+&lt;h2 id=&#34;3-cluster-scale-out&#34;&gt;3. Cluster scale-out&lt;/h2&gt;
+
+&lt;p&gt;A cluster is a set of nodes running Appswitch daemons that can directly communicate with one another and all use Serf to monitor state of other cluster members. Like any other cluster protocol, Serf has its limitations and Appswitch has a very neat mechanism to allow services to scale beyond a single cluster boundary, e.g. between a LAN and a WAN, called Federation. In principle, it&amp;rsquo;s somewhat similar to hierarchical BGP RR design with route reflectors doing &lt;code&gt;next-hop self&lt;/code&gt;. A set of Appswitch nodes can be designated as Federation gateways, which allows them to propagate information about running applications between two different clusters. When doing so they change the IP/port information to point to themselves, which forces all inter-cluster traffic to go via one of these nodes.&lt;/p&gt;
+
+&lt;h2 id=&#34;4-registering-a-server-application&#34;&gt;4. Registering a server application&lt;/h2&gt;
+
+&lt;p&gt;Once Appswitch instance has joined a cluster, it&amp;rsquo;s ready to onboard its first application. Let&amp;rsquo;s start with a web server that needs to be accessible from other Appswitch-managed applications (East-West) and externally (North-South). When starting a server application, we need to provide a unique identifier that will be used by other endpoints to reach it. That identifier can be either an IP address (provided with &lt;code&gt;--ip&lt;/code&gt; argument) or a hostname (provided with &lt;code&gt;--name&lt;/code&gt; argument). If only hostname is specified, IP address will still be allocated behind the scenes and Appswitch will program its embedded DNS to make sure all other applications can reach our web server by its name.&lt;/p&gt;
+
+&lt;p&gt;Moments after it&amp;rsquo;s been started, the web server issues a &lt;code&gt;bind()&lt;/code&gt; syscall, specifying the IP/port it wants to bind to, which gets intercepted by the trap generator and forwarded to the trap handler. The latter generates another &lt;code&gt;bind()&lt;/code&gt; syscall, however the new &lt;code&gt;bind()&lt;/code&gt; has two notable differences:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;It contains the host IP and one of the reserved ports (40000 - 60000) specified at the startup&lt;/li&gt;
+&lt;li&gt;It&amp;rsquo;s destined towards a host&amp;rsquo;s syscall interface&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The resulting mappings between the internal socket address of the web server, the overlay IP address assigned to it by the Appswitch and the &amp;ldquo;real&amp;rdquo; or underlay address of the host get recorded in the Service Table and gossiped to all other members of the cluster.&lt;/p&gt;
+
+&lt;h2 id=&#34;3-processing-client-requests&#34;&gt;3. Processing client requests&lt;/h2&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s see what happens when another Appswitch application tries to connect to the previously started web server. The client may try to connect to the web server by its hostname, assuming the server was configured with one, in which case the DNS request will get handled by an embedded DNS server running on all Appswitch nodes, as a part of the same binary that runs service table and service router, and the client library will receive the overlay IP address of the web server.&lt;/p&gt;
+
+&lt;p&gt;As soon as the &lt;code&gt;connect()&lt;/code&gt; syscall gets intercepted by the Trap Generator and forwarded to the Trap Handler, the latter consults the local Service Table and finds an entry for the web server, which was previously broadcasted to all members of the cluster. This is also a point at which Appswitch performs security isolation and load balancing:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;It checks whether security zone of a client matches the one of the server and only proceeds if they are the same. This allows users to split application into different security groups and enforce isolation between them without the need for any dataplane ACLs&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;It also determines which exact server to include in the &lt;code&gt;connect()&lt;/code&gt; syscall, in case multiple servers have registered with the same IP or hostname. This provides a fully-distributed client-side load-balancing solution without the need for any middleware.&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Once all the checks have passed and a destination server has been determined, Trap Handler issues a &lt;code&gt;connect()&lt;/code&gt; syscall with the underlay IP and port of that server app. At the end of the 3-way TCP handshake the &lt;code&gt;connect()&lt;/code&gt; call returns 0 and the two applications continue to &lt;code&gt;read()&lt;/code&gt; and &lt;code&gt;write()&lt;/code&gt; using the sockfd provided by Appswitch, as if they were running directly in host network namespace.&lt;/p&gt;
+
+&lt;h2 id=&#34;4-ingress-forwarding&#34;&gt;4. Ingress forwarding&lt;/h2&gt;
+
+&lt;p&gt;When starting a server-side application, we have an option to make it available externally to clients outside of an Appswitch cluster, by mapping a server port to an arbitrary port of the host. This is accomplished with an &lt;code&gt;--expose INSIDE:OUTSIDE&lt;/code&gt; argument, which will map the &lt;strong&gt;INSIDE&lt;/strong&gt; application port to a specified &lt;strong&gt;OUTSIDE&lt;/strong&gt; port on the host. We can also simulate the behaviour of k8s &lt;strong&gt;NodePort&lt;/strong&gt; by changing this argument to &lt;code&gt;--expose INSIDE:0.0.0.0:OUTSIDE&lt;/code&gt;, which will expose the same port on ALL members of an Appswitch cluster.&lt;/p&gt;
+
+&lt;h2 id=&#34;5-egress-forwarding&#34;&gt;5. Egress forwarding&lt;/h2&gt;
+
+&lt;p&gt;All outbound client-side syscalls that don&amp;rsquo;t find a match in the local Service Table, will be forwarded to one of the Egress Gateway nodes. Any number of Appswitch instances can be designated as Egress Gateway nodes at startup, which makes them pick a random port from a reserved pool, broadcast their presence to the rest of the cluster and start listening for incoming connections from other members. When the client-side Trap Handler intercepts the &lt;code&gt;connect()&lt;/code&gt; syscall to an external service, it tweaks the address and sends it to one of the egress gateways instead. At the same time it communicates the real external service address to the egress gateway out-of-band. When the egress gateway receives the external service address, it will splice the two TCP sessions together connecting the Appswitch application to its intended external destination.&lt;/p&gt;
+
+&lt;h1 id=&#34;demo&#34;&gt;Demo&lt;/h1&gt;
+
+&lt;p&gt;Finally, the time has come for the proof of the pudding. To demonstrate how Appswitch works in real life I&amp;rsquo;ll use the famous Docker &lt;a href=&#34;https://github.com/dockersamples/example-voting-app&#34; target=&#34;_blank&#34;&gt;voting app&lt;/a&gt; - a simple application comprised of 5 (micro)services that all interact over standard APIs. To make it more realistic, I&amp;rsquo;ll split the voting app between two Docker hosts to demonstrate how different parts of the same application are able to communicate remotely, assisted by Appswitch. The following diagram shows how different application components are mapped to a pair docker hosts.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ax-voting.png&#34; alt=&#34;Appswitch demo&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Unlike the original voting app &lt;a href=&#34;https://github.com/dockersamples/example-voting-app/blob/master/architecture.png&#34; target=&#34;_blank&#34;&gt;diagram&lt;/a&gt; which shows the flow of data within the app, the arrows in the diagram above show the direction and destination of the initial TCP SYN, which will be important for the following explanation.&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Note that in the demo we&amp;rsquo;ll deploy all necessary components manually, using &lt;code&gt;docker-compose&lt;/code&gt; and &lt;code&gt;docker run&lt;/code&gt; commands, which doesn&amp;rsquo;t mean the same can&amp;rsquo;t be done by an orchestrator. One of the goals of this demo is to be easy to reproduce and understand and I felt like using k8s would make it more confusing and distract the reader from the main point. For demonstration of how to use Appswitch inside k8s environment refer to the official &lt;a href=&#34;http://appswitch.readthedocs.io/en/latest/integrations.html&#34; target=&#34;_blank&#34;&gt;integration manual&lt;/a&gt;.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h2 id=&#34;1-installation&#34;&gt;1. Installation&lt;/h2&gt;
+
+&lt;p&gt;In order to deploy all 5 components of this app, I&amp;rsquo;ll use two docker-compose files, which are based on the original &lt;a href=&#34;https://github.com/dockersamples/example-voting-app/blob/master/docker-compose.yml&#34; target=&#34;_blank&#34;&gt;docker-compose file&lt;/a&gt;, with a few modifications to make them work with Appswitch:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;The command argument is now prepended with &lt;code&gt;/usr/bin/ax run&lt;/code&gt;, which is an Appswitch wrapper that containts the Trap Generator to tracks the network system calls&lt;/li&gt;
+&lt;li&gt;Network mode is set to none - we won&amp;rsquo;t need &lt;strong&gt;any&lt;/strong&gt; network interface inside a Docker container whatsoever&lt;/li&gt;
+&lt;li&gt;Volumes now include three additional items:
+
+&lt;ul&gt;
+&lt;li&gt;/var/run/appswitch - a communication channel between a trap generator running inside a container and a trap handler running in the host namespace&lt;/li&gt;
+&lt;li&gt;/usr/bin/ax - an Appswitch binary made available inside a container&lt;/li&gt;
+&lt;li&gt;/etc/resolv.conf - overrides container DNS settings to redirect queries to an embedded Appswitch DNS service.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;These two docker-compose files are stored in my personal fork of the voting app and are the only thing that is different between my fork and the original repo. So the first step is to download the voting app:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;git clone https://github.com/networkop/example-voting-app.git ax; cd ax
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;To be able to run everything on a single laptop, I simulate docker hosts by running Docker daemon inside a Docker container, a pattern commonly known as docker-in-docker or &lt;a href=&#34;https://github.com/jpetazzo/dind&#34; target=&#34;_blank&#34;&gt;dind&lt;/a&gt;. Additionally I expose the Docker API ports of the two dind containers to be able to manage them from my host OS.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker run -d --privileged --name worker-1 --hostname=worker-1 \
+-p 5000:5000 -p 12375:2375 \
+-v /usr/local/bin/docker-compose:/usr/local/bin/docker-compose \
+-v $(pwd):$(pwd) \
+docker:stable-dind
+
+docker run -d --privileged --name worker-2 --hostname=worker-2 \
+-p 5001:5001 -p 22375:2375 \
+-v /usr/local/bin/docker-compose:/usr/local/bin/docker-compose \
+-v $(pwd):$(pwd) \
+docker:stable-dind
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;These two commands will create a simple two-node topology as shown below:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ax-dind.png&#34; alt=&#34;Appswitch dind&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Each docker host will have its own unique IP assigned to interface &lt;code&gt;eth0&lt;/code&gt; and will most likely have the same IP assigned to internal &lt;code&gt;docker0&lt;/code&gt; bridge. We can safely ignore the latter since docker bridge is not used by Appswitch, however we would need to know the IPs assigned to &lt;code&gt;eth0&lt;/code&gt; in order to be able to bootstrap the Serf cluster.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;export IP_1=$(docker inspect worker-1 -f &amp;quot;{{ .NetworkSettings.Networks.bridge.IPAddress }}&amp;quot;)
+export IP_2=$(docker inspect worker-2 -f &amp;quot;{{ .NetworkSettings.Networks.bridge.IPAddress }}&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next, on each node we need to start an Appswitch daemon and pass the above IPs as input parameters.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker --host=localhost:12375 run -d --name=ax \
+--pid=host `# To identify and track application threads from host namespace` \
+--net=host `# To make host network available for the application` \
+--privileged `# To set seccomp filter` \
+-v /usr/bin:/hostbin `# To install ax to /hostbin/` \
+-v /var/run/appswitch:/var/run/appswitch `# To share the UNIX socket between app and ax daemon` \
+-e AX_NODE_INTERFACE=${IP_1} `# Make sure the right IP is selected`\
+-e AX_NEIGHBORS=${IP_2} `# IP of peer container`\
+docker.io/appswitch/ax `# Starting the main process`
+
+docker --host=localhost:22375 run -d --name=ax \
+--pid=host `# To identify and track application threads from host namespace` \
+--net=host `# To make host network available for the application` \
+--privileged `# To set seccomp filter` \
+-v /usr/bin:/hostbin `# To install ax to /hostbin/` \
+-v /var/run/appswitch:/var/run/appswitch `# To share the UNIX socket between app and ax daemon` \
+-e AX_NODE_INTERFACE=${IP_2} `# Make sure the right IP is selected`\
+-e AX_NEIGHBORS=${IP_1} `# IP of peer container`\
+docker.io/appswitch/ax `# Starting the main process`
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At this point our Appswitch cluster should be bootstrapped and fully functional, which we can verify by listing its members from either one of the worker nodes:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker exec -it worker-1 ax get nodes
+    NAME     CLUSTER       IP      EXTERNALIP    ROLE     APPCOUNT  
+------------------------------------------------------------------
+  worker-1  appswitch  172.17.0.2              [compute]  0         
+  worker-2  appswitch  172.17.0.3              [compute]  0         
+
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now the only thing that is left is to deploy our voting app using docker compose:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker-compose --host localhost:12375 --file ./docker-compose-1.yml up -d
+docker-compose --host localhost:22375 --file ./docker-compose-2.yml up -d
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;A few minutes later the voting side of the app should become available on &lt;a href=&#34;http://localhost:5000/&#34; target=&#34;_blank&#34;&gt;localhost:5000&lt;/a&gt;, while the results can be viewed on &lt;a href=&#34;http://localhost:5001/&#34; target=&#34;_blank&#34;&gt;localhost:5001&lt;/a&gt;.You can put in more votes for cats or dogs by using &amp;ldquo;a&amp;rdquo; or &amp;ldquo;b&amp;rdquo; in the following command:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;curl -sS -X POST --data &amp;quot;vote=a&amp;quot; http://localhost:5000 &amp;gt; /dev/null
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;2-verification&#34;&gt;2. Verification&lt;/h2&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s examine how Appswitch has managed to establish connectivity between all components of our voting app. The two internal server-side components are DB and Redis, and all client-side apps (vote, worker and result) are expecting to connect to them  by using their respective hostnames - &lt;code&gt;db&lt;/code&gt; and &lt;code&gt;redis&lt;/code&gt;. Appswitch enables that by running an embedded DNS server which gets programmed with hostnames based on the &lt;code&gt;--name&lt;/code&gt; argument of &lt;code&gt;ax run&lt;/code&gt; command, as shown in the following snippet from the Redis service in docker-compose-1.yml:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;command: /usr/bin/ax run --name redis redis-server
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Embedded DNS server returns the overlay IP assigned to Redis, which will be used later by client-side apps in their syscalls. In our case we didn&amp;rsquo;t specify this IP explicitly, so Appswitch picked a random IP address which can be viewed with &lt;code&gt;ax get apps&lt;/code&gt; command:&lt;/p&gt;
+
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Name&lt;/th&gt;
+&lt;th&gt;APPID&lt;/th&gt;
+&lt;th&gt;NODEID&lt;/th&gt;
+&lt;th&gt;CLUSTER&lt;/th&gt;
+&lt;th&gt;APPIP&lt;/th&gt;
+&lt;th&gt;DRIVER&lt;/th&gt;
+&lt;th&gt;LABELS&lt;/th&gt;
+&lt;th&gt;ZONES&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;redis&lt;/td&gt;
+&lt;td&gt;f00005bb&lt;/td&gt;
+&lt;td&gt;worker-2&lt;/td&gt;
+&lt;td&gt;appswitch&lt;/td&gt;
+&lt;td&gt;10.244.17.175&lt;/td&gt;
+&lt;td&gt;user&lt;/td&gt;
+&lt;td&gt;zone=default&lt;/td&gt;
+&lt;td&gt;[zone==default]&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;db&lt;/td&gt;
+&lt;td&gt;f00004cd&lt;/td&gt;
+&lt;td&gt;worker-1&lt;/td&gt;
+&lt;td&gt;appswitch&lt;/td&gt;
+&lt;td&gt;10.12.33.253&lt;/td&gt;
+&lt;td&gt;&lt;/td&gt;
+&lt;td&gt;zone=default&lt;/td&gt;
+&lt;td&gt;[zone==default]&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;As soon as DB and Redis are fully initialised and issue a &lt;code&gt;listen()&lt;/code&gt; syscall, Appswitch broadcasts the overlay-underlay address mapping to all other members of a cluster, so that each node ends up with an identical view of this table:&lt;/p&gt;
+
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Name&lt;/th&gt;
+&lt;th&gt;CLUSTER&lt;/th&gt;
+&lt;th&gt;APPID&lt;/th&gt;
+&lt;th&gt;PROTO&lt;/th&gt;
+&lt;th&gt;SERVICEADDR&lt;/th&gt;
+&lt;th&gt;IPV4ADDR&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;worker-2&lt;/td&gt;
+&lt;td&gt;appswitch&lt;/td&gt;
+&lt;td&gt;f00005b9&lt;/td&gt;
+&lt;td&gt;tcp&lt;/td&gt;
+&lt;td&gt;redis:6379&lt;/td&gt;
+&lt;td&gt;172.17.0.3:40000&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;worker-1&lt;/td&gt;
+&lt;td&gt;appswitch&lt;/td&gt;
+&lt;td&gt;f000056d&lt;/td&gt;
+&lt;td&gt;tcp&lt;/td&gt;
+&lt;td&gt;db:5432&lt;/td&gt;
+&lt;td&gt;172.17.0.2:40001&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;Now, when a client-side app decides to establish a TCP session with &lt;code&gt;redis&lt;/code&gt; on port 6379, it tries to &lt;code&gt;connect()&lt;/code&gt; to &lt;code&gt;10.244.17.175:6379&lt;/code&gt;, which makes the Trap Handler issue a new &lt;code&gt;connect()&lt;/code&gt; to &lt;code&gt;172.17.0.3:40000&lt;/code&gt;, the real/underlay address of redis on worker-2 node.&lt;/p&gt;
+
+&lt;p&gt;At the same time we have two client-side apps that act as server-side apps for external connections - vote and result. Both of these apps were started with their internal http ports exposed, like in the following example from the vote service:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;command: /usr/bin/ax run --expose 80:5000 python app.py
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;When they attempt to &lt;code&gt;bind()&lt;/code&gt; to port 80, Appswitch will not try to use the dynamic port range and will try to bind to the port specified in the expose command instead:&lt;/p&gt;
+
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Name&lt;/th&gt;
+&lt;th&gt;CLUSTER&lt;/th&gt;
+&lt;th&gt;APPID&lt;/th&gt;
+&lt;th&gt;PROTO&lt;/th&gt;
+&lt;th&gt;SERVICEADDR&lt;/th&gt;
+&lt;th&gt;IPV4ADDR&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;worker-1&lt;/td&gt;
+&lt;td&gt;appswitch&lt;/td&gt;
+&lt;td&gt;f00004cc&lt;/td&gt;
+&lt;td&gt;tcp&lt;/td&gt;
+&lt;td&gt;172.17.0.2:80&lt;/td&gt;
+&lt;td&gt;172.17.0.2:5000&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;worker-2&lt;/td&gt;
+&lt;td&gt;appswitch&lt;/td&gt;
+&lt;td&gt;f0000627&lt;/td&gt;
+&lt;td&gt;tcp&lt;/td&gt;
+&lt;td&gt;172.17.0.3:80&lt;/td&gt;
+&lt;td&gt;172.17.0.3:5001&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;This port mapping will only make these ports available inside their respective docker hosts, which is why we&amp;rsquo;ve exposed ports 5000 and 5001 when starting dind containers earlier.&lt;/p&gt;
+
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;CONTAINER ID&lt;/th&gt;
+&lt;th&gt;IMAGE&lt;/th&gt;
+&lt;th&gt;COMMAND&lt;/th&gt;
+&lt;th&gt;CREATED&lt;/th&gt;
+&lt;th&gt;STATUS&lt;/th&gt;
+&lt;th&gt;PORTS&lt;/th&gt;
+&lt;th&gt;NAMES&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;303d5ae4d63d&lt;/td&gt;
+&lt;td&gt;docker:stable-dind&lt;/td&gt;
+&lt;td&gt;&amp;ldquo;dockerd-entrypoint.…&amp;rdquo;&lt;/td&gt;
+&lt;td&gt;12 hours ago&lt;/td&gt;
+&lt;td&gt;Up 7 hours&lt;/td&gt;
+&lt;td&gt;0.0.0.0:5001-&amp;gt;5001/tcp, 0.0.0.0:22375-&amp;gt;2375/tcp&lt;/td&gt;
+&lt;td&gt;worker-2&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;2421e7556bc1&lt;/td&gt;
+&lt;td&gt;docker:stable-dind&lt;/td&gt;
+&lt;td&gt;&amp;ldquo;dockerd-entrypoint.…&amp;rdquo;&lt;/td&gt;
+&lt;td&gt;12 hours ago&lt;/td&gt;
+&lt;td&gt;Up 7 hours&lt;/td&gt;
+&lt;td&gt;0.0.0.0:5000-&amp;gt;5000/tcp, 0.0.0.0:12375-&amp;gt;2375/tcp&lt;/td&gt;
+&lt;td&gt;worker-1&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;So a TCP SYN towards localhost:5000 will get PAT&amp;rsquo;ed by Docker-managed iptables of the Docker host, will hit the TCP/IP stack of the worker-1 node, which, once the handshake is complete, will issue an accept() syscall towards a Trap Handler and ultimately towards port 80 of the vote app.&lt;/p&gt;
+
+&lt;h1 id=&#34;outro&#34;&gt;Outro&lt;/h1&gt;
+
+&lt;p&gt;The reason why I called this article &amp;ldquo;Serverless SDN&amp;rdquo; is because I find this to be a rather fitting description of what Appswitch is. Just like serverless computing, which abstracts away the underlying OS and server management, Appswitch abstracts away the networking stack of the host and provides networking abstractions at a well-defined socket layer. Reading through the &lt;a href=&#34;https://appswitch.readthedocs.io/en/latest/index.html&#34; target=&#34;_blank&#34;&gt;official documentation&lt;/a&gt; and Appswitch &lt;a href=&#34;http://hci.stanford.edu/cstr/reports/2017-01.pdf&#34; target=&#34;_blank&#34;&gt;research paper&lt;/a&gt;, I can&amp;rsquo;t get rid of the thought that this is what container networking should have looked like in the first place - not linux bridges and veth pairs and not even macvlan and ipvlan devices. The original goal of containers was to encapsulate a single process and in majority of cases that single process does not need to have a full TCP/IP stack with its own interface, IP address, MAC address - all what it cares about is sending and receiving data - and this is exactly what Appswitch provides.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>The problem of unpredictable interface order in multi-network Docker containers</title>
       <link>https://networkop.co.uk/post/2018-03-03-docker-multinet/</link>
       <pubDate>Sat, 03 Mar 2018 00:00:00 +0000</pubDate>
@@ -2914,436 +3325,6 @@ end
 &lt;hr /&gt;
 
 &lt;p&gt;In this post I have merely scratched the surface of YANG modelling and network device programming. In the following posts I am planning to take a closer look at the RESTCONF interface, internal structure of a YANG model, Ansible integration and other YANG-related topics until I run out of interest. So until that happens&amp;hellip; stay tuned.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN With OVN (Part 2) - Network Engineering Analysis</title>
-      <link>https://networkop.co.uk/blog/2016/12/10/ovn-part2/</link>
-      <pubDate>Sat, 10 Dec 2016 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2016/12/10/ovn-part2/</guid>
-      <description>
-
-&lt;h2&gt;Table of Contents&lt;/h2&gt;
-&lt;nav id=&#34;TableOfContents&#34;&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&#34;#openstack-virtual-network-topology&#34;&gt;OpenStack - virtual network topology&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#ovn-northbound-db-logical-network-topology&#34;&gt;OVN Northbound DB - logical network topology&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#ovn-southbound-db-logical-flows&#34;&gt;OVN Southbound DB - logical flows&lt;/a&gt;
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&#34;#l2-datapath&#34;&gt;L2 datapath&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#l3-datapath&#34;&gt;L3 datapath&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#ovn-controller-openflow-flows&#34;&gt;OVN Controller - OpenFlow flows&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#physical-network-geneve-overlay&#34;&gt;Physical network - GENEVE overlay&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;#conclusion&#34;&gt;Conclusion&lt;/a&gt;&lt;/li&gt;
-&lt;/ul&gt;
-&lt;/nav&gt;
-
-
-&lt;h1 id=&#34;openstack-virtual-network-topology&#34;&gt;OpenStack - virtual network topology&lt;/h1&gt;
-
-&lt;p&gt;In the &lt;a href=&#34;https://networkop.co.uk/blog/2016/11/27/ovn-part1/&#34;&gt;previous post&lt;/a&gt; we have installed OpenStack and created a simple virtual topology as shown below. In OpenStack&amp;rsquo;s data model this topology consists of the following elements:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Network&lt;/strong&gt; defines a virtual L2 broadcast domain&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Subnet&lt;/strong&gt; attached to the network, defines an IP subnet within the network&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Router&lt;/strong&gt; provides connectivity between all directly connected subnets&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Port&lt;/strong&gt; VM&amp;rsquo;s point of attachment to the subnet&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-zoom1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;So far nothing unusual, this is a simple Neutron data model, all that information is stored in Neutron&amp;rsquo;s database and can be queried with &lt;code&gt;neutron&lt;/code&gt; CLI commands.&lt;/p&gt;
-
-&lt;h1 id=&#34;ovn-northbound-db-logical-network-topology&#34;&gt;OVN Northbound DB - logical network topology&lt;/h1&gt;
-
-&lt;p&gt;Every call to implement an element for the above data model is forwarded to OVN ML2 driver as defined by the &lt;code&gt;mechanism driver&lt;/code&gt; setting of the ML2 plugin. This driver is responsible for the creation of an appropriate data model inside the OVN Northbound DB. The main elements of this data model are:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Switch&lt;/strong&gt; equivalent of a Neutron&amp;rsquo;s Subnet, enables L2 forwarding for all attached ports&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Distributed Router&lt;/strong&gt; provides distributed routing between directly connected subnets&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Gateway Router&lt;/strong&gt; provides connectivity between external networks and distributed routers, implements NAT and Load Balancing&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Port&lt;/strong&gt; of a logical switch, attaches VM to the switch&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;This is a visual representation of our network topology inside OVN&amp;rsquo;s Northbound DB, built based on the output of &lt;code&gt;ovn-nbctl show&lt;/code&gt; command:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-zoom2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;This topology is pretty similar to Neutron&amp;rsquo;s native data model with the exception of a gateway router. In OVN, a gateway router is a special non-distributed router which performs functions that are very hard or impossible to distribute amongst all nodes, like NAT and Load Balancing. This router only exists on a single compute node which is selected by the scheduler based on the &lt;code&gt;ovn_l3_scheduler&lt;/code&gt; setting of the ML2 plugin. It is attached to a distributed router via a point-to-point /30 subnet defined in the &lt;code&gt;ovn_l3_admin_net_cidr&lt;/code&gt; setting of the ML2 plugin.&lt;/p&gt;
-
-&lt;p&gt;Apart from the logical network topology, Northbound database keeps track of all QoS, NAT and ACL settings and their parent objects. The detailed description of all tables and properties of this database can be found in the official &lt;a href=&#34;http://openvswitch.org/support/dist-docs/ovn-nb.5.html&#34; target=&#34;_blank&#34;&gt;Northbound DB documentation&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h1 id=&#34;ovn-southbound-db-logical-flows&#34;&gt;OVN Southbound DB - logical flows&lt;/h1&gt;
-
-&lt;p&gt;OVN &lt;a href=&#34;http://openvswitch.org/support/dist-docs/ovn-northd.8.html&#34; target=&#34;_blank&#34;&gt;northd&lt;/a&gt; process running on the controller node translates the above logical topology into a set of tables stored in Southbound DB. Each row in those tables is a logical flow and together they form a &lt;strong&gt;forwarding pipeline&lt;/strong&gt; by stringing together multiple actions to be performed on a packet. These actions range from packet drop through packet header modification to packet output. The stringing is implemented with a special &lt;code&gt;next&lt;/code&gt; action which moves the packet one step down the pipeline starting from table 0. Let&amp;rsquo;s have a look at the &lt;strong&gt;simplified&lt;/strong&gt; versions of L2 and L3 forwarding pipelines using examples from our virtual topology.&lt;/p&gt;
-
-&lt;h2 id=&#34;l2-datapath&#34;&gt;L2 datapath&lt;/h2&gt;
-
-&lt;p&gt;In the first example we&amp;rsquo;ll explore the L2 datapath between VM1 and VM3. Both VMs are attached to the ports of the same logical switch. The full datapath of a logical switch consists of two parts - ingress and egress datapath (the direction is from the perspective of a logical switch). The ultimate goal of an ingress datapath is to determine the output port or ports (in case of multicast) and pass the packet to the egress datapath. The egress datapath does a few security checks before sending the packet out to its destination. Two things are worth noting at this stage:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;The two datapaths can be located either on the same or on two different hypervisor nodes. In the latter case, the packet is passed between the two nodes in an overlay tunnel.&lt;/li&gt;
-&lt;li&gt;The egress datapath does not have a destination lookup step which means that all information about the output port MUST be supplied by the ingress datapath. This means that destination lookup does not have to be done twice and it also has some interesting implications on the choice of encapsulation protocol as we&amp;rsquo;ll see in the next section.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-zoom3-l2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Let&amp;rsquo;s have a closer look at each of the stages of the forwarding pipeline. I&amp;rsquo;ll include snippets of logical flows demonstrating the most interesting behaviour at each stage. Full logical datapath is quite long and can be viewed with &lt;code&gt;ovn-sbctl lflow-list [DATAPATH]&lt;/code&gt; command. Here is some useful information, collected from the Northbound database, that will be used in the examples below:&lt;/p&gt;
-
-&lt;hr /&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;VM#&lt;/th&gt;
-&lt;th&gt;IP&lt;/th&gt;
-&lt;th&gt;MAC&lt;/th&gt;
-&lt;th&gt;Port UUID&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;VM1&lt;/td&gt;
-&lt;td&gt;10.0.0.2&lt;/td&gt;
-&lt;td&gt;fa:16:3e:4f:2f:b8&lt;/td&gt;
-&lt;td&gt;26c23a54-6a91-48fd-a019-3bd8a7e118de&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;VM3&lt;/td&gt;
-&lt;td&gt;10.0.0.5&lt;/td&gt;
-&lt;td&gt;fa:16:3e:2a:60:32&lt;/td&gt;
-&lt;td&gt;5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;hr /&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Port security&lt;/strong&gt; - makes sure that incoming packet has the correct source MAC and IP addresses.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0 (ls_in_port_sec_l2), priority=50, match=(inport == &amp;quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&amp;quot;
-  &amp;amp;&amp;amp; eth.src == {fa:16:3e:4f:2f:b8}), action=(next;)
-table=1 (ls_in_port_sec_ip), priority=90, match=(inport == &amp;quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&amp;quot;
-  &amp;amp;&amp;amp; eth.src == fa:16:3e:4f:2f:b8 &amp;amp;&amp;amp; ip4.src == {10.0.0.2}), action=(next;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Egress ACL&lt;/strong&gt; - set of tables that implement Neutron&amp;rsquo;s Egress Port Security functionality. Default rules allow all egress traffic from a VM. The first flow below matches all new connections coming from VM1 and marks them for connection tracking with &lt;code&gt;reg0[1] = 1&lt;/code&gt;. The next table catches these marked packets and commits them to the connection tracker. Special &lt;code&gt;ct_label=0/1&lt;/code&gt; action ensures return traffic is allowed which is a standard behaviour of all stateful firewalls.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=6 (ls_in_acl), priority=2002 , match=(((ct.new &amp;amp;&amp;amp; !ct.est) ||
-  (!ct.new &amp;amp;&amp;amp; ct.est &amp;amp;&amp;amp; !ct.rpl &amp;amp;&amp;amp; ct_label.blocked == 1)) &amp;amp;&amp;amp;
-  (inport == &amp;quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&amp;quot; &amp;amp;&amp;amp; ip4)),
-  action=(reg0[1] = 1; next;)
-table=9 (ls_in_stateful), priority=100  , match=(reg0[1] == 1),
-  action=(ct_commit(ct_label=0/1); next;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;ARP Responder&lt;/strong&gt; - matches an incoming ARP/ND request and generates an appropriate ARP/ND response. The way it is accomplished is similar to Neutron&amp;rsquo;s native &lt;a href=&#34;https://networkop.co.uk/blog/2016/05/06/neutron-l2pop/&#34;&gt;ARP responder&lt;/a&gt; feature. Effectively an ARP request gets transformed into an ARP response by swapping source and destination fields.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=10(ls_in_arp_rsp), priority=50, match=(arp.tpa == 10.0.0.5 &amp;amp;&amp;amp; arp.op == 1),
-  action=(eth.dst = eth.src; eth.src = fa:16:3e:2a:60:32; arp.op = 2; /* ARP reply */
-  arp.tha = arp.sha; arp.sha = fa:16:3e:2a:60:32; arp.tpa = arp.spa; arp.spa = 10.0.0.5;
-  outport = inport; flags.loopback = 1; output;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;DHCP Processing&lt;/strong&gt; - set of tables that implement the DHCP server functionality using the approach similar to the ARP responder described above.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=12(ls_in_dhcp_response), priority=100, match=(inport == &amp;quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&amp;quot;
-  &amp;amp;&amp;amp; eth.src == fa:16:3e:4f:2f:b8 &amp;amp;&amp;amp; ip4.src == 0.0.0.0 &amp;amp;&amp;amp; ip4.dst == 255.255.255.255
-  &amp;amp;&amp;amp; udp.src == 68 &amp;amp;&amp;amp; udp.dst == 67 &amp;amp;&amp;amp; reg0[3]),
-  action=(eth.dst = eth.src; eth.src = fa:16:3e:94:b6:bc; ip4.dst = 10.0.0.2;
-  ip4.src = 10.0.0.1; udp.src = 67; udp.dst = 68; outport = inport; flags.loopback = 1; output;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Destination Lookup&lt;/strong&gt; - implements L2 forwarding based on the destination MAC address of a frame. At this stage the &lt;strong&gt;outport&lt;/strong&gt; variable is set to the VM3&amp;rsquo;s port UUID.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=13(ls_in_l2_lkup), priority=50, match=(eth.dst == fa:16:3e:2a:60:32),
-  action=(outport = &amp;quot;5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879&amp;quot;; output;)
-
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Ingress ACL&lt;/strong&gt; - set of tables that implement Neutron&amp;rsquo;s Ingress Port security. For the sake of argument let&amp;rsquo;s assume that we have enabled inbound SSH connections. The principle is same as before - the packet gets matched in one table and submitted to connection tracking in another table.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=4 (ls_out_acl), priority=2002 , match=(((ct.new &amp;amp;&amp;amp; !ct.est)
-  || (!ct.new &amp;amp;&amp;amp; ct.est &amp;amp;&amp;amp; !ct.rpl &amp;amp;&amp;amp; ct_label.blocked == 1))
-  &amp;amp;&amp;amp; (outport == &amp;quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&amp;quot; &amp;amp;&amp;amp; ip4
-  &amp;amp;&amp;amp; ip4.src == 0.0.0.0/0 &amp;amp;&amp;amp; tcp &amp;amp;&amp;amp; tcp.dst == 22)),
-  action=(reg0[1] = 1; next;
-table=6 (ls_out_stateful), priority=100  , match=(reg0[1] == 1),
-  action=(ct_commit(ct_label=0/1); next;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Port Security&lt;/strong&gt; - implements inbound port security for destination VM by checking the sanity of destination MAC and IP addresses.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=7 (ls_out_port_sec_ip), priority=90, match=(outport == &amp;quot;5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879&amp;quot;
-  &amp;amp;&amp;amp; eth.dst == fa:16:3e:2a:60:32 &amp;amp;&amp;amp; ip4.dst == {255.255.255.255, 224.0.0.0/4, 10.0.0.5}),
-  action=(next;)
-table=8 (ls_out_port_sec_l2), priority=50, match=(outport == &amp;quot;5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879&amp;quot;
-  &amp;amp;&amp;amp; eth.dst == {fa:16:3e:2a:60:32}),
-  action=(output;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;l3-datapath&#34;&gt;L3 datapath&lt;/h2&gt;
-
-&lt;p&gt;Similar to a logical switch pipeline, L3 datapath is split into ingress and egress parts. In this example we&amp;rsquo;ll concentrate on  the Gateway router datapath. This router is connected to a distributed logical router via a transit subnet (SWtr) and to an external network via an external bridge (SWex) and performs NAT translation for all VM traffic.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-zoom3-l3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Here is some useful information about router interfaces and ports that will be used in the examples below.&lt;/p&gt;
-
-&lt;hr /&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;SW function&lt;/th&gt;
-&lt;th&gt;IP&lt;/th&gt;
-&lt;th&gt;MAC&lt;/th&gt;
-&lt;th&gt;Port UUID&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;External&lt;/td&gt;
-&lt;td&gt;169.254.0.54/24&lt;/td&gt;
-&lt;td&gt;fa:16:3e:39:c8:d8&lt;/td&gt;
-&lt;td&gt;lrp-dc1ae9e3-d8fd-4451-aed8-3d6ddc5d095b&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;DVR-GW transit&lt;/td&gt;
-&lt;td&gt;169.254.128.2/30&lt;/td&gt;
-&lt;td&gt;fa:16:3e:7e:96:e7&lt;/td&gt;
-&lt;td&gt;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;hr /&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Port security&lt;/strong&gt; - implements sanity check for all incoming packets.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0 (lr_in_admission), priority=50, match=((eth.mcast || eth.dst == fa:16:3e:7e:96:e7)
- &amp;amp;&amp;amp; inport == &amp;quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&amp;quot;), action=(next;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;IP Input&lt;/strong&gt; - performs additional L3 sanity checks and implements typical IP services of a router (e.g. ICMP/ARP reply)&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=1 (lr_in_ip_input), priority=100, match=(ip4.src == {169.254.128.2, 169.254.128.3}),
-action=(drop;)
-table=1 (lr_in_ip_input), priority=90, match=(inport == &amp;quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&amp;quot;
-&amp;amp;&amp;amp; arp.tpa == 169.254.128.2 &amp;amp;&amp;amp; arp.op == 1),
-action=(eth.dst = eth.src; eth.src = fa:16:3e:7e:96:e7; arp.op = 2;
-/* ARP reply */ arp.tha = arp.sha; arp.sha = fa:16:3e:7e:96:e7;
-arp.tpa = arp.spa; arp.spa = 169.254.128.2;
-outport = &amp;quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&amp;quot;; flags.loopback = 1; output;)
-table=1 (lr_in_ip_input), priority=90, match=(ip4.dst == 169.254.128.2
-&amp;amp;&amp;amp; icmp4.type == 8 &amp;amp;&amp;amp; icmp4.code == 0),
-action=(ip4.dst &amp;lt;-&amp;gt; ip4.src; ip.ttl = 255; icmp4.type = 0; flags.loopback = 1; next; )
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;UNSNAT&lt;/strong&gt; - translates the destination IP to the real address for packets coming from &lt;strong&gt;external&lt;/strong&gt; networks&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=3 (lr_in_unsnat), priority=100, match=(ip &amp;amp;&amp;amp; ip4.dst == 169.254.0.54),
-action=(ct_snat; next;)
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;DNAT&lt;/strong&gt; - implements what is commonly known as static NAT, i.e. performs one-to-one destination IP translation for every configured floating IP.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=4 (lr_in_dnat), priority=100, match=(ip &amp;amp;&amp;amp; ip4.dst == 169.254.0.52),
-action=(flags.loopback = 1; ct_dnat(10.0.0.5);)
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;IP routing&lt;/strong&gt; - implements L3 forwarding based on the destination IP address. At this stage the &lt;code&gt;outport&lt;/code&gt; is decided, IP TTL is decremented and the new next-hop IP is set in register0.&lt;/p&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=5 (lr_in_ip_routing), priority=1, match=(ip4.dst == 0.0.0.0/0),
-  action=(ip.ttl--; reg0 = 169.254.0.1; reg1 = 169.254.0.54; eth.src = fa:16:3e:39:c8:d8;
-  outport = &amp;quot;lrp-dc1ae9e3-d8fd-4451-aed8-3d6ddc5d095b&amp;quot;; flags.loopback = 1; next;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;Next Hop Resolver&lt;/strong&gt; - discovers the next-hop MAC address for a packet. This could either be a statically configured value when the next-hop is an OVN-managed router or a dynamic binding learned through ARP and stored in a special &lt;code&gt;MAC_Binding&lt;/code&gt; table of Southbound DB.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=6 (lr_in_arp_resolve), priority=100, match=(outport == &amp;quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&amp;quot;
-&amp;amp;&amp;amp; reg0 == 169.254.128.1), action=(eth.dst = fa:16:3e:2a:7f:25; next;)
-table=6 (lr_in_arp_resolve), priority=0, match=(ip4),
-action=(get_arp(outport, reg0); next;)
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;SNAT&lt;/strong&gt; - implements what is commonly known as overload NAT. Translates source IP, source UDP/TCP port number and ICMP Query ID to hide them behind a single IP address&lt;/p&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0 (lr_out_snat), priority=25, match=(ip &amp;amp;&amp;amp; ip4.src == 10.0.0.0/24),
-  action=(ct_snat(169.254.0.54);)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Output&lt;/strong&gt; - send the packet out the port determined during the IP routing stage.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;pre&gt;&lt;code&gt;table=1 (lr_out_delivery), priority=100, match=(outport == &amp;quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&amp;quot;),
-  action=(output;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This was a very high-level, abridged and simplified version of how logical datapaths are built in OVN. Hopefully this lays enough groundwork to move on to the official &lt;a href=&#34;http://openvswitch.org/support/dist-docs/ovn-northd.8.html&#34; target=&#34;_blank&#34;&gt;northd documentation&lt;/a&gt; which describes both L2 and L3 datapaths in much greater detail.&lt;/p&gt;
-
-&lt;p&gt;Apart from the logical flows, Southbound DB also contains a number of tables that establish the logical-to-physical bindings. For example, the &lt;code&gt;Port_Binding&lt;/code&gt; table establishes binding between logical switch, logical port, logical port overlay ID (a.k.a. tunnel key) and the unique hypervisor ID. In the next section we&amp;rsquo;ll see how this information is used to translate logical flows into OpenFlow flows at each compute node. For full description of Southbound DB, its tables and their properties refer to the official SB &lt;a href=&#34;http://openvswitch.org/support/dist-docs/ovn-sb.5.html&#34; target=&#34;_blank&#34;&gt;schema documentation&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h1 id=&#34;ovn-controller-openflow-flows&#34;&gt;OVN Controller - OpenFlow flows&lt;/h1&gt;
-
-&lt;p&gt;&lt;a href=&#34;http://openvswitch.org/support/dist-docs/ovn-controller.8.html&#34; target=&#34;_blank&#34;&gt;OVN Controller&lt;/a&gt; process is the distributed part of OVN SDN controller. This process, running on each compute node, connects to Southbound DB via OVSDB and configures local OVS according to information received from it. It also uses Southbound DB to exchange the physical location information with other hypervisors. The two most important bits of information that OVN controller contributes to Southbound DB are physical location of logical ports and overlay tunnel IP address. These are the last two missing pieces to map logical flows to physical nodes and networks.&lt;/p&gt;
-
-&lt;p&gt;The whole flat space of OpenFlow tables is split into multiple areas. Tables 16 to 47 implement an ingress logical pipeline and tables 48 to 63 implement an egress logical pipeline. These tables have no notion of physical ports and are functionally equivalent to logical flows in Southbound DB. Tables 0 and 65 are responsible for mapping between the physical and logical realms. In table 0 packets are matched on the physical incoming port and assigned to a correct logical datapath as was defined by the &lt;code&gt;Port_Binding&lt;/code&gt; table. In table 65 the information about the outport, that was determined during the ingress pipeline processing, is mapped to a local physical interface and the packet is sent out.&lt;/p&gt;
-
-&lt;p&gt;To demonstrate the details of OpenFlow implementation, I&amp;rsquo;ll use the traffic flow between VM1 and external destination (8.8.8.8). For the sake of brevity I will only cover the major steps of packet processing inside OVS, omitting security checks and ARP/DHCP processing.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-zoom4-openflow.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;When packets traverse OpenFlow tables they get labelled or annotated with special values to simplify matching in subsequent tables. For example, when table 0 matches the incoming port, it annotates the packet with the datapath ID. Since it would have been impractical to label packets with globally unique UUIDs from Soutbound DB, these UUIDs get mapped to smaller values called &lt;strong&gt;tunnel keys&lt;/strong&gt;. To make things even more confusing, each port will have a local kernel ID, unique within each hypervisor. We&amp;rsquo;ll need both tunnel keys and local port IDs to be able to track the packets inside the OVS. The figure below depicts all port and datapath IDs that have been collected from the Soutbound DB and local OVSDB on each hypervisor. Local port numbers are attached with a dotted line to their respective tunnel keys.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-zoom4-tunnelkey.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;When VM1 sends the first packet to 8.8.8.8, it reaches OVS on local port 13. OVN Controller knows that this port belongs to VM1 and installs an OpenFlow rule to match all packets from this port and annotate them with datapath ID (OXM_OF_METADATA), incoming port ID (NXM_NX_REG14), conntrack zone (NXM_NX_REG13). It then moves these annotated packets to the first table of the ingress pipeline.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0, priority=100,in_port=13 actions=load:0x2-&amp;gt;NXM_NX_REG13[],
-  load:0x2-&amp;gt;OXM_OF_METADATA[],load:0x2-&amp;gt;NXM_NX_REG14[],
-  resubmit(,16)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Skipping to the L2 MAC address lookup stage, the output port (0x1) is decided based on the destination MAC address and saved in register 15.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=29, priority=50,metadata=0x2,dl_dst=fa:16:3e:0d:df:ea
-  actions=load:0x1-&amp;gt;NXM_NX_REG15[],resubmit(,32)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Finally, the packet reaches the last table where it is sent out the physical patch port interface towards R1.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=65, priority=100,reg15=0x1,metadata=0x2 actions=output:1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The other end of this patch port is connected to a local instance of distributed router R1. That means our packet, unmodified, re-enters OpenFlow table 0, only this time on a different port. Local port 2 is associated with a logical pipeline of a router, hence &lt;code&gt;metadata&lt;/code&gt; for this packet is set to 4.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0, priority=100,in_port=2 actions=load:0x4-&amp;gt;OXM_OF_METADATA[],
-  load:0x1-&amp;gt;NXM_NX_REG14[],resubmit(,16)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The packet progresses through logical router datapath and finally gets to table 21 where destination IP lookup take place. It matches the catch-all &lt;strong&gt;default route&lt;/strong&gt; rule and the values for its next-hop IP (0xa9fe8002), MAC address (fa:16:3e:2a:7f:25) and logical output port (0x03) are set.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=21, priority=1,ip,metadata=0x4 actions=dec_ttl(),load:0xa9fe8002-&amp;gt;NXM_NX_XXREG0[96..127],
-  load:0xa9fe8001-&amp;gt;NXM_NX_XXREG0[64..95],mod_dl_src:fa:16:3e:2a:7f:25,
-  load:0x3-&amp;gt;NXM_NX_REG15[],load:0x1-&amp;gt;NXM_NX_REG10[0],resubmit(,22)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Table 65 converts the logical output port 3 to physical port 6, which is yet another patch port connected to a transit switch.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=65, priority=100,reg15=0x3,metadata=0x4 actions=output:6
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The packet once again re-enters OpenFlow pipeline from table 0, this time from port 5. Table 0 maps incoming port 5 to the logical datapath of a transit switch with Tunnel key 7.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0, priority=100,in_port=5 actions=load:0x7-&amp;gt;OXM_OF_METADATA[],
-  load:0x1-&amp;gt;NXM_NX_REG14[],resubmit(,16)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Destination lookup determines the output port (2) but this time, instead of entering the egress pipeline locally, the packet gets sent out the physical tunnel port (7) which points to the IP address of a compute node hosting the GW router. The headers of an overlay packet are populated with logical datapath ID (0x7), logical input port (copied from register 14) and logical output port (0x2).&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=29, priority=50,metadata=0x7,dl_dst=fa:16:3e:7e:96:e7
-  actions=load:0x2-&amp;gt;NXM_NX_REG15[],resubmit(,32)
-table=32, priority=100,reg15=0x2,metadata=0x7 actions=load:0x7-&amp;gt;NXM_NX_TUN_ID[0..23],
-  set_field:0x2/0xffffffff-&amp;gt;tun_metadata0,move:NXM_NX_REG14[0..14]-&amp;gt;NXM_NX_TUN_METADATA0[16..30],
-  output:7
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;When packet reaches the destination node, it once again enters the OpenFlow table 0, but this time all information is extracted from the tunnel keys.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0, priority=100,in_port=17 actions=move:NXM_NX_TUN_ID[0..23]-&amp;gt;OXM_OF_METADATA[0..23],
-  move:NXM_NX_TUN_METADATA0[16..30]-&amp;gt;NXM_NX_REG14[0..14],
-  move:NXM_NX_TUN_METADATA0[0..15]-&amp;gt;NXM_NX_REG15[0..15],
-  resubmit(,33)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At the end of the transit switch datapath the packet gets sent out port 12, whose peer is patch port 16.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=65, priority=100,reg15=0x2,metadata=0x7 actions=output:12
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The packet re-enters OpenFlow table 0 from port 16, where it gets mapped to the logical datapath of a gateway router.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0, priority=100,in_port=16 actions=load:0x2-&amp;gt;NXM_NX_REG11[],
-  load:0x6-&amp;gt;NXM_NX_REG12[],load:0x6-&amp;gt;OXM_OF_METADATA[],
-  load:0x2-&amp;gt;NXM_NX_REG14[],resubmit(,16)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Similar to a distributed router R1, table 21 determines the next-hop MAC address for a packet and saves the output port in register 15.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=21, priority=1,ip,metadata=0x6 actions=dec_ttl(),load:0xa9fe0001-&amp;gt;NXM_NX_XXREG0[96..127],
-  load:0xa9fe0036-&amp;gt;NXM_NX_XXREG0[64..95],mod_dl_src:fa:16:3e:39:c8:d8,
-  load:0x1-&amp;gt;NXM_NX_REG15[],load:0x1-&amp;gt;NXM_NX_REG10[0],resubmit(,22)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The first table of an egress pipeline source-NATs packets to external IP address of the GW router.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=48, priority=33,ip,metadata=0x6,nw_src=10.0.0.2
-  actions=ct(commit,table=49,zone=NXM_NX_REG12[0..15],nat(src=169.254.0.56))
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The modified packet is sent out the physical port 14 towards the external switch.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=65, priority=100,reg15=0x1,metadata=0x6 actions=output:14
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;External switch determines the output port connected to the &lt;code&gt;br-ex&lt;/code&gt; on a local hypervisor and send the packet out.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;table=0, priority=100,in_port=13 actions=load:0x5-&amp;gt;NXM_NX_REG11[],
-  load:0x3-&amp;gt;NXM_NX_REG12[],load:0x3-&amp;gt;OXM_OF_METADATA[],
-  load:0x2-&amp;gt;NXM_NX_REG14[],resubmit(,16)
-table=29, priority=0,metadata=0x3 actions=load:0xfffe-&amp;gt;NXM_NX_REG15[],resubmit(,32)
-table=33, priority=100,reg15=0xfffe,metadata=0x3
-  actions=load:0x1-&amp;gt;NXM_NX_REG13[],load:0x1-&amp;gt;NXM_NX_REG15[],
-  resubmit(,34),load:0xfffe-&amp;gt;NXM_NX_REG15[]
-table=65, priority=100,reg15=0x1,metadata=0x3 actions=output:15
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;As we&amp;rsquo;ve just seen, OpenFlow repeats the logical topology by interconnecting logical datapaths of switches and routers with virtual point-to-point patch cables. This may seem like an unnecessary modelling element with a potential for a performance impact. However, when flows get installed in kernel datapath, these patch ports &lt;a href=&#34;http://galsagie.github.io/2015/11/23/ovn-l3-deepdive&#34; target=&#34;_blank&#34;&gt;do not exist&lt;/a&gt;, which means that there isn&amp;rsquo;t any performance impact on packets in fastpath.&lt;/p&gt;
-
-&lt;h1 id=&#34;physical-network-geneve-overlay&#34;&gt;Physical network - GENEVE overlay&lt;/h1&gt;
-
-&lt;p&gt;Before we wrap up, let us have a quick look at the new overlay protocol GENEVE. The goal of any overlay protocol is to transport all the necessary tunnel keys. With VXLAN the only tunnel key that could be transported is the Virtual Network Identifier (VNI). In OVN&amp;rsquo;s case these tunnel keys include not only the logical datapath ID (commonly known as VNI) but also both input and output port IDs. You could have carved up the 24 bits of VXLAN tunnel ID to encode all this information but this would only have given you 256 unique values per key. Some other overlay protocols, like STT have even bigger tunnel ID header size but they, too, have a strict upper limit.&lt;/p&gt;
-
-&lt;p&gt;GENEVE was designed to have a variable-length header. The first few bytes are well-defined fixed size fields followed by variable-length Options. This kind of structure allows software developers to innovate at their own pace while still getting the benefits of hardware offload for the fixed-size portion of the header. OVN developers &lt;a href=&#34;http://openvswitch.org/support/dist-docs/ovn-architecture.7.html&#34; target=&#34;_blank&#34;&gt;decided&lt;/a&gt; to use Options header type 0x80 to store the 15-bit logical ingress port ID and a 16-bit egress port ID (an extra bit is for logical multicast groups).&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ovn-zoom5-geneve.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;The figure above shows the ICMP ping coming from VM1(10.0.0.2) to Google&amp;rsquo;s DNS. As I&amp;rsquo;ve showed in the previous section, GENEVE is used between the ingress and egress pipelines of a transit switch (SWtr), whose datapath ID is encoded in the VNI field (0x7). Packets enter the transit switch on port 1 and leave it on port 2. These two values are encoded in the &lt;code&gt;00010002&lt;/code&gt; value of the &lt;code&gt;Options Data&lt;/code&gt; field.&lt;/p&gt;
-
-&lt;p&gt;So now that GENEVE has taken over as the inter-hypervisor overlay protocol, does that mean that VXLAN is dead? OVN still supports VXLAN but only for interconnects with 3rd party devices like VXLAN-VLAN gateways or VXLAN TOR switches. Rephrasing the official OVN &lt;a href=&#34;http://openvswitch.org/support/dist-docs/ovn-architecture.7.html&#34; target=&#34;_blank&#34;&gt;documentation&lt;/a&gt;, VXLAN gateways will continue to be supported but they will have a reduced feature set due to lack of extensibility.&lt;/p&gt;
-
-&lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
-
-&lt;p&gt;OpenStack networking has always been one of the first use cases of any new SDN controller. All the major SDN platforms like ACI, NSX, Contrail, VSP or ODL have some form of OpenStack integration. And it made sense, since native Neutron networking has always been one of the biggest pain points in OpenStack deployments. As I&amp;rsquo;ve just demonstrated, OVN can now do all of the common networking functionality natively, without having to rely on 3rd party agents. In addition to that it has a fantastic &lt;a href=&#34;http://openvswitch.org/support/dist-docs/&#34; target=&#34;_blank&#34;&gt;documentation&lt;/a&gt;, implements all forwarding inside a single OVS bridge and it is an open-source project. As an OpenStack networking solution it is still, perhaps, a few months away from being production ready - active/active HA is not supported with OVSDB, GW router scheduling options are limited, lack of native support for DNS and Metadata proxy. However I anticipate that starting from the next OpenStack release (Ocata, Feb 2017) OVN will be ready for mass deployment even by companies without an army of OVS/OpenStack developers. And when that happens there will even less need for proprietary OpenStack SDN platforms.&lt;/p&gt;
 </description>
     </item>
     
