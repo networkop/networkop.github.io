@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Building virtualised network topologies has been one of the best ways to learn new technologies and to test new designs before implementing them on a production network. There are plenty of tools that can help build arbitrary network topologies, some with an interactive GUI (e.g. GNS3 or EVE-NG/Unetlab) and some &ldquo;headless&rdquo;, with text-based configuration files (e.g. vrnetlab or topology-converter). All of these tools work by spinning up multiple instances of virtual devices and interconnecting them according to a user-defined topology.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2018-11-k8s-topo-p1/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2018-11-k8s-topo-p1/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2018-11-k8s-topo-p1/">
+  <meta property="og:title" content="Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin | networkop">
+  <meta property="og:description" content="Building virtualised network topologies has been one of the best ways to learn new technologies and to test new designs before implementing them on a production network. There are plenty of tools that can help build arbitrary network topologies, some with an interactive GUI (e.g. GNS3 or EVE-NG/Unetlab) and some &ldquo;headless&rdquo;, with text-based configuration files (e.g. vrnetlab or topology-converter). All of these tools work by spinning up multiple instances of virtual devices and interconnecting them according to a user-defined topology.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2018-11-02T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2018-11-02T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2018-11-02 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      2 Nov 2018
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    13 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2018-11-k8s-topo-p1/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Large-scale%20network%20simulations%20in%20Kubernetes%2c%20Part%201%20-%20Building%20a%20CNI%20plugin&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-11-k8s-topo-p1%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-11-k8s-topo-p1%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-11-k8s-topo-p1%2f&amp;title=Large-scale%20network%20simulations%20in%20Kubernetes%2c%20Part%201%20-%20Building%20a%20CNI%20plugin"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Large-scale%20network%20simulations%20in%20Kubernetes%2c%20Part%201%20-%20Building%20a%20CNI%20plugin&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-11-k8s-topo-p1%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>Building virtualised network topologies has been one of the best ways to learn new technologies and to test new designs before implementing them on a production network. There are plenty of tools that can help build arbitrary network topologies, some with an interactive GUI (e.g. <a href="https://www.gns3.com/" target="_blank">GNS3</a> or <a href="http://eve-ng.net/" target="_blank">EVE-NG/Unetlab</a>) and some &ldquo;headless&rdquo;, with text-based configuration files (e.g. <a href="https://github.com/plajjan/vrnetlab" target="_blank">vrnetlab</a> or <a href="https://github.com/CumulusNetworks/topology_converter" target="_blank">topology-converter</a>). All of these tools work by spinning up multiple instances of virtual devices and interconnecting them according to a user-defined topology.</p>
+
+<h1 id="problem-statement">Problem statement</h1>
+
+<p>Most of these tools were primarily designed to work on a single host. This may work well for a relatively small topology but may become a problem as the number of virtual devices grows. Let&rsquo;s take Juniper vMX as an example. From the official hardware requirements <a href="https://www.juniper.net/documentation/en_US/vmx14.1/topics/reference/general/vmx-hw-sw-minimums.html" target="_blank">page</a>, the smallest vMX instance will require:</p>
+
+<ul>
+<li>2 VMs - one for control and one for data plane</li>
+<li>2 vCPUs - one for each of the VMs</li>
+<li>8 GB of RAM - 2GB for VCP and 6GB for VFP</li>
+</ul>
+
+<p>This does not include the resources consumed by the underlying hypervisor, which can easily eat up another vCPU + 2GB of RAM. It&rsquo;s easy to imagine how quickly we can hit the upper limit of devices in a single topology if we can only use a single hypervisor host. Admittedly, vMX is one of the most resource-hungry virtual routers and using other vendor&rsquo;s virtual devices may increase that upper limit. However, if the requirement is to simulate topologies with 100+ devices, no single server will be able to cope with the required load and a potential resource contention may lead to instabilities and various software bugs manifesting themselves in places we don&rsquo;t expect.</p>
+
+<h1 id="exploring-possible-solutions">Exploring possible solutions</h1>
+
+<p>Ideally, in large-scale simulations, we&rsquo;d want to spread the devices across multiple hosts and interconnect them so that, from the device perspective, it&rsquo;d look like they are still running on the same host. To take it a step further, we&rsquo;d want the virtual links to be simple point-to-point L2 segments, without any bridges in between, so that we don&rsquo;t have to deal with issues when virtual bridges consume or block some of the &ldquo;unexpected&rdquo; traffic, e.g. LACP/STP on <a href="https://patchwork.ozlabs.org/patch/819153/" target="_blank">Linux bridges</a>.</p>
+
+<h2 id="containers-vs-vms">Containers vs VMs</h2>
+
+<p>It&rsquo;s possible to build multi-host VM topologies on top of a private cloud like solution like OpenStack or VMware. The operational overhead involved would be minimal as all the scheduling and network plumbing should be taken care of by virtual infrastructure manager. However this approach has several disadvantages:</p>
+
+<ol>
+<li>In order to not depend on the underlay, all inter-VM links would need to be implemented as overlay (VMware would require NSX)<br /></li>
+<li>VMs would still be interconnected via virtual switches<br /></li>
+<li>Life-cycle management of virtual topologies is not trivial, e.g. VMware requires DRS, OpenStack requires masakari<br /></li>
+<li>Injecting of additional data into VMs (e.g. configuration files) requires guest OS awareness and configuration (e.g. locating and mounting of a new partition)<br /></li>
+</ol>
+
+<p>In contrast, containers provide an easy way to mount volumes inside a container&rsquo;s filesystem, have plenty of options for resource scheduling and orchestrators and are substantially more lightweight and customizable. As a bonus, we get a unified way to package, distribute and manage lifecycle of our containers, independent from the underlying OS.</p>
+
+<h2 id="kubernetes-vs-swarm">Kubernetes vs Swarm</h2>
+
+<p>If we focus on Docker, the two most popular options for container orchestration would be Kubernetes and Swarm. Swarm is a Docker&rsquo;s native container orchestration tool, it requires less customisation out of the box and has a simpler data model. The primary disadvantages of using Swarm for network simulations are:</p>
+
+<ul>
+<li><a href="https://github.com/moby/moby/issues/24862" target="_blank">Lack of support</a> for privileged containers (network admin (CAP_NET_ADMIN) capabilities may be required by virtualised network devices)</li>
+<li>Unpredictable network interface <a href="https://github.com/moby/moby/issues/25181" target="_blank">naming and order</a> inside the container</li>
+<li>Docker&rsquo;s main networking plugin libnetwork is <a href="https://kubernetes.io/blog/2016/01/why-kubernetes-doesnt-use-libnetwork/" target="_blank">opinionated</a> and difficult to extend or modify</li>
+</ul>
+
+<p>On the other hand, the approach chosen by K8s provides an easier way to modify the default behaviour of a network plugin or to create a completely new implementation. However, K8s itself imposes several requirements on CNI plugins:</p>
+
+<ul>
+<li>All containers can communicate with all other containers without NAT</li>
+<li>All nodes can communicate with all containers (and vice-versa) without NAT</li>
+<li>The IP that a container sees itself as is the same IP that others see it as</li>
+</ul>
+
+<p>The above also implies that communication between the containers happens at L3, which means that no container should make any assumptions about the underlying L2 transport, i.e. not use any L2 protocols(apart from ARP). Another corollary of the above requirements is that every container only has a single IP and hence a single interface, which, together with the previous L2 limitation, makes network simulations in K8s nearly impossible.</p>
+
+<h2 id="multus-vs-diy">Multus vs DIY</h2>
+
+<p>There are multiple solutions that solve the problem of a single network interface per container/pod - CNI-Genie, Knitter and <a href="https://github.com/intel/multus-cni" target="_blank">Multus</a> CNI. All of them were primarily designed for containerised VNF use cases, with the assumption that connectivity would still be provided by one of the existing plugins, which still leaves us with a number of issues:</p>
+
+<ul>
+<li>We have to be transparent to the underlay, so we can&rsquo;t use plugins that interact with the underlay (e.g. macvlan, calico)</li>
+<li>Most of the CNI plugins only provide L3 connectivity between pods (e.g. flannel, ovn, calico)</li>
+<li>The few plugins that do provide L2 overlays (e.g contiv, weave) do not support multiple interfaces and still use virtual bridges underneath</li>
+</ul>
+
+<p>Perhaps it would have been possible to hack one of the plugins to do what I wanted but I felt like it&rsquo;d be easier to build a specialised CNI plugin to do just what I want and nothing more. As I&rsquo;ve mentioned previously, developing a simple CNI plugin is not that difficult, especially if you have a clearly defined use case, which is why I&rsquo;ve built <a href="https://github.com/networkop/meshnet-cni" target="_blank">meshnet</a> - a CNI plugin to build arbitrary network topologies out of point-to-point links.</p>
+
+<h1 id="cni-plugin-overview">CNI plugin overview</h1>
+
+<p>At a very high level, every CNI plugin is just a binary and a configuration file installed on K8s worker nodes. When a pod is scheduled to run on a particular node, a local node agent (kubelet) calls a CNI binary and passes all the necessary information to it. That CNI binary connects and configures network interfaces and returns the result back to kubelet. The information is passed to CNI binary in two ways - through environment variables and CNI configuration file. This is how a CNI <strong>ADD</strong> call <a href="https://www.cncf.io/wp-content/uploads/2017/11/Introduction-to-CNI-2.pdf#page=7" target="_blank">may</a> look like:</p>
+
+<pre><code class="language-bash">CNI_COMMAND=ADD \
+CNI_CONTAINERID=$id \
+CNI_NETNS=/proc/$pid/ns/net \
+CNI_ARGS=K8S_POD_NAMESPACE=$namepsace;K8S_POD_NAME=$name
+/opt/cni/bin/my-plugin &lt; /etc/cni/net.d/my-config
+</code></pre>
+
+<p>The runtime parameters get passed to the plugin as environment variables and CNI configuration file gets passed to stdin. The CNI binary runs to completion and is expected to return the configured network settings back to the caller. The format of input and output, as well as environment variables, are documented in a CNI <a href="https://github.com/containernetworking/cni/blob/master/SPEC.md" target="_blank">specification document</a>.</p>
+
+<p>There are plenty of other resources that cover CNI plugin development in much greater detail, I would recommend reading at least these four:</p>
+
+<ol>
+<li><a href="https://schd.ws/hosted_files/kccnceu18/64/Kubernetes-and-the-CNI-Kubecon-218.pdf" target="_blank">CNI plugins best practices</a></li>
+<li><a href="https://www.altoros.com/blog/kubernetes-networking-writing-your-own-simple-cni-plug-in-with-bash/" target="_blank">Writing a sample CNI plugin in bash</a></li>
+<li><a href="http://logingood.github.io/kubernetes/cni/2016/05/14/netns-and-cni.html" target="_blank">EVPN CNI plugin</a></li>
+<li><a href="http://dougbtv.com/nfvpe/2017/06/22/cni-tutorial/" target="_blank">Workflow for writing CNI plugins</a></li>
+</ol>
+
+<h1 id="meshnet-cni-architecture">Meshnet CNI architecture</h1>
+
+<p>The goal of <a href="https://github.com/networkop/meshnet-cni" target="_blank">meshnet</a> plugin is to interconnect pods via direct point-to-point links according to some user-defined topology.  To do that, the plugin uses two types of links:</p>
+
+<ul>
+<li><strong>veth</strong> - to interconnect pods running on the same node</li>
+<li><strong>vxlan</strong> - to interconnect pods running on different nodes</li>
+</ul>
+
+<p>One thing to note is that point-to-point links are connected directly between pods, without any software bridges in between, which makes the design a lot simpler and provides a cleaner abstraction of a physical connection between network devices.</p>
+
+<p>The plugin consists of three main components:</p>
+
+<ul>
+<li><strong>etcd</strong> - a private cluster storing topology information and runtime pod metadata (e.g. pod IP address and NetNS fd)</li>
+<li><strong>meshnet</strong> - a CNI binary called by kubelet, responsible for pod&rsquo;s network configuration</li>
+<li><strong>meshnetd</strong> - a daemon responsible for Vxlan link configuration updates</li>
+</ul>
+
+<p>Just like Multus, meshnet has the concept of master/default plugin, which sets up the first interface of the pod. This interface is setup by one of the existing plugins (e.g. bridge or flannel) and is used for pod&rsquo;s external connectivity. The rest of the interfaces are setup according to a topology information stored in etcd.</p>
+
+<p><img src="/img/meshnet-arch.png" alt="Meshnet Architecture" /></p>
+
+<p>Although the original idea of a CNI plugin was to have a single stateless binary, most of the time there&rsquo;s a need to maintain some runtime state (e.g. ip routes, ip allocations etc.), which is why a lot of CNI plugins have daemons. In our case, daemon&rsquo;s role is to ensure Vxlan link configurations are correct across different hosts. Using the above diagram as an example, if pod-2 comes up after pod-3, there must be a way of signalling the (node-1) VTEP IP to the remote node (node-2) and making sure that the Vxlan link on node-2 is moved into pod-3&rsquo;s namespace. This is accomplished by meshnet binary issuing an HTTP PUT request to the remote node&rsquo;s daemon with all the required Vxlan link attributes attached as a payload.</p>
+
+<h1 id="meshnet-design-walkthrough">Meshnet design walkthrough</h1>
+
+<p>One of the assumptions I made in the design is that topology information is uploaded into the etcd cluster before we spin up the first pod. I&rsquo;ll focus on how exactly this can be done in the next post but for now, let&rsquo;s assume that it&rsquo;s is already there. This information needs to be structured in a very specific way and must cover every interface of every pod. The presence of this information in etcd tells meshnet binary what p2p interfaces (if any) need to be setup for the pod. Below is a sample definition of a link from pod2 to pod3:</p>
+
+<pre><code class="language-json">{ &quot;uid&quot;:          21,
+  &quot;peer_pod&quot;:     &quot;pod3&quot;,
+  &quot;local_intf&quot;:   &quot;eth2&quot;,
+  &quot;local_ip&quot;:     &quot;23.23.23.2/24&quot;,
+  &quot;peer_intf&quot;:    &quot;eth2&quot;,
+  &quot;peer_ip&quot;:      &quot;23.23.23.3/24&quot; }
+</code></pre>
+
+<p>Meshnet binary is written in go and, like many other CNI plugins, contains a common skeleton code which parses input arguments and variables. Most of the plugin logic goes into <code>cmdAdd</code> and <code>cmdDel</code> functions that get called automatically when CNI binary is invoked by kubelet.</p>
+
+<pre><code class="language-go">import (
+    &quot;github.com/containernetworking/cni/pkg/skel&quot;
+    &quot;github.com/containernetworking/cni/pkg/types&quot;
+)
+func cmdAdd(args *skel.CmdArgs) error {
+    // Parsing cni .conf file
+    n, err := loadConf(args.StdinData)
+    // Parsing CNI_ARGS environment variable
+    cniArgs := k8sArgs{}
+    types.LoadArgs(args.Args, &amp;cniArgs)
+}
+func main() {
+	skel.PluginMain(cmdAdd, cmdGet, cmdDel, version.All, &quot;TODO&quot;)
+}
+</code></pre>
+
+<p>One of the first things that happen in a <code>cmdAdd</code> function is a <code>DelegateAdd</code> call to let the master plugin setup the first interface of the pod. Master plugin configuration is extracted from the <code>delegate</code> field of the meshnet CNI configuration file.</p>
+
+<pre><code class="language-go">func cmdAdd(args *skel.CmdArgs) error {
+    ...
+    r, err := delegateAdd(ctx, n.Delegate, args.IfName)
+    ...
+}
+func delegateAdd(ctx context.Context, netconf map[string]interface{}, 
+                  intfName string) 
+                 (types.Result, error) {
+	...
+    result, err = invoke.DelegateAdd(ctx, netconf[&quot;type&quot;].(string), netconfBytes, nil)
+    ...
+}
+</code></pre>
+
+<p>When master plugin is finished, we upload current pod&rsquo;s runtime metadata to etcd. This is required so that peer pods can find and connect to our pod when needed. Specifically, they would need VTEP IP for remote vxlan links and namespace file descriptor for local veth links.</p>
+
+<pre><code class="language-go">func (pod *podMeta) setPodAlive(ctx context.Context, kv clientv3.KV, 
+                                 netNS, srcIP string) error {
+
+	srcIPKey := fmt.Sprintf(&quot;/%s/src_ip&quot;, pod.Name)
+	_, err := kv.Put(ctx, srcIPKey, srcIP)
+
+	NetNSKey := fmt.Sprintf(&quot;/%s/net_ns&quot;, pod.Name)
+	_, err = kv.Put(ctx, NetNSKey, netNS)
+}
+</code></pre>
+
+<p>At this stage, we&rsquo;re ready to setup pod&rsquo;s links. Instead of manipulating netlink directly, I&rsquo;m using <a href="https://github.com/redhat-nfvpe/koko" target="_blank">koko</a> - a high-level library that creates veth and vxlan links for containers. The simplified logic of what happens at this stage is summarised in the following code snippet:</p>
+
+<pre><code class="language-go"> // Iterate over each link of the local pod
+for _, link := range *localPod.Links { 
+
+    // Download peer pod's runtime metadata
+    peerPod := &amp;podMeta{Name: link.PeerPod}
+    peerPod.getPodMetadata(ctx, kv)
+
+    if peerPod.isAlive() { // If SrcIP and NetNS keys are set
+
+        if peerPod.SrcIP == localPod.SrcIP { // If we're on the same host
+
+            koko.MakeVeth(*myVeth, *peerVeth)
+
+        } else  { // If we're on different hosts
+
+            koko.MakeVxLan(*myVeth, *vxlan)
+            putRequest(remoteUrl, bytes.NewBuffer(jsonPayload))
+
+        }
+    } else {
+        // skip and continue
+    }
+}
+</code></pre>
+
+<p>We start by downloading metadata for each pod that we have a link to and check if it has already come up. The value of <code>peerPod.SrcIP</code> determines whether we&rsquo;re on the same node and need to setup a veth link or on different nodes and we need to setup a vxlan tunnel between them. The latter is done in two steps - first, a local Vxlan link is setup and moved to a pod&rsquo;s namespace, followed by an HTTP PUT sent to the remote node&rsquo;s meshnet daemon to setup a similar link on the other end.</p>
+
+<h1 id="meshnet-cni-demo">Meshnet CNI demo</h1>
+
+<p>The easiest way to walk through this demo is by running it inside a docker:dind container, with a few additional packages installed on top of it:</p>
+
+<pre><code>docker run --rm -it --privileged docker:dind sh
+# /usr/local/bin/dockerd-entrypoint.sh &amp;
+# apk add --no-cache jq sudo wget git bash curl
+</code></pre>
+
+<p><img src="/img/meshnet-demo.png" alt="Meshnet Architecture" /></p>
+
+<p>In this demo, we&rsquo;ll build a simple triangle 3-node topology as shown in the figure above. We start by cloning the meshnet <a href="https://github.com/networkop/meshnet-cni" target="_blank">Github repository</a></p>
+
+<pre><code>git clone https://github.com/networkop/meshnet-cni.git &amp;&amp; cd meshnet-cni
+</code></pre>
+
+<p>Next, create a local 3-node K8s cluster using <a href="https://github.com/kubernetes-sigs/kubeadm-dind-cluster" target="_blank">kubeadm-dind-cluster</a>, which uses docker-in-docker to simulate individual k8s nodes.</p>
+
+<pre><code>wget https://raw.githubusercontent.com/kubernetes-sigs/kubeadm-dind-cluster/master/fixed/dind-cluster-v1.11.sh 
+chmod +x ./dind-cluster-v1.11.sh 
+./dind-cluster-v1.11.sh up
+</code></pre>
+
+<p>The last command may take a few minutes to download all the required images. Once the K8s cluster is ready, we can start by deploying the private etcd cluster</p>
+
+<pre><code>export PATH=&quot;$HOME/.kubeadm-dind-cluster:$PATH&quot;
+kubectl create -f utils/etcd.yml
+</code></pre>
+
+<p>The <code>./tests</code> directory already contains link databases for our 3-node test topology, ready to be uploaded to etcd:</p>
+
+<pre><code>ETCD_HOST=$(kubectl get service etcd-client -o json |  jq -r '.spec.clusterIP')
+ENDPOINTS=$ETCD_HOST:2379
+
+echo &quot;Copying JSON files to kube-master&quot;
+sudo cp tests/*.json /var/lib/docker/volumes/kubeadm-dind-kube-master/_data/
+
+echo &quot;Copying etcdctl to kube-master&quot;
+sudo cp utils/etcdctl /var/lib/docker/volumes/kubeadm-dind-kube-master/_data/
+docker exec kube-master cp /dind/etcdctl /usr/local/bin/
+
+for pod in pod1 pod2 pod3
+do
+    # First cleanup any existing state
+    docker exec -it kube-master sh -c &quot;ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS del --prefix=true \&quot;/$pod\&quot;&quot;
+
+    # Next Update the links database
+    docker exec -it kube-master sh -c &quot;cat /dind/$pod.json | ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS put /$pod/links&quot;
+
+    # Print the contents of links databse
+    docker exec -it kube-master sh -c &quot;ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS get --prefix=true \&quot;/$pod\&quot;&quot;
+
+done
+</code></pre>
+
+<p>The final missing piece is the meshnet daemonset, which installs the binary, configuration file and the meshnet daemon on every node.</p>
+
+<pre><code class="language-bash">kubectl create -f kube-meshnet.yml
+</code></pre>
+
+<p>The only thing that&rsquo;s required now is the master plugin configuration update. Since different K8s clusters can use a different plugins, the configuration file installed by the daemonset contains a dummy value which needs to be overwritten. In our case, the kubeadm-dind-cluster we&rsquo;ve installed should use a default <code>bridge</code> plugin which can be merged into our meshnet configuration file like this:</p>
+
+<pre><code>ETCD_HOST=$(kubectl get service etcd-client -o json |  jq -r '.spec.clusterIP')
+for container in kube-master kube-node-1 kube-node-2
+do
+    # Merge the default CNI plugin with meshnet
+    docker exec $container bash -c &quot;jq  -s '.[1].delegate = (.[0]|del(.cniVersion))' /etc/cni/net.d/cni.conf /etc/cni/net.d/meshnet.conf  | jq .[1] &gt; /etc/cni/net.d/00-meshnet.conf&quot;
+    docker exec $container bash -c &quot;sed -i 's/ETCD_HOST/$ETCD_HOST/' /etc/cni/net.d/00-meshnet.conf&quot;
+done
+</code></pre>
+
+<p>Now meshnet CNI plugin is installed and configured and everything&rsquo;s ready for us to create our test topology.</p>
+
+<pre><code class="language-bash">cat tests/2node.yml | kubectl create -f -
+</code></pre>
+
+<p>The following command will verify that the topology has been created and confirm that pods are scheduled to the correct nodes:</p>
+
+<pre><code class="language-bash">kubectl --namespace=default get pods -o wide  |  grep pod
+pod1    1/1 Running 0   1m  10.244.2.7  kube-node-1
+pod2    1/1 Running 0   1m  10.244.2.6  kube-node-1
+pod3    1/1 Running 0   1m  10.244.3.5  kube-node-2
+</code></pre>
+
+<p>Finally, we can do a simple ping test to verify that we have connectivity between all 3 pods:</p>
+
+<pre><code class="language-bash">kubectl exec pod1 -- sudo ping -c 1 12.12.12.2
+kubectl exec pod2 -- sudo ping -c 1 23.23.23.3
+kubectl exec pod3 -- sudo ping -c 1 13.13.13.1
+</code></pre>
+
+<h1 id="coming-up">Coming up</h1>
+
+<p>The process demonstrated above is quite rigid and requires a lot of manual effort to create a required topology inside a K8s cluster. In the next post, we&rsquo;ll have a look at <a href="https://github.com/networkop/k8s-topo" target="_blank">k8s-topo</a> - a simple tool that orchestrates most of the above steps - generates topology data and creates pods based on a simple YAML-based topology definition file.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-ci">network-ci</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2018-03-03-docker-multinet/">The problem of unpredictable interface order in multi-network Docker containers</a></li>
+    
+    <li><a href="/blog/2016/03/03/network-ci-demo-small/">Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC</a></li>
+    
+    <li><a href="/blog/2016/03/03/network-ci-demo-small/">Network-CI Part 2 - Small Network Demo</a></li>
+    
+    <li><a href="/blog/2016/02/25/network-ci-dev-setup/">Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins</a></li>
+    
+    <li><a href="/blog/2016/02/19/network-ci-intro/">Network Continuous Integration and Delivery</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+

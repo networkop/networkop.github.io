@@ -11,6 +11,309 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</title>
+      <link>https://networkop.co.uk/post/2018-11-k8s-topo-p1/</link>
+      <pubDate>Fri, 02 Nov 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2018-11-k8s-topo-p1/</guid>
+      <description>
+
+&lt;p&gt;Building virtualised network topologies has been one of the best ways to learn new technologies and to test new designs before implementing them on a production network. There are plenty of tools that can help build arbitrary network topologies, some with an interactive GUI (e.g. &lt;a href=&#34;https://www.gns3.com/&#34; target=&#34;_blank&#34;&gt;GNS3&lt;/a&gt; or &lt;a href=&#34;http://eve-ng.net/&#34; target=&#34;_blank&#34;&gt;EVE-NG/Unetlab&lt;/a&gt;) and some &amp;ldquo;headless&amp;rdquo;, with text-based configuration files (e.g. &lt;a href=&#34;https://github.com/plajjan/vrnetlab&#34; target=&#34;_blank&#34;&gt;vrnetlab&lt;/a&gt; or &lt;a href=&#34;https://github.com/CumulusNetworks/topology_converter&#34; target=&#34;_blank&#34;&gt;topology-converter&lt;/a&gt;). All of these tools work by spinning up multiple instances of virtual devices and interconnecting them according to a user-defined topology.&lt;/p&gt;
+
+&lt;h1 id=&#34;problem-statement&#34;&gt;Problem statement&lt;/h1&gt;
+
+&lt;p&gt;Most of these tools were primarily designed to work on a single host. This may work well for a relatively small topology but may become a problem as the number of virtual devices grows. Let&amp;rsquo;s take Juniper vMX as an example. From the official hardware requirements &lt;a href=&#34;https://www.juniper.net/documentation/en_US/vmx14.1/topics/reference/general/vmx-hw-sw-minimums.html&#34; target=&#34;_blank&#34;&gt;page&lt;/a&gt;, the smallest vMX instance will require:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;2 VMs - one for control and one for data plane&lt;/li&gt;
+&lt;li&gt;2 vCPUs - one for each of the VMs&lt;/li&gt;
+&lt;li&gt;8 GB of RAM - 2GB for VCP and 6GB for VFP&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;This does not include the resources consumed by the underlying hypervisor, which can easily eat up another vCPU + 2GB of RAM. It&amp;rsquo;s easy to imagine how quickly we can hit the upper limit of devices in a single topology if we can only use a single hypervisor host. Admittedly, vMX is one of the most resource-hungry virtual routers and using other vendor&amp;rsquo;s virtual devices may increase that upper limit. However, if the requirement is to simulate topologies with 100+ devices, no single server will be able to cope with the required load and a potential resource contention may lead to instabilities and various software bugs manifesting themselves in places we don&amp;rsquo;t expect.&lt;/p&gt;
+
+&lt;h1 id=&#34;exploring-possible-solutions&#34;&gt;Exploring possible solutions&lt;/h1&gt;
+
+&lt;p&gt;Ideally, in large-scale simulations, we&amp;rsquo;d want to spread the devices across multiple hosts and interconnect them so that, from the device perspective, it&amp;rsquo;d look like they are still running on the same host. To take it a step further, we&amp;rsquo;d want the virtual links to be simple point-to-point L2 segments, without any bridges in between, so that we don&amp;rsquo;t have to deal with issues when virtual bridges consume or block some of the &amp;ldquo;unexpected&amp;rdquo; traffic, e.g. LACP/STP on &lt;a href=&#34;https://patchwork.ozlabs.org/patch/819153/&#34; target=&#34;_blank&#34;&gt;Linux bridges&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;containers-vs-vms&#34;&gt;Containers vs VMs&lt;/h2&gt;
+
+&lt;p&gt;It&amp;rsquo;s possible to build multi-host VM topologies on top of a private cloud like solution like OpenStack or VMware. The operational overhead involved would be minimal as all the scheduling and network plumbing should be taken care of by virtual infrastructure manager. However this approach has several disadvantages:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;In order to not depend on the underlay, all inter-VM links would need to be implemented as overlay (VMware would require NSX)&lt;br /&gt;&lt;/li&gt;
+&lt;li&gt;VMs would still be interconnected via virtual switches&lt;br /&gt;&lt;/li&gt;
+&lt;li&gt;Life-cycle management of virtual topologies is not trivial, e.g. VMware requires DRS, OpenStack requires masakari&lt;br /&gt;&lt;/li&gt;
+&lt;li&gt;Injecting of additional data into VMs (e.g. configuration files) requires guest OS awareness and configuration (e.g. locating and mounting of a new partition)&lt;br /&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;In contrast, containers provide an easy way to mount volumes inside a container&amp;rsquo;s filesystem, have plenty of options for resource scheduling and orchestrators and are substantially more lightweight and customizable. As a bonus, we get a unified way to package, distribute and manage lifecycle of our containers, independent from the underlying OS.&lt;/p&gt;
+
+&lt;h2 id=&#34;kubernetes-vs-swarm&#34;&gt;Kubernetes vs Swarm&lt;/h2&gt;
+
+&lt;p&gt;If we focus on Docker, the two most popular options for container orchestration would be Kubernetes and Swarm. Swarm is a Docker&amp;rsquo;s native container orchestration tool, it requires less customisation out of the box and has a simpler data model. The primary disadvantages of using Swarm for network simulations are:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&#34;https://github.com/moby/moby/issues/24862&#34; target=&#34;_blank&#34;&gt;Lack of support&lt;/a&gt; for privileged containers (network admin (CAP_NET_ADMIN) capabilities may be required by virtualised network devices)&lt;/li&gt;
+&lt;li&gt;Unpredictable network interface &lt;a href=&#34;https://github.com/moby/moby/issues/25181&#34; target=&#34;_blank&#34;&gt;naming and order&lt;/a&gt; inside the container&lt;/li&gt;
+&lt;li&gt;Docker&amp;rsquo;s main networking plugin libnetwork is &lt;a href=&#34;https://kubernetes.io/blog/2016/01/why-kubernetes-doesnt-use-libnetwork/&#34; target=&#34;_blank&#34;&gt;opinionated&lt;/a&gt; and difficult to extend or modify&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;On the other hand, the approach chosen by K8s provides an easier way to modify the default behaviour of a network plugin or to create a completely new implementation. However, K8s itself imposes several requirements on CNI plugins:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;All containers can communicate with all other containers without NAT&lt;/li&gt;
+&lt;li&gt;All nodes can communicate with all containers (and vice-versa) without NAT&lt;/li&gt;
+&lt;li&gt;The IP that a container sees itself as is the same IP that others see it as&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The above also implies that communication between the containers happens at L3, which means that no container should make any assumptions about the underlying L2 transport, i.e. not use any L2 protocols(apart from ARP). Another corollary of the above requirements is that every container only has a single IP and hence a single interface, which, together with the previous L2 limitation, makes network simulations in K8s nearly impossible.&lt;/p&gt;
+
+&lt;h2 id=&#34;multus-vs-diy&#34;&gt;Multus vs DIY&lt;/h2&gt;
+
+&lt;p&gt;There are multiple solutions that solve the problem of a single network interface per container/pod - CNI-Genie, Knitter and &lt;a href=&#34;https://github.com/intel/multus-cni&#34; target=&#34;_blank&#34;&gt;Multus&lt;/a&gt; CNI. All of them were primarily designed for containerised VNF use cases, with the assumption that connectivity would still be provided by one of the existing plugins, which still leaves us with a number of issues:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;We have to be transparent to the underlay, so we can&amp;rsquo;t use plugins that interact with the underlay (e.g. macvlan, calico)&lt;/li&gt;
+&lt;li&gt;Most of the CNI plugins only provide L3 connectivity between pods (e.g. flannel, ovn, calico)&lt;/li&gt;
+&lt;li&gt;The few plugins that do provide L2 overlays (e.g contiv, weave) do not support multiple interfaces and still use virtual bridges underneath&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Perhaps it would have been possible to hack one of the plugins to do what I wanted but I felt like it&amp;rsquo;d be easier to build a specialised CNI plugin to do just what I want and nothing more. As I&amp;rsquo;ve mentioned previously, developing a simple CNI plugin is not that difficult, especially if you have a clearly defined use case, which is why I&amp;rsquo;ve built &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet&lt;/a&gt; - a CNI plugin to build arbitrary network topologies out of point-to-point links.&lt;/p&gt;
+
+&lt;h1 id=&#34;cni-plugin-overview&#34;&gt;CNI plugin overview&lt;/h1&gt;
+
+&lt;p&gt;At a very high level, every CNI plugin is just a binary and a configuration file installed on K8s worker nodes. When a pod is scheduled to run on a particular node, a local node agent (kubelet) calls a CNI binary and passes all the necessary information to it. That CNI binary connects and configures network interfaces and returns the result back to kubelet. The information is passed to CNI binary in two ways - through environment variables and CNI configuration file. This is how a CNI &lt;strong&gt;ADD&lt;/strong&gt; call &lt;a href=&#34;https://www.cncf.io/wp-content/uploads/2017/11/Introduction-to-CNI-2.pdf#page=7&#34; target=&#34;_blank&#34;&gt;may&lt;/a&gt; look like:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;CNI_COMMAND=ADD \
+CNI_CONTAINERID=$id \
+CNI_NETNS=/proc/$pid/ns/net \
+CNI_ARGS=K8S_POD_NAMESPACE=$namepsace;K8S_POD_NAME=$name
+/opt/cni/bin/my-plugin &amp;lt; /etc/cni/net.d/my-config
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The runtime parameters get passed to the plugin as environment variables and CNI configuration file gets passed to stdin. The CNI binary runs to completion and is expected to return the configured network settings back to the caller. The format of input and output, as well as environment variables, are documented in a CNI &lt;a href=&#34;https://github.com/containernetworking/cni/blob/master/SPEC.md&#34; target=&#34;_blank&#34;&gt;specification document&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;There are plenty of other resources that cover CNI plugin development in much greater detail, I would recommend reading at least these four:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;a href=&#34;https://schd.ws/hosted_files/kccnceu18/64/Kubernetes-and-the-CNI-Kubecon-218.pdf&#34; target=&#34;_blank&#34;&gt;CNI plugins best practices&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://www.altoros.com/blog/kubernetes-networking-writing-your-own-simple-cni-plug-in-with-bash/&#34; target=&#34;_blank&#34;&gt;Writing a sample CNI plugin in bash&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;http://logingood.github.io/kubernetes/cni/2016/05/14/netns-and-cni.html&#34; target=&#34;_blank&#34;&gt;EVPN CNI plugin&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;http://dougbtv.com/nfvpe/2017/06/22/cni-tutorial/&#34; target=&#34;_blank&#34;&gt;Workflow for writing CNI plugins&lt;/a&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h1 id=&#34;meshnet-cni-architecture&#34;&gt;Meshnet CNI architecture&lt;/h1&gt;
+
+&lt;p&gt;The goal of &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet&lt;/a&gt; plugin is to interconnect pods via direct point-to-point links according to some user-defined topology.  To do that, the plugin uses two types of links:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;veth&lt;/strong&gt; - to interconnect pods running on the same node&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;vxlan&lt;/strong&gt; - to interconnect pods running on different nodes&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;One thing to note is that point-to-point links are connected directly between pods, without any software bridges in between, which makes the design a lot simpler and provides a cleaner abstraction of a physical connection between network devices.&lt;/p&gt;
+
+&lt;p&gt;The plugin consists of three main components:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;etcd&lt;/strong&gt; - a private cluster storing topology information and runtime pod metadata (e.g. pod IP address and NetNS fd)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;meshnet&lt;/strong&gt; - a CNI binary called by kubelet, responsible for pod&amp;rsquo;s network configuration&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;meshnetd&lt;/strong&gt; - a daemon responsible for Vxlan link configuration updates&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Just like Multus, meshnet has the concept of master/default plugin, which sets up the first interface of the pod. This interface is setup by one of the existing plugins (e.g. bridge or flannel) and is used for pod&amp;rsquo;s external connectivity. The rest of the interfaces are setup according to a topology information stored in etcd.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/meshnet-arch.png&#34; alt=&#34;Meshnet Architecture&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Although the original idea of a CNI plugin was to have a single stateless binary, most of the time there&amp;rsquo;s a need to maintain some runtime state (e.g. ip routes, ip allocations etc.), which is why a lot of CNI plugins have daemons. In our case, daemon&amp;rsquo;s role is to ensure Vxlan link configurations are correct across different hosts. Using the above diagram as an example, if pod-2 comes up after pod-3, there must be a way of signalling the (node-1) VTEP IP to the remote node (node-2) and making sure that the Vxlan link on node-2 is moved into pod-3&amp;rsquo;s namespace. This is accomplished by meshnet binary issuing an HTTP PUT request to the remote node&amp;rsquo;s daemon with all the required Vxlan link attributes attached as a payload.&lt;/p&gt;
+
+&lt;h1 id=&#34;meshnet-design-walkthrough&#34;&gt;Meshnet design walkthrough&lt;/h1&gt;
+
+&lt;p&gt;One of the assumptions I made in the design is that topology information is uploaded into the etcd cluster before we spin up the first pod. I&amp;rsquo;ll focus on how exactly this can be done in the next post but for now, let&amp;rsquo;s assume that it&amp;rsquo;s is already there. This information needs to be structured in a very specific way and must cover every interface of every pod. The presence of this information in etcd tells meshnet binary what p2p interfaces (if any) need to be setup for the pod. Below is a sample definition of a link from pod2 to pod3:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;{ &amp;quot;uid&amp;quot;:          21,
+  &amp;quot;peer_pod&amp;quot;:     &amp;quot;pod3&amp;quot;,
+  &amp;quot;local_intf&amp;quot;:   &amp;quot;eth2&amp;quot;,
+  &amp;quot;local_ip&amp;quot;:     &amp;quot;23.23.23.2/24&amp;quot;,
+  &amp;quot;peer_intf&amp;quot;:    &amp;quot;eth2&amp;quot;,
+  &amp;quot;peer_ip&amp;quot;:      &amp;quot;23.23.23.3/24&amp;quot; }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Meshnet binary is written in go and, like many other CNI plugins, contains a common skeleton code which parses input arguments and variables. Most of the plugin logic goes into &lt;code&gt;cmdAdd&lt;/code&gt; and &lt;code&gt;cmdDel&lt;/code&gt; functions that get called automatically when CNI binary is invoked by kubelet.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;import (
+    &amp;quot;github.com/containernetworking/cni/pkg/skel&amp;quot;
+    &amp;quot;github.com/containernetworking/cni/pkg/types&amp;quot;
+)
+func cmdAdd(args *skel.CmdArgs) error {
+    // Parsing cni .conf file
+    n, err := loadConf(args.StdinData)
+    // Parsing CNI_ARGS environment variable
+    cniArgs := k8sArgs{}
+    types.LoadArgs(args.Args, &amp;amp;cniArgs)
+}
+func main() {
+	skel.PluginMain(cmdAdd, cmdGet, cmdDel, version.All, &amp;quot;TODO&amp;quot;)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;One of the first things that happen in a &lt;code&gt;cmdAdd&lt;/code&gt; function is a &lt;code&gt;DelegateAdd&lt;/code&gt; call to let the master plugin setup the first interface of the pod. Master plugin configuration is extracted from the &lt;code&gt;delegate&lt;/code&gt; field of the meshnet CNI configuration file.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func cmdAdd(args *skel.CmdArgs) error {
+    ...
+    r, err := delegateAdd(ctx, n.Delegate, args.IfName)
+    ...
+}
+func delegateAdd(ctx context.Context, netconf map[string]interface{}, 
+                  intfName string) 
+                 (types.Result, error) {
+	...
+    result, err = invoke.DelegateAdd(ctx, netconf[&amp;quot;type&amp;quot;].(string), netconfBytes, nil)
+    ...
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;When master plugin is finished, we upload current pod&amp;rsquo;s runtime metadata to etcd. This is required so that peer pods can find and connect to our pod when needed. Specifically, they would need VTEP IP for remote vxlan links and namespace file descriptor for local veth links.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func (pod *podMeta) setPodAlive(ctx context.Context, kv clientv3.KV, 
+                                 netNS, srcIP string) error {
+
+	srcIPKey := fmt.Sprintf(&amp;quot;/%s/src_ip&amp;quot;, pod.Name)
+	_, err := kv.Put(ctx, srcIPKey, srcIP)
+
+	NetNSKey := fmt.Sprintf(&amp;quot;/%s/net_ns&amp;quot;, pod.Name)
+	_, err = kv.Put(ctx, NetNSKey, netNS)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At this stage, we&amp;rsquo;re ready to setup pod&amp;rsquo;s links. Instead of manipulating netlink directly, I&amp;rsquo;m using &lt;a href=&#34;https://github.com/redhat-nfvpe/koko&#34; target=&#34;_blank&#34;&gt;koko&lt;/a&gt; - a high-level library that creates veth and vxlan links for containers. The simplified logic of what happens at this stage is summarised in the following code snippet:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt; // Iterate over each link of the local pod
+for _, link := range *localPod.Links { 
+
+    // Download peer pod&#39;s runtime metadata
+    peerPod := &amp;amp;podMeta{Name: link.PeerPod}
+    peerPod.getPodMetadata(ctx, kv)
+
+    if peerPod.isAlive() { // If SrcIP and NetNS keys are set
+
+        if peerPod.SrcIP == localPod.SrcIP { // If we&#39;re on the same host
+
+            koko.MakeVeth(*myVeth, *peerVeth)
+
+        } else  { // If we&#39;re on different hosts
+
+            koko.MakeVxLan(*myVeth, *vxlan)
+            putRequest(remoteUrl, bytes.NewBuffer(jsonPayload))
+
+        }
+    } else {
+        // skip and continue
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We start by downloading metadata for each pod that we have a link to and check if it has already come up. The value of &lt;code&gt;peerPod.SrcIP&lt;/code&gt; determines whether we&amp;rsquo;re on the same node and need to setup a veth link or on different nodes and we need to setup a vxlan tunnel between them. The latter is done in two steps - first, a local Vxlan link is setup and moved to a pod&amp;rsquo;s namespace, followed by an HTTP PUT sent to the remote node&amp;rsquo;s meshnet daemon to setup a similar link on the other end.&lt;/p&gt;
+
+&lt;h1 id=&#34;meshnet-cni-demo&#34;&gt;Meshnet CNI demo&lt;/h1&gt;
+
+&lt;p&gt;The easiest way to walk through this demo is by running it inside a docker:dind container, with a few additional packages installed on top of it:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;docker run --rm -it --privileged docker:dind sh
+# /usr/local/bin/dockerd-entrypoint.sh &amp;amp;
+# apk add --no-cache jq sudo wget git bash curl
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/meshnet-demo.png&#34; alt=&#34;Meshnet Architecture&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;In this demo, we&amp;rsquo;ll build a simple triangle 3-node topology as shown in the figure above. We start by cloning the meshnet &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;Github repository&lt;/a&gt;&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/networkop/meshnet-cni.git &amp;amp;&amp;amp; cd meshnet-cni
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next, create a local 3-node K8s cluster using &lt;a href=&#34;https://github.com/kubernetes-sigs/kubeadm-dind-cluster&#34; target=&#34;_blank&#34;&gt;kubeadm-dind-cluster&lt;/a&gt;, which uses docker-in-docker to simulate individual k8s nodes.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;wget https://raw.githubusercontent.com/kubernetes-sigs/kubeadm-dind-cluster/master/fixed/dind-cluster-v1.11.sh 
+chmod +x ./dind-cluster-v1.11.sh 
+./dind-cluster-v1.11.sh up
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The last command may take a few minutes to download all the required images. Once the K8s cluster is ready, we can start by deploying the private etcd cluster&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;export PATH=&amp;quot;$HOME/.kubeadm-dind-cluster:$PATH&amp;quot;
+kubectl create -f utils/etcd.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;code&gt;./tests&lt;/code&gt; directory already contains link databases for our 3-node test topology, ready to be uploaded to etcd:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ETCD_HOST=$(kubectl get service etcd-client -o json |  jq -r &#39;.spec.clusterIP&#39;)
+ENDPOINTS=$ETCD_HOST:2379
+
+echo &amp;quot;Copying JSON files to kube-master&amp;quot;
+sudo cp tests/*.json /var/lib/docker/volumes/kubeadm-dind-kube-master/_data/
+
+echo &amp;quot;Copying etcdctl to kube-master&amp;quot;
+sudo cp utils/etcdctl /var/lib/docker/volumes/kubeadm-dind-kube-master/_data/
+docker exec kube-master cp /dind/etcdctl /usr/local/bin/
+
+for pod in pod1 pod2 pod3
+do
+    # First cleanup any existing state
+    docker exec -it kube-master sh -c &amp;quot;ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS del --prefix=true \&amp;quot;/$pod\&amp;quot;&amp;quot;
+
+    # Next Update the links database
+    docker exec -it kube-master sh -c &amp;quot;cat /dind/$pod.json | ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS put /$pod/links&amp;quot;
+
+    # Print the contents of links databse
+    docker exec -it kube-master sh -c &amp;quot;ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS get --prefix=true \&amp;quot;/$pod\&amp;quot;&amp;quot;
+
+done
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The final missing piece is the meshnet daemonset, which installs the binary, configuration file and the meshnet daemon on every node.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl create -f kube-meshnet.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The only thing that&amp;rsquo;s required now is the master plugin configuration update. Since different K8s clusters can use a different plugins, the configuration file installed by the daemonset contains a dummy value which needs to be overwritten. In our case, the kubeadm-dind-cluster we&amp;rsquo;ve installed should use a default &lt;code&gt;bridge&lt;/code&gt; plugin which can be merged into our meshnet configuration file like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ETCD_HOST=$(kubectl get service etcd-client -o json |  jq -r &#39;.spec.clusterIP&#39;)
+for container in kube-master kube-node-1 kube-node-2
+do
+    # Merge the default CNI plugin with meshnet
+    docker exec $container bash -c &amp;quot;jq  -s &#39;.[1].delegate = (.[0]|del(.cniVersion))&#39; /etc/cni/net.d/cni.conf /etc/cni/net.d/meshnet.conf  | jq .[1] &amp;gt; /etc/cni/net.d/00-meshnet.conf&amp;quot;
+    docker exec $container bash -c &amp;quot;sed -i &#39;s/ETCD_HOST/$ETCD_HOST/&#39; /etc/cni/net.d/00-meshnet.conf&amp;quot;
+done
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now meshnet CNI plugin is installed and configured and everything&amp;rsquo;s ready for us to create our test topology.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;cat tests/2node.yml | kubectl create -f -
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The following command will verify that the topology has been created and confirm that pods are scheduled to the correct nodes:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl --namespace=default get pods -o wide  |  grep pod
+pod1    1/1 Running 0   1m  10.244.2.7  kube-node-1
+pod2    1/1 Running 0   1m  10.244.2.6  kube-node-1
+pod3    1/1 Running 0   1m  10.244.3.5  kube-node-2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, we can do a simple ping test to verify that we have connectivity between all 3 pods:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl exec pod1 -- sudo ping -c 1 12.12.12.2
+kubectl exec pod2 -- sudo ping -c 1 23.23.23.3
+kubectl exec pod3 -- sudo ping -c 1 13.13.13.1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;coming-up&#34;&gt;Coming up&lt;/h1&gt;
+
+&lt;p&gt;The process demonstrated above is quite rigid and requires a lot of manual effort to create a required topology inside a K8s cluster. In the next post, we&amp;rsquo;ll have a look at &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; - a simple tool that orchestrates most of the above steps - generates topology data and creates pods based on a simple YAML-based topology definition file.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Serverless SDN - Network Engineering Analysis of Appswitch</title>
       <link>https://networkop.co.uk/post/2018-05-29-appswitch-sdn/</link>
       <pubDate>Thu, 21 Jun 2018 00:00:00 +0000</pubDate>
@@ -3076,255 +3379,6 @@ ip route 2.2.2.2 255.255.255.255 12.12.12.2
 &lt;hr /&gt;
 
 &lt;p&gt;The exercise we&amp;rsquo;ve done in this post, though useful from a learning perspective, can come in very handy when dealing with vendors who forget or simply don&amp;rsquo;t want to share their YANG models with their customers (I know of at least one vendor that would only publish tree representations of their YANG models). In the upcoming posts I&amp;rsquo;ll show how to create a simple Python library to program static routes via RESTCONF and finally how to build an Ansible module to do that.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Getting Started With NETCONF and YANG on Cisco IOS XE</title>
-      <link>https://networkop.co.uk/blog/2017/01/25/netconf-intro/</link>
-      <pubDate>Wed, 25 Jan 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/01/25/netconf-intro/</guid>
-      <description>
-
-&lt;p&gt;To kick things off I will show how to use &lt;a href=&#34;http://ncclient.readthedocs.io/en/latest/&#34; target=&#34;_blank&#34;&gt;ncclient&lt;/a&gt; and &lt;a href=&#34;https://github.com/mbj4668/pyang&#34; target=&#34;_blank&#34;&gt;pyang&lt;/a&gt; to configure interfaces on Cisco IOS XE device. In order to make sure everyone is on the same page and to provide some reference points for the remaining parts of the post, I would first need to cover some basic theory about NETCONF, XML and YANG.&lt;/p&gt;
-
-&lt;h1 id=&#34;netconf-primer&#34;&gt;NETCONF primer&lt;/h1&gt;
-
-&lt;p&gt;NETCONF is a network management protocol that runs over a secure transport (SSH, TLS etc.). It defines a set of commands (&lt;a href=&#34;abbr:Remote Procedure Call&#34; target=&#34;_blank&#34;&gt;RPCs&lt;/a&gt;) to change the state of a network device, however it does not define the structure of the exchanged information. The only requirement is for the payload to be a well-formed XML document. Effectively NETCONF provides a way for a network device to expose its API and in that sense it is very similar to &lt;a href=&#34;https://networkop.co.uk/blog/2016/01/01/rest-for-neteng/&#34;&gt;REST&lt;/a&gt;. Here are some basic NETCONF operations that will be used later in this post:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;hello&lt;/strong&gt; - messages exchanged when the NETCONF session is being established, used to advertise the list of supported capabilities.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;get-config&lt;/strong&gt; - used by clients to retrieve the configuration from a network device.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;edit-config&lt;/strong&gt; - used by clients to edit the configuration of a network device.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;close-session&lt;/strong&gt; - used by clients to gracefully close the NETCONF session.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;All of these standard NETCONF operations are implemented in &lt;a href=&#34;http://ncclient.readthedocs.io/en/latest/&#34; target=&#34;_blank&#34;&gt;ncclient&lt;/a&gt; Python library which is what we&amp;rsquo;re going to use to talk to CSR1k.&lt;/p&gt;
-
-&lt;h1 id=&#34;xml-primer&#34;&gt;XML primer&lt;/h1&gt;
-
-&lt;p&gt;There are several ways to exchange structured data over the network. HTML, YAML, JSON and XML are all examples of structured data formats. XML encodes data elements in tags and nests them inside one another to create complex tree-like data structures. Thankfully we are not going to spend much time dealing with XML in this post, however there are a few basic concepts that might be useful for the overall understanding:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Root&lt;/strong&gt; - Every XML document has one root element containing one or more child elements.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Path&lt;/strong&gt; - is a way of addressing a particular element inside a tree.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Namespaces&lt;/strong&gt; - provide name isolation for potentially duplicate elements. As we&amp;rsquo;ll see later, the resulting XML document may be built from several YANG models and namespaces are required to make sure there are no naming conflicts between elements.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;The first two concepts are similar to paths in a Linux filesystem where all of the files are laid out in a tree-like structure with root partition at its top. Namespace is somewhat similar to a unique URL identifying a particular server on the network. Using namespaces you can address multiple unique &lt;code&gt;/etc/hosts&lt;/code&gt; files by prepending the host address to the path.&lt;/p&gt;
-
-&lt;p&gt;As with other structured data formats, XML by itself does not define the structure of the document. We still need something to organise a set of XML tags, specify what is mandatory and what is optional and what are the value constraints for the elements. This is exactly what YANG is used for.&lt;/p&gt;
-
-&lt;h1 id=&#34;yang-primer&#34;&gt;YANG primer&lt;/h1&gt;
-
-&lt;p&gt;YANG was conceived as a human-readable way to model the structure of an XML document. Similar to a programming language it has some primitive data types (integers, boolean, strings), several basic data structures (containers, lists, leafs) and allows users to define their own data types. The goal is to be able to formally model any network device configuration.&lt;/p&gt;
-
-&lt;p&gt;Anyone who has ever used Ansible to &lt;a href=&#34;http://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/&#34; target=&#34;_blank&#34;&gt;generate text network configuration files&lt;/a&gt; is familiar with network modelling. Coming up with a naming conventions for variables, deciding how to split them into different files, creating data structures for variables representing different parts of configuration are all a part of network modelling. YANG is similar to that kind of modelling, only this time the models are already created for you. There are three main sources of YANG models today:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;&lt;strong&gt;Equipment Vendors&lt;/strong&gt; create their own &amp;ldquo;native&amp;rdquo; models to interact with their devices.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Standards bodies&lt;/strong&gt; (e.g. IETF and IEEE) were supposed to be the driving force of model creation. However in reality they have managed to produce only a few models that cover basic functionality like interface configuration and routing. Half of these models are still in the &amp;ldquo;DRAFT&amp;rdquo; stage.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;OpenConfig&lt;/strong&gt; working group was formed by major telcos and SPs to fill the gap left by IETF. OpenConfig has produced the most number of models so far ranging from LLDP and VLAN to segment routing and BGP configurations. Unfortunately these models are only supported by high-end SP gear and we can only hope that they will find their way into the lower-end part of the market.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;Be sure to check of these and many other YANG models on &lt;a href=&#34;https://github.com/YangModels/yang&#34; target=&#34;_blank&#34;&gt;YangModels&lt;/a&gt; Github repo.&lt;/p&gt;
-
-&lt;h1 id=&#34;environment-setup&#34;&gt;Environment setup&lt;/h1&gt;
-
-&lt;p&gt;My test environment consists of a single instance of Cisco CSR1k running IOS XE 16.04.01. For the sake of simplicity I&amp;rsquo;m not using any network emulator and simply run it as a stand-alone VM inside VMWare Workstation. CSR1k has the following configuration applied:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;username admin privilege 15 secret admin
-!
-interface GigabitEthernet1
-  ip address 192.168.145.51 255.255.255.0
-  no shutdown
-!
-netconf-yang
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The last command is all what&amp;rsquo;s required to enable NETCONF/YANG support.&lt;/p&gt;
-
-&lt;p&gt;On the same hypervisor I have my development CentOS7 VM, which is connected to the same network as the first interface of CSR1k. My VM is able to ping and ssh into the CSR1k. We will need the following additional packages installed:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;yum install openssl-devel python-devel python-pip gcc
-pip install ncclient pyang pyangbind ipython
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;device-configuration-workflow&#34;&gt;Device configuration workflow&lt;/h1&gt;
-
-&lt;p&gt;The following workflow will be performed in both interactive Python shell (e.g. iPython) and Linux bash shell. The best way to follow along is to have two sessions opened, one with each of the shells. This will save you from having to rerun import statements every time you re-open a python shell.&lt;/p&gt;
-
-&lt;h2 id=&#34;1-discovering-device-capabilities&#34;&gt;1. Discovering device capabilities&lt;/h2&gt;
-
-&lt;p&gt;The first thing you have to do with any NETCONF-capable device is discover its capabilities. We&amp;rsquo;ll use ncclient&amp;rsquo;s &lt;a href=&#34;http://ncclient.readthedocs.io/en/latest/manager.html&#34; target=&#34;_blank&#34;&gt;manager&lt;/a&gt; module to establish a session to CSR1k. Method &lt;code&gt;.connect()&lt;/code&gt; of the manager object takes device IP, port and login credentials as input and returns a reference to a NETCONF session established with the device.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;from ncclient import manager
-
-m = manager.connect(host=&#39;192.168.145.51&#39;, port=830, username=&#39;admin&#39;,
-                    password=&#39;admin&#39;, device_params={&#39;name&#39;: &#39;csr&#39;})
-
-print m.server_capabilities
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;When the session is established, server capabilities advertised in the &lt;strong&gt;hello&lt;/strong&gt; message get saved in the &lt;code&gt;server_capabilities&lt;/code&gt; variable. Last command should print a long list of all capabilities and supported YANG models.&lt;/p&gt;
-
-&lt;h2 id=&#34;2-obtaining-yang-models&#34;&gt;2. Obtaining YANG models&lt;/h2&gt;
-
-&lt;p&gt;The task we have set for ourselves is to configure an interface. CSR1k supports both native (Cisco-specific) and IETF-standard ways of doing it. In this post I&amp;rsquo;ll show how to use the IETF models to do that. First we need to identify which model to use. Based on the discovered capabilities we can guess that &lt;strong&gt;ietf-ip&lt;/strong&gt; could be used to configure IP addresses, so let&amp;rsquo;s get this model first. One way to get a YANG model is to search for it on the Internet, and since its an IETF model, it most likely can be found in of the &lt;a href=&#34;https://tools.ietf.org/html/rfc7277&#34; target=&#34;_blank&#34;&gt;RFCs&lt;/a&gt;.
-Another way to get it is to download it from the device itself. All devices supporting &lt;a href=&#34;https://tools.ietf.org/html/rfc6022&#34; target=&#34;_blank&#34;&gt;RFC6022&lt;/a&gt; must be able to send the requested model in response to the &lt;code&gt;get_schema&lt;/code&gt; call. Let&amp;rsquo;s see how we can download the &lt;strong&gt;ietf-ip&lt;/strong&gt; YANG model:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;schema = m.get_schema(&#39;ietf-ip&#39;)
-print schema
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At this stage the model is embedded in the XML response and we still need to extract it and save it in a file. To do that we&amp;rsquo;ll use python &lt;code&gt;lxml&lt;/code&gt; library to parse the received XML document, pick the first child from the root of the tree (&lt;strong&gt;data&lt;/strong&gt; element) and save it into a variable. A helper function &lt;a href=&#34;https://github.com/networkop/yang/blob/master/helpers.py&#34; target=&#34;_blank&#34;&gt;write_file&lt;/a&gt; simply saves the Python string contained in the &lt;code&gt;yang_text&lt;/code&gt; variable in a file.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;import xml.etree.ElementTree as ET
-root = ET.fromstring(schema.xml)
-yang_text = list(root)[0].text
-write_file(&#39;ietf-ip.yang&#39;, yang_text)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Back at the Linux shell we can now start using pyang. The most basic function of pyang is to convert the YANG model into one of the &lt;a href=&#34;https://github.com/mbj4668/pyang#features&#34; target=&#34;_blank&#34;&gt;many supported formats&lt;/a&gt;. For example, tree format can be very helpful for high-level understanding of the structure of a YANG model. It produces a tree-like representation of a YANG model and annotates element types and constraints using syntax described in &lt;a href=&#34;https://tools.ietf.org/html/rfc7277#section-1.2&#34; target=&#34;_blank&#34;&gt;this RFC&lt;/a&gt;.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ pyang -f tree ietf-ip.yang | head -
-module: ietf-ip
-  augment /if:interfaces/if:interface:
-    +--rw ipv4!
-    |  +--rw enabled?      boolean
-    |  +--rw forwarding?   boolean
-    |  +--rw mtu?          uint16
-    |  +--rw address* [ip]
-    |  |  +--rw ip               inet:ipv4-address-no-zone
-    |  |  +--rw (subnet)
-    |  |     +--:(prefix-length)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;From the output above we can see the &lt;strong&gt;ietf-ip&lt;/strong&gt; augments or extends the &lt;strong&gt;interface&lt;/strong&gt; model. It adds new configurable (rw) containers with a list of IP prefixes to be assigned to an interface. Another thing we can see is that this model cannot be used on its own, since it doesn&amp;rsquo;t specify the name of the interface it augments. This model can only be used together with &lt;code&gt;ietf-interfaces&lt;/code&gt; YANG model which models the basic interface properties like MTU, state and description. In fact &lt;code&gt;ietf-ip&lt;/code&gt; relies on a number of YANG models which are specified as imports at the beginning of the model definition.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;module ietf-ip {
- namespace &amp;quot;urn:ietf:params:xml:ns:yang:ietf-ip&amp;quot;;
- prefix ip;
- import ietf-interfaces {
-   prefix if;
- }
- import ietf-inet-types {
-   prefix inet;
- }
- import ietf-yang-types {
-   prefix yang;
- }
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Each import statement specifies the model and the prefix by which it will be referred later in the document. These prefixes create a clear separation between namespaces of different models.&lt;/p&gt;
-
-&lt;p&gt;We would need to download all of these models and use them together with the &lt;strong&gt;ietf-ip&lt;/strong&gt; throughout the rest of this post. Use the procedure described above to download the &lt;strong&gt;ietf-interfaces&lt;/strong&gt;, &lt;strong&gt;ietf-inet-types&lt;/strong&gt; and &lt;strong&gt;ietf-yang-types&lt;/strong&gt; models.&lt;/p&gt;
-
-&lt;h2 id=&#34;3-instantiating-yang-models&#34;&gt;3. Instantiating YANG models&lt;/h2&gt;
-
-&lt;p&gt;Now we can use &lt;a href=&#34;https://github.com/robshakir/pyangbind&#34; target=&#34;_blank&#34;&gt;pyangbind&lt;/a&gt;, an extension to pyang, to build a Python module based on the downloaded YANG models and start building interface configuration. Make sure your &lt;code&gt;$PYBINDPLUGIN&lt;/code&gt; variable is set like its described &lt;a href=&#34;https://github.com/robshakir/pyangbind&#34; target=&#34;_blank&#34;&gt;here&lt;/a&gt;.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;pyang --plugindir $PYBINDPLUGIN -f pybind -o ietf_ip_binding.py ietf-ip.yang ietf-interfaces.yang ietf-inet-types.yang ietf-inet-types.yang
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The resulting &lt;code&gt;ietf_ip_binding.py&lt;/code&gt; is now ready for use inside the Python shell. Note that we import &lt;code&gt;ietf_interfaces&lt;/code&gt; as this is the parent object for &lt;code&gt;ietf_ip&lt;/code&gt;. The details about how to work with generated Python binding can be found on pyangbind&amp;rsquo;s &lt;a href=&#34;https://github.com/robshakir/pyangbind&#34; target=&#34;_blank&#34;&gt;Github page&lt;/a&gt;.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;from ietf_ip_binding import ietf_interfaces
-model = ietf_interfaces()
-model.get()
-{&#39;interfaces&#39;: {&#39;interface&#39;: {}}, &#39;interfaces-state&#39;: {&#39;interface&#39;: {}}}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;To setup an IP address, we first need to create a model of an interface we&amp;rsquo;re planning to manipulate. We can then use &lt;code&gt;.get()&lt;/code&gt; on the model&amp;rsquo;s instance to see the list of all configurable parameters and their defaults.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;new_interface = model.interfaces.interface.add(&#39;GigabitEthernet2&#39;)
-new_interface.get()
-{&#39;description&#39;: u&#39;&#39;,
- &#39;enabled&#39;: True,
- &#39;ipv4&#39;: {&#39;address&#39;: {},
-  &#39;enabled&#39;: True,
-  &#39;forwarding&#39;: False,
-  &#39;mtu&#39;: 0,
-  &#39;neighbor&#39;: {}},
- &#39;ipv6&#39;: {&#39;address&#39;: {},
-  &#39;autoconf&#39;: {&#39;create-global-addresses&#39;: True,
-   &#39;create-temporary-addresses&#39;: False,
-   &#39;temporary-preferred-lifetime&#39;: 86400L,
-   &#39;temporary-valid-lifetime&#39;: 604800L},
-  &#39;dup-addr-detect-transmits&#39;: 1L,
-  &#39;enabled&#39;: True,
-  &#39;forwarding&#39;: False,
-  &#39;mtu&#39;: 0L,
-  &#39;neighbor&#39;: {}},
- &#39;link-up-down-trap-enable&#39;: u&#39;&#39;,
- &#39;name&#39;: u&#39;GigabitEthernet2&#39;,
- &#39;type&#39;: u&#39;&#39;}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The simples thing we can do is modify the interface description.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;new_interface.description = &#39;NETCONF-CONFIGURED PORT&#39;
-new_interface.get()[&#39;description&#39;]
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;New objects are added by calling &lt;code&gt;.add()&lt;/code&gt; on the parent object and passing unique key as an argument.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;ipv4_addr = new_interface.ipv4.address.add(&#39;12.12.12.2&#39;)
-ipv4_addr.get()
-{&#39;ip&#39;: u&#39;12.12.12.2&#39;, &#39;netmask&#39;: u&#39;&#39;, &#39;prefix-length&#39;: 0}
-ipv4_addr.netmask = &#39;255.255.255.0&#39;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At the time of writing pyangbind only supported serialisation into JSON format which means we have to do a couple of extra steps to get the required XML. For now let&amp;rsquo;s dump the contents of our interface model instance into a file.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;import pyangbind.lib.pybindJSON as pybindJSON
-json_data = pybindJSON.dumps(model, mode=&#39;ietf&#39;)
-write_file(&#39;new_interface.json&#39;,json_data)
-print json_data
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;4-applying-configuration-changes&#34;&gt;4. Applying configuration changes&lt;/h2&gt;
-
-&lt;p&gt;Even though pyanbind does not support XML, it is possible to use &lt;a href=&#34;https://github.com/mbj4668/pyang/wiki/XmlJson&#34; target=&#34;_blank&#34;&gt;other pyang plugins&lt;/a&gt; to generate XML from JSON.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;pyang -f jtox -o interface.jtox ietf-ip.yang ietf-interfaces.yang ietf-inet-types.yang ietf-yang-types.yang
-json2xml -t config -o interface.xml interface.jtox interface.json
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The resulting &lt;code&gt;interface.xml&lt;/code&gt; file contains the XML document ready to be sent to the device. I&amp;rsquo;ll use &lt;a href=&#34;https://github.com/networkop/yang/blob/master/helpers.py&#34; target=&#34;_blank&#34;&gt;read_file&lt;/a&gt; helper function to read its contents and save it into a variable. We should still have a NETCONF session opened from one of the previous steps and we&amp;rsquo;ll use the &lt;a href=&#34;https://tools.ietf.org/html/rfc6241#section-7.2&#34; target=&#34;_blank&#34;&gt;edit-config&lt;/a&gt; RPC call to apply our changes to the running configuration of CSR1k.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;xml = read_file(&#39;interface.xml&#39;)
-reply = m.edit_config(target=&#39;running&#39;, config=xml)
-print(&amp;quot;Success? {}&amp;quot;.format(reply.ok))
-m.close_session()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;If the change was applied successfully &lt;code&gt;reply.ok&lt;/code&gt; should return &lt;code&gt;True&lt;/code&gt; and we can close the session to the device.&lt;/p&gt;
-
-&lt;h2 id=&#34;verifying-changes&#34;&gt;Verifying changes&lt;/h2&gt;
-
-&lt;p&gt;Going back to the CSR1k&amp;rsquo;s CLI we should see our changes reflected in the running configuration:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;Router#sh run int gi 2
-Building configuration...
-
-Current configuration : 126 bytes
-!
-interface GigabitEthernet2
- description NETCONF-CONFIGURED PORT
- ip address 12.12.12.2 255.255.255.0
- negotiation auto
-end
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;all-in-one-scripts&#34;&gt;All-in-one scripts&lt;/h2&gt;
-
-&lt;p&gt;Checkout &lt;a href=&#34;https://github.com/networkop/yang&#34; target=&#34;_blank&#34;&gt;this&lt;/a&gt; Github page for Python scripts that implement the above workflow in a more organised way.&lt;/p&gt;
-
-&lt;hr /&gt;
-
-&lt;p&gt;In this post I have merely scratched the surface of YANG modelling and network device programming. In the following posts I am planning to take a closer look at the RESTCONF interface, internal structure of a YANG model, Ansible integration and other YANG-related topics until I run out of interest. So until that happens&amp;hellip; stay tuned.&lt;/p&gt;
 </description>
     </item>
     
