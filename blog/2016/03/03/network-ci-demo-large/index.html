@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Current network overview Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-large/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-large/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-large/">
+  <meta property="og:title" content="Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC | networkop">
+  <meta property="og:description" content="Current network overview Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2016-03-23T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2016-03-23T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2016-03-23 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      23 Mar 2016
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    4 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-large/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Network-CI%20Part%203%20-%20OSPF%20to%20BGP%20Migration%20in%20Active%2fStandby%20DC&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-large%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-large%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-large%2f&amp;title=Network-CI%20Part%203%20-%20OSPF%20to%20BGP%20Migration%20in%20Active%2fStandby%20DC"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Network-CI%20Part%203%20-%20OSPF%20to%20BGP%20Migration%20in%20Active%2fStandby%20DC&amp;body=https%3a%2f%2fnetworkop.co.uk%2fblog%2f2016%2f03%2f03%2fnetwork-ci-demo-large%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<h1 id="current-network-overview">Current network overview</h1>
+
+<p>Let&rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</p>
+
+<p><img src="/img/network-ci-dc-before.png" alt="Current network topology" /></p>
+
+<h1 id="target-network-overview">Target network overview</h1>
+
+<p>The task is to replace OSPF with BGP as the core routing protocol inside the Data Centre. There are many advantages to using BGP inside a DC, in our case they are:</p>
+
+<ul>
+<li>Enhanced traffic routing and filtering policies</li>
+<li>Reduced number of redistribution points</li>
+<li>Because Ivan Pepelnjak <a href="http://blog.ipspace.net/2016/02/using-bgp-in-data-center-fabrics.html" target="_blank">said so</a></li>
+</ul>
+
+<p>We&rsquo;re not going getting rid of OSPF completely, but rather reduce its function to a simple distribution of <em>internal</em> DC prefixes. BGP will be running on top of OSPF and distribute all the DC and WAN <em>summary</em> prefixes.</p>
+
+<p><img src="/img/network-ci-dc-after.png" alt="Target network topology" /></p>
+
+<h1 id="physical-topology-overview">Physical topology overview</h1>
+
+<p>Now let&rsquo;s take a closer look at the network that we&rsquo;re going to emulate. All green devices on the left-hand side constitute the <strong>Active</strong> Data Centre, that is where all the traffic will flow under normal conditions. All green devices have red <strong>Standby</strong> counterparts. These devices will pick up the function of traffic forwarding in case their green peer becomes unavailable.</p>
+
+<p><img src="/img/network-ci-dc-full.png" alt="Full demo topology" /></p>
+
+<p>When simulating a real-life network it&rsquo;s often impossible to fit an exact replica inside a network emulator. That&rsquo;s why using <strong>mock</strong> devices is a crucial part in every simulation. The function of a mock is to approximate a set of network devices. There&rsquo;s a number of mock devices on our diagram colour-coded in purple. These devices simulate the remaining parts of the network. For example, <strong>Cloud</strong> devices may represent <a href="abbr: Top-Of-the-Rack" target="_blank">TOR</a> switches, while <strong>MPLS/DMVPN</strong> devices represent remote WAN sites. Normally these devices will have some made-up configuration that best reflects real life, but not necessarily a copy-paste from an existing network device.</p>
+
+<p>It&rsquo;s also important to pick the right amount of mock devices to strike the balance between accuracy and complexity. For example, for WAN sites it may suffice to create one site per unique combination of WAN links to make sure WAN failover works as expected.</p>
+
+<h1 id="traffic-flow-definition">Traffic flow definition</h1>
+
+<p>Let&rsquo;s define how we would expect the traffic to flow through our network. Let&rsquo;s assume that we should always try to use MPLS links when possible and only use DMVPN when both MPLS links are down. This translates to the following order of WAN links&rsquo; precedence:</p>
+
+<ol>
+<li>Primary MPLS link</li>
+<li>Standby MPLS link</li>
+<li>Primary DMVPN link</li>
+<li>Standby DMVPN link</li>
+</ol>
+
+<p>Based on that we can create the following traffic flows definition for network working under normal conditions.</p>
+
+<pre><code>1 Failed None
+  From FW to MPLS-DMVPN via Primary-WAN, Primary-MPLS
+  From FW to DMVPN-ONLY via Primary-CORE-SW, Primary-DMVPN
+  From FW to MPLS-ONLY via Primary-WAN, Primary-MPLS
+  From Cloud-1 to FW Loopback0 via Primary-CORE-SW
+  From Cloud-2 to MPLS-DMVPN via Primary-WAN, Primary-MPLS
+</code></pre>
+
+<p>We expect all traffic to flow through active devices even when the path may be suboptimal, like it&rsquo;s the case with traffic from Cloud-2. Similarly, we can create traffic flows definitions for different failure conditions. The complete <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/tests/traffic_flows.txt" target="_blank">traffic flows definition file</a> contains 2 additional failure scenarios covering the outage of the primary MPLS link and a complete outage of the primary core switch.</p>
+
+<h1 id="workflow-example">Workflow example</h1>
+
+<p>This is how you would approach a project like this.</p>
+
+<ol>
+<li>Get a copy of network-ci <a href="http://networkop.github.io/blog/2016/02/25/network-ci-dev-setup/" target="_blank">VM</a></li>
+<li>Get a local copy of network-ci <a href="https://github.com/networkop/network-ci/tree/master/acme-large" target="_blank">tools</a></li>
+<li>Copy configuration from real-life devices into the <a href="https://github.com/networkop/network-ci/tree/master/acme-large/config" target="_blank">config directory</a></li>
+<li>Add configuration files for mock devices to the same directory</li>
+<li>Review the <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/topology.py" target="_blank">topology definition file</a> to make sure it reflects our physical diagram</li>
+<li>Review the UNL <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/unetlab.yml" target="_blank">configuration file</a> to make sure it points to the correct IP address assigned to your network-ci VM</li>
+<li>Kick-off topology build inside UNL by running <code>./0_built_topo.py</code> script</li>
+<li>Verify that traffic flows as expected with <code>2_test.py</code> script</li>
+<li>Start the real-time monitoring with <code>1_monitor.py</code> script</li>
+<li>Implement required changes on individual devices (all required changes can be found in <a href="https://github.com/networkop/network-ci/blob/master/acme-large/network/ospf-bgp.txt" target="_blank">ospf-bgp.txt</a> file)</li>
+<li>Make sure that the network still behaves as before by running <code>2_test.py</code> script</li>
+<li>Destroy the topology in UNL by running <code>3_destroy_topo.py</code></li>
+</ol>
+
+<h1 id="continuous-integration">Continuous Integration</h1>
+
+<p>In the <a href="http://networkop.github.io/blog/2016/03/03/network-ci-demo-small/" target="_blank">previous post</a> I&rsquo;ve showed how to use Jenkins to setup the CI environment for a small demo network. The same method can be applied to setup the job for our small Data Centre. It is simply a matter of changing the directory name from <strong>acme-small</strong> to <strong>acme-large</strong> in the first build step.</p>
+
+<h1 id="source-code">Source code</h1>
+
+<p>All code from this and previous posts is available on <a href="https://github.com/networkop/network-ci/tree/master/acme-large" target="_blank">Github</a></p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-ci">network-ci</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">DevOps</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/blog/2016/03/03/network-ci-demo-small/">Network-CI Part 2 - Small Network Demo</a></li>
+    
+    <li><a href="/blog/2016/02/25/network-ci-dev-setup/">Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins</a></li>
+    
+    <li><a href="/blog/2016/02/19/network-ci-intro/">Network Continuous Integration and Delivery</a></li>
+    
+    <li><a href="/blog/2016/01/17/rest-unl-advanced/">REST for Network Engineers Part 3 - Advanced Operations With UnetLab</a></li>
+    
+    <li><a href="/blog/2016/01/06/rest-basic-operations/">REST for Network Engineers Part 2 - Basic Operations With UnetLab</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
