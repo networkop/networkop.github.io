@@ -2,7 +2,7 @@
 title = "Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC"
 date = 2016-03-23T00:00:00Z
 categories = ["automation"]
-url = "/blog/2016/03/03/network-ci-demo-small/"
+url = "/blog/2016/03/03/network-ci-demo-large/"
 tags = ["network-ci", "DevOps"]
 summary = "The final post in a series demonstrates how to use the **network-ci** tools to safely replace a core routing protocol inside a small Active/Standby Data Centre"
 draft = false
