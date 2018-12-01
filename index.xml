@@ -11,6 +11,238 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</title>
+      <link>https://networkop.co.uk/post/2018-11-k8s-topo-p2/</link>
+      <pubDate>Sat, 01 Dec 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2018-11-k8s-topo-p2/</guid>
+      <description>
+
+&lt;p&gt;In the &lt;a href=&#34;https://networkop.co.uk/post/2018-11-k8s-topo-p1/&#34;&gt;previous post&lt;/a&gt; I&amp;rsquo;ve demonstrated a special-purpose CNI plugin for network simulations inside kubernetes called &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet&lt;/a&gt;. I&amp;rsquo;ve shown how relatively easy it is to build a simple 3-node topology spread across multiple kubernetes nodes. However, when it comes to real-life large-scale topology simulations, using meshnet &amp;ldquo;as is&amp;rdquo; becomes problematic due to the following reasons:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Uploading topology information into etcd requires a lot of manual effort.&lt;/li&gt;
+&lt;li&gt;Any customisation like startup configuration injection or exposure of internal ports is still a manual process.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;That is why I built &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; - an orchestrator for network simulations inside kubernetes. It automates a lot of these manual steps and provides a simple and user-friendly interface to create networks of any size and configuration.&lt;/p&gt;
+
+&lt;h1 id=&#34;k8s-topo-overview&#34;&gt;k8s-topo overview&lt;/h1&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; is a Python script that creates network topologies inside k8s based on a simple YAML file. It uses syntax similar to &lt;a href=&#34;https://github.com/networkop/arista-ceos-topo&#34; target=&#34;_blank&#34;&gt;docker-topo&lt;/a&gt; with a few modifications to account for the specifics of kubernetes environment. For instance, the following file is all what&amp;rsquo;s required to create and configure a simple 3-node topology:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;etcd_port: 32379
+links:
+  - endpoints: [&amp;quot;host-1:eth1:12.12.12.1/24&amp;quot;, &amp;quot;host-2:eth1:12.12.12.2/24&amp;quot;]
+  - endpoints: [&amp;quot;host-1:eth2:13.13.13.1/24&amp;quot;, &amp;quot;host-3:eth1:13.13.13.3/24&amp;quot;]
+  - endpoints: [&amp;quot;host-2:eth2:23.23.23.2/24&amp;quot;, &amp;quot;host-3:eth2:23.23.23.3/24&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Behind the scenes it uses &lt;a href=&#34;https://github.com/kubernetes-client/python&#34; target=&#34;_blank&#34;&gt;kubernetes&lt;/a&gt; and &lt;a href=&#34;https://github.com/kragniz/python-etcd3&#34; target=&#34;_blank&#34;&gt;etcd&lt;/a&gt; python libraries to accomplish the following things:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Upload topology information into etcd&lt;/li&gt;
+&lt;li&gt;Create a pod for each network device mentioned in the topology file&lt;/li&gt;
+&lt;li&gt;If present, mount devices startup configuration as volumes inside pods&lt;/li&gt;
+&lt;li&gt;Expose internal HTTPs port as a &lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/service/#nodeport&#34; target=&#34;_blank&#34;&gt;NodePort&lt;/a&gt; service for every device&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-topo.png&#34; alt=&#34;k8s-topo&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;At the time of writing, k8s-topo supported three devices types, that get matched based on the device hostname prefix:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Host device - an Alpine image, matched by prefix &lt;code&gt;host&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;cEOS device - an Arista cEOS image, matched by prefix &lt;code&gt;sw&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Quagga device - an Alpine image with Quagga package installed, matched by prefix &lt;code&gt;qrtr&lt;/code&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;As an optional extra, k8s-topo can generate a &lt;a href=&#34;https://www.tutorialspoint.com/d3js/d3js_graphs.htm&#34; target=&#34;_blank&#34;&gt;D3.js&lt;/a&gt; graph that visualises the deployed network topology on an interactive web graph as will be shown later.&lt;/p&gt;
+
+&lt;h1 id=&#34;installation&#34;&gt;Installation&lt;/h1&gt;
+
+&lt;p&gt;There are two main ways to install k8s-topo. The more traditional way will install k8s-topo as a python script on a local machine:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;pip3 install git+https://github.com/networkop/k8s-topo.git
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Another option is to install k8s-topo as a pod on top of a kubernetes cluster (it could be the same cluster that will be used for network simulations). For this option, we first need to build a k8s-topo docker image:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;build.sh &amp;lt;dockerhub_username&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;And then create a pod and its associated service:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl create -f kube-k8s-topo.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Technically, it doesn&amp;rsquo;t matter where the k8s-topo is installed as long as it can access the k8s cluster and meshnet&amp;rsquo;s etcd service. However, for the sake of simplicity, examples below will assume hosted k8s install, which means that we only need to specify the &lt;code&gt;etcd_port&lt;/code&gt; variable, leaving all others as default (e.g. &lt;code&gt;etcd_host = localhost&lt;/code&gt;).&lt;/p&gt;
+
+&lt;h1 id=&#34;random-topology-examples&#34;&gt;Random topology examples&lt;/h1&gt;
+
+&lt;p&gt;To demonstrate capabilities of our orchestrator, I&amp;rsquo;ve written a random topology &lt;a href=&#34;https://github.com/networkop/k8s-topo/blob/master/examples/builder/builder&#34; target=&#34;_blank&#34;&gt;builder script&lt;/a&gt; that generates a &lt;a href=&#34;https://en.wikipedia.org/wiki/Loop-erased_random_walk&#34; target=&#34;_blank&#34;&gt;uniform spanning tree&lt;/a&gt; graph, which is then used to create a topology definition YAML file along with a set of configuration files for each device. These configuration files accomplish two things:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Configure a unique Loopback IP address in the &lt;code&gt;198.51.100.0/24&lt;/code&gt; range&lt;/li&gt;
+&lt;li&gt;Enable OSPF on all directly connected interfaces&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The goal of this script is to be able to generate random large-scale network topologies that would be easy to test by simply ping-sweeping the range of all configured loopback addresses.&lt;/p&gt;
+
+&lt;p&gt;All following demos assume that meshnet CNI  plugin has already been installed, as described in the &lt;a href=&#34;https://networkop.co.uk/post/2018-11-k8s-topo-p1/&#34;&gt;previous post&lt;/a&gt;. Let&amp;rsquo;s start with a relatively small example of 50 cEOS containers.&lt;/p&gt;
+
+&lt;h2 id=&#34;building-a-50-node-ceos-topology&#34;&gt;Building a 50-node cEOS topology&lt;/h2&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Before we can start building cEOS topologies, we need to make the cEOS Docker image available in a private docker registry. Refer to the k8s-topo Github repository for a complete list of &lt;a href=&#34;https://github.com/networkop/k8s-topo#private-docker-registry-setup&#34; target=&#34;_blank&#34;&gt;instructions&lt;/a&gt;.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;First, we&amp;rsquo;ll generate a random 50-node topology. From inside the k8s-topo pod run:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./examples/builder/builder --prefix sw 50 0
+Total number of links generated: 49
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Prefix &lt;code&gt;sw&lt;/code&gt; ensures that configured devices will be based on Arista cEOS image.&lt;/p&gt;
+
+&lt;p&gt;Next, we can use k8s-topo to create our random topology inside k8s:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./bin/k8s-topo --create examples/builder/random.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Some of the versions of cEOS don&amp;rsquo;t have the &lt;code&gt;net.ipv4.ip_forward&lt;/code&gt; bit set which means no transit traffic will be allowed. In order to fix that, we can run the following command which modifies this setting on all running cEOS devices:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./bin/k8s-topo --eif examples/builder/random.yml
+INFO:__main__:All pods are running, trying to enable ip forwarding for cEOS pods
+INFO:__main__:All cEOS pods have IP forwarding enabled
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;To be able see the generated topology we can run the following command, which creates a D3 graph and prints the URL we can use to access it.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;/k8s-topo # ./bin/k8s-topo --graph examples/builder/random.yml
+INFO:__main__:D3 graph created
+INFO:__main__:URL: http://10.83.30.252:32080
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The built-in nginx server renders a simple interactive web page with each device coloured according to the k8s node they are running on (in my case there are 4 nodes in total):&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-topo-20.png&#34; alt=&#34;20-node&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;At this point we can run the ping-sweep test from any device to verify that we have complete end-to-end reachability:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;# kubectl exec -it sw-1 bash
+bash-4.3# for i in `seq 1 50`; do ping -c 1 -W 1 198.51.100.$i|grep from; done
+64 bytes from 198.51.100.1: icmp_seq=1 ttl=64 time=0.061 ms
+64 bytes from 198.51.100.2: icmp_seq=1 ttl=54 time=187 ms
+64 bytes from 198.51.100.3: icmp_seq=1 ttl=56 time=139 ms
+64 bytes from 198.51.100.4: icmp_seq=1 ttl=49 time=238 ms
+64 bytes from 198.51.100.5: icmp_seq=1 ttl=53 time=189 ms
+64 bytes from 198.51.100.6: icmp_seq=1 ttl=50 time=238 ms
+64 bytes from 198.51.100.7: icmp_seq=1 ttl=61 time=71.6 ms
+64 bytes from 198.51.100.8: icmp_seq=1 ttl=62 time=42.3 ms
+64 bytes from 198.51.100.9: icmp_seq=1 ttl=59 time=91.0 ms
+64 bytes from 198.51.100.10: icmp_seq=1 ttl=61 time=43.8 ms
+64 bytes from 198.51.100.11: icmp_seq=1 ttl=60 time=60.8 ms
+64 bytes from 198.51.100.12: icmp_seq=1 ttl=60 time=70.7 ms
+64 bytes from 198.51.100.13: icmp_seq=1 ttl=57 time=134 ms
+64 bytes from 198.51.100.14: icmp_seq=1 ttl=48 time=251 ms
+64 bytes from 198.51.100.15: icmp_seq=1 ttl=63 time=27.8 ms
+64 bytes from 198.51.100.16: icmp_seq=1 ttl=62 time=35.6 ms
+64 bytes from 198.51.100.17: icmp_seq=1 ttl=54 time=182 ms
+64 bytes from 198.51.100.18: icmp_seq=1 ttl=60 time=68.4 ms
+64 bytes from 198.51.100.19: icmp_seq=1 ttl=59 time=97.9 ms
+64 bytes from 198.51.100.20: icmp_seq=1 ttl=64 time=9.81 ms
+64 bytes from 198.51.100.21: icmp_seq=1 ttl=58 time=114 ms
+64 bytes from 198.51.100.22: icmp_seq=1 ttl=52 time=192 ms
+64 bytes from 198.51.100.23: icmp_seq=1 ttl=59 time=102 ms
+64 bytes from 198.51.100.24: icmp_seq=1 ttl=59 time=87.5 ms
+64 bytes from 198.51.100.25: icmp_seq=1 ttl=61 time=66.7 ms
+64 bytes from 198.51.100.26: icmp_seq=1 ttl=55 time=148 ms
+64 bytes from 198.51.100.27: icmp_seq=1 ttl=61 time=60.6 ms
+64 bytes from 198.51.100.28: icmp_seq=1 ttl=62 time=47.2 ms
+64 bytes from 198.51.100.29: icmp_seq=1 ttl=63 time=18.8 ms
+64 bytes from 198.51.100.30: icmp_seq=1 ttl=52 time=202 ms
+64 bytes from 198.51.100.31: icmp_seq=1 ttl=61 time=49.2 ms
+64 bytes from 198.51.100.32: icmp_seq=1 ttl=62 time=42.9 ms
+64 bytes from 198.51.100.33: icmp_seq=1 ttl=49 time=252 ms
+64 bytes from 198.51.100.34: icmp_seq=1 ttl=60 time=77.8 ms
+64 bytes from 198.51.100.35: icmp_seq=1 ttl=49 time=217 ms
+64 bytes from 198.51.100.36: icmp_seq=1 ttl=49 time=232 ms
+64 bytes from 198.51.100.37: icmp_seq=1 ttl=50 time=218 ms
+64 bytes from 198.51.100.38: icmp_seq=1 ttl=63 time=18.6 ms
+64 bytes from 198.51.100.39: icmp_seq=1 ttl=63 time=24.6 ms
+64 bytes from 198.51.100.40: icmp_seq=1 ttl=49 time=223 ms
+64 bytes from 198.51.100.41: icmp_seq=1 ttl=61 time=48.4 ms
+64 bytes from 198.51.100.42: icmp_seq=1 ttl=48 time=233 ms
+64 bytes from 198.51.100.43: icmp_seq=1 ttl=64 time=11.0 ms
+64 bytes from 198.51.100.44: icmp_seq=1 ttl=51 time=210 ms
+64 bytes from 198.51.100.45: icmp_seq=1 ttl=62 time=51.6 ms
+64 bytes from 198.51.100.46: icmp_seq=1 ttl=57 time=125 ms
+64 bytes from 198.51.100.47: icmp_seq=1 ttl=51 time=222 ms
+64 bytes from 198.51.100.48: icmp_seq=1 ttl=53 time=181 ms
+64 bytes from 198.51.100.49: icmp_seq=1 ttl=63 time=33.8 ms
+64 bytes from 198.51.100.50: icmp_seq=1 ttl=60 time=71.1 ms
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This test proves that &lt;code&gt;sw-1&lt;/code&gt; can reach the loopback IP of every other device in the topology and, since the topology does not have any redundant links, also proves that k8s-topo, together with meshnet, have interconnected all devices correctly. If we had incorrectly connected at least one of the links, the OSPF adjacency would not have formed (due to incorrect source IP in the OSPF hello on NBMA network) and some of the pings would have failed.&lt;/p&gt;
+
+&lt;p&gt;To destroy the network topology and clean-up any state stored in etcd, we can run the following command:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./bin/k8s-topo --destroy examples/builder/random.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;building-a-250-node-quagga-topology&#34;&gt;Building a 250-node Quagga topology&lt;/h2&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s take this up a notch and test a 250-node topology built out of Quagga containers. Once again, we&amp;rsquo;ll use the builder script to generate a random spanning-tree graph and create all the required configuration files:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./examples/builder/builder 250 0
+Total number of links generated: 249
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we can spin-up our 250-node topology:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./bin/k8s-topo --create examples/builder/random.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The generated graph is not as neat anymore but can be very handy when troubleshooting connectivity issues between different parts of topology&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-topo-200.png&#34; alt=&#34;200-node&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Finally, we can do a loopback ping-sweep test from any random node in our topology to prove that everything has been interconnected correctly:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;# kubectl exec -it qrtr-19 sh
+/ # for i in `seq 1 250`; do ping -c 1 -W 1 198.51.100.$i|grep from; done
+64 bytes from 198.51.100.1: seq=0 ttl=39 time=2.867 ms
+64 bytes from 198.51.100.2: seq=0 ttl=42 time=1.979 ms
+64 bytes from 198.51.100.3: seq=0 ttl=23 time=3.339 ms
+64 bytes from 198.51.100.4: seq=0 ttl=37 time=2.348 ms
+64 bytes from 198.51.100.5: seq=0 ttl=52 time=1.277 ms
+64 bytes from 198.51.100.6: seq=0 ttl=33 time=2.662 ms
+64 bytes from 198.51.100.7: seq=0 ttl=49 time=1.054 ms
+64 bytes from 198.51.100.8: seq=0 ttl=40 time=2.320 ms
+64 bytes from 198.51.100.9: seq=0 ttl=48 time=1.127 ms
+64 bytes from 198.51.100.10: seq=0 ttl=61 time=0.425 ms
+&amp;lt;...&amp;gt;
+64 bytes from 198.51.100.240: seq=0 ttl=50 time=1.101 ms
+64 bytes from 198.51.100.241: seq=0 ttl=62 time=0.254 ms
+64 bytes from 198.51.100.242: seq=0 ttl=35 time=2.288 ms
+64 bytes from 198.51.100.243: seq=0 ttl=51 time=0.939 ms
+64 bytes from 198.51.100.244: seq=0 ttl=32 time=2.468 ms
+64 bytes from 198.51.100.245: seq=0 ttl=64 time=0.523 ms
+64 bytes from 198.51.100.246: seq=0 ttl=44 time=1.452 ms
+64 bytes from 198.51.100.247: seq=0 ttl=41 time=1.705 ms
+64 bytes from 198.51.100.248: seq=0 ttl=44 time=1.429 ms
+64 bytes from 198.51.100.249: seq=0 ttl=42 time=1.722 ms
+64 bytes from 198.51.100.250: seq=0 ttl=34 time=1.968 ms
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
+
+&lt;p&gt;For a very long time, when building real-life virtual network topologies, we had to compromise on the number of real network devices that can be simulated. This led to topology simplification and often resulted in parts of the real network topologies either missed or collapsed into a single virtual device. With k8s-topo and meshnet CNI plugin, we can now build one-to-one replicas of physical network topologies of any size and complexity, without sacrificing the level of detail.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</title>
       <link>https://networkop.co.uk/post/2018-11-k8s-topo-p1/</link>
       <pubDate>Fri, 02 Nov 2018 00:00:00 +0000</pubDate>
@@ -3080,309 +3312,6 @@ router bgp 100
 &lt;h1 id=&#34;more-examples&#34;&gt;More examples&lt;/h1&gt;
 
 &lt;p&gt;You can find a shorter version of the above procedure in my &lt;a href=&#34;https://github.com/networkop/yang/tree/master/odl-101&#34; target=&#34;_blank&#34;&gt;ODL 101 repo&lt;/a&gt;.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Introduction to YANG Programming and RESTCONF on Cisco IOS XE</title>
-      <link>https://networkop.co.uk/blog/2017/02/15/restconf-yang/</link>
-      <pubDate>Wed, 15 Feb 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/02/15/restconf-yang/</guid>
-      <description>
-
-&lt;p&gt;In the &lt;a href=&#34;https://networkop.co.uk/blog/2017/01/25/netconf-intro/&#34;&gt;previous post&lt;/a&gt; I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard &lt;strong&gt;IETF&lt;/strong&gt; model. In this post I&amp;rsquo;ll show how to use Cisco&amp;rsquo;s &lt;strong&gt;native&lt;/strong&gt; YANG model to modify static IP routes. To make things even more interesting I&amp;rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.&lt;/p&gt;
-
-&lt;h1 id=&#34;restconf-primer&#34;&gt;RESTCONF primer&lt;/h1&gt;
-
-&lt;p&gt;&lt;a href=&#34;https://www.rfc-editor.org/rfc/rfc8040.txt&#34; target=&#34;_blank&#34;&gt;RESTCONF&lt;/a&gt; is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON. RESTCONF borrows the idea of Create-Read-Update-Delete operations on resources from &lt;a href=&#34;https://networkop.co.uk/blog/2016/01/01/rest-for-neteng/&#34;&gt;REST&lt;/a&gt; and maps them to YANG models and datastores. There is a direct relationship between NETCONF operations and RESTCONF HTTP verbs:&lt;/p&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;HTTP VERB&lt;/th&gt;
-&lt;th&gt;NETCONF OPERATION&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;POST&lt;/td&gt;
-&lt;td&gt;create&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;PUT&lt;/td&gt;
-&lt;td&gt;replace&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;PATCH&lt;/td&gt;
-&lt;td&gt;merge&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;DELETE&lt;/td&gt;
-&lt;td&gt;delete&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;GET&lt;/td&gt;
-&lt;td&gt;get/get-config&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;p&gt;Both RESTfullness and the ability to encode data as JSON make RESTCONF a very attractive choice for application developers. In this post, for the sake of simplicity, we&amp;rsquo;ll use Python CLI and &lt;code&gt;curl&lt;/code&gt; to interact with RESTCONF API. In the upcoming posts I&amp;rsquo;ll show how to implement the same functionality inside a simple Python library.&lt;/p&gt;
-
-&lt;h1 id=&#34;environment-setup&#34;&gt;Environment setup&lt;/h1&gt;
-
-&lt;p&gt;We&amp;rsquo;ll pick up from where we left our environment in the &lt;a href=&#34;https://networkop.co.uk/blog/2017/01/25/netconf-intro/&#34;&gt;previous post&lt;/a&gt; right after we&amp;rsquo;ve configured a network interface. The following IOS CLI command enables RESTCONF&amp;rsquo;s root URL at &lt;code&gt;http://192.168.145.51/restconf/api/&lt;/code&gt;&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;CSR1k(config)#restconf
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;You can start exploring the structure of RESTCONF interface starting at the root URL by specifying resource names separated by &amp;ldquo;/&amp;rdquo;. For example, the following command will return all configuration from Cisco&amp;rsquo;s native datastore.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;curl -v -k admin:admin http://192.168.145.51/restconfi/api/config/native?deep
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;In order to get JSON instead of the default XML output the client should specify JSON media type &lt;code&gt;application/vnd.yang.datastore+json&lt;/code&gt; and pass it in the &lt;code&gt;Accept&lt;/code&gt; header.&lt;/p&gt;
-
-&lt;h1 id=&#34;writing-a-yang-model&#34;&gt;Writing a YANG model&lt;/h1&gt;
-
-&lt;p&gt;&lt;a href=&#34;https://networkop.co.uk/blog/2017/01/25/netconf-intro/&#34;&gt;Normally&lt;/a&gt;, you would expect to download the YANG model from the device itself. However IOS XE&amp;rsquo;s NETCONF and RESTCONF support is so new that not all of the models are available. Specifically, Cisco&amp;rsquo;s native YANG model for static routing cannot be found in either &lt;a href=&#34;https://github.com/YangModels&#34; target=&#34;_blank&#34;&gt;Yang Github Repo&lt;/a&gt; or the device itself (via &lt;code&gt;get_schema&lt;/code&gt; RPC), which makes it a very good candidate for this post.&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;&lt;strong&gt;Update 13-02-2017&lt;/strong&gt;: As it turned out, the model was right under my nose the whole time. It&amp;rsquo;s called &lt;code&gt;ned&lt;/code&gt; and encapsulates the whole of Cisco&amp;rsquo;s native datastore. So think of everything that&amp;rsquo;s to follow as a simple learning exercise, however the point I raise in the closing paragraph still stands.&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;The first thing we need to do is get an understanding of the structure and naming convention of the YANG model. The simplest way to do that would be to make a change on the CLI and observe the result via RESTCONF.&lt;/p&gt;
-
-&lt;h2 id=&#34;retrieving-running-configuration-data&#34;&gt;Retrieving running configuration data&lt;/h2&gt;
-
-&lt;p&gt;Let&amp;rsquo;s start by adding the following static route to the IOS XE device:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ip route 2.2.2.2 255.255.255.255 GigabitEthernet2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Now we can view the configured static route via RESTCONF:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;curl -v -k -u admin:admin -H &amp;quot;Accept: application/vnd.yang.data+json&amp;quot; \
- http://192.168.145.51/restconf/api/config/native/ip/route?deep
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The returned output should look something like this:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;{ &amp;quot;ned:route&amp;quot;: {
-    &amp;quot;ip-route-interface-forwarding-list&amp;quot;: [
-      { &amp;quot;prefix&amp;quot;: &amp;quot;2.2.2.2&amp;quot;,
-        &amp;quot;mask&amp;quot;: &amp;quot;255.255.255.255&amp;quot;,
-        &amp;quot;fwd-list&amp;quot;: [ { &amp;quot;fwd&amp;quot;: &amp;quot;GigabitEthernet2&amp;quot; } ]
-      }
-    ]
-  }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This JSON object gives us a good understanding of how the YANG model should look like. The root element &lt;code&gt;route&lt;/code&gt; contains a list of IP prefixes, called &lt;code&gt;ip-route-interface-forwarding-list&lt;/code&gt;. Each element of this list contains values for IP network and mask as well as the list of next-hops called &lt;code&gt;fwd-list&lt;/code&gt;. Let&amp;rsquo;s see how we can map this to YANG model concepts.&lt;/p&gt;
-
-&lt;h2 id=&#34;building-a-simple-yang-model&#34;&gt;Building a simple YANG model&lt;/h2&gt;
-
-&lt;p&gt;YANG &lt;a href=&#34;https://tools.ietf.org/html/rfc6020&#34; target=&#34;_blank&#34;&gt;RFC&lt;/a&gt; defines a number of data structures to model an XML tree. Let&amp;rsquo;s first concentrate on the three most fundamental data structures that constitute the biggest part of any YANG model:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;Container&lt;/strong&gt; is a node of a tree with a unique name which encloses a set of child elements. In JSON it is mapped to a name/object pair &lt;code&gt;&#39;name&#39;: {...}&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Leaf&lt;/strong&gt; is a node which contains a value and does not contain any child elements. In JSON leaf is mapped to a single key/value pair &lt;code&gt;&#39;name&#39;: &#39;value&#39;&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;List&lt;/strong&gt; can be thought of as a table that contains a set rows (list entries). Each list entry can contain Leafs, Containers and other elements and can be uniquely identified by at least one Leaf element called a &lt;code&gt;key&lt;/code&gt;. In JSON lists are encoded as name/arrays pairs containing JSON objects &lt;code&gt;&#39;name&#39;: [{...}, {...}]&lt;/code&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Now let&amp;rsquo;s see how we can describe the received data in terms of the above data structures:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;The value of the topmost &lt;code&gt;route&lt;/code&gt; element is a JSON object, therefore it can only be mapped to a YANG container.&lt;/li&gt;
-&lt;li&gt;The value of &lt;code&gt;ip-route-interface-forwarding-list&lt;/code&gt; is an array of JSON objects, therefore it must be a list.&lt;/li&gt;
-&lt;li&gt;The only entry of this list contains &lt;code&gt;prefix&lt;/code&gt; and &lt;code&gt;mask&lt;/code&gt; key/value pairs. Since they don&amp;rsquo;t contain any child elements and their values are strings they can only be mapped to YANG leafs.&lt;/li&gt;
-&lt;li&gt;The third element, &lt;code&gt;fwd-list&lt;/code&gt;, is another YANG list and so far contains a single next-hop value inside a YANG leaf called &lt;code&gt;fwd&lt;/code&gt;.&lt;/li&gt;
-&lt;li&gt;Finally, since &lt;code&gt;fwd&lt;/code&gt; is the only leaf in the &lt;code&gt;fwd-list&lt;/code&gt; list, it must be that lists&amp;rsquo; key. The &lt;code&gt;ip-route-interface-forwarding-list&lt;/code&gt; list will have both &lt;code&gt;prefix&lt;/code&gt; and &lt;code&gt;mask&lt;/code&gt; as its key values since their combination represents a unique IP destination.&lt;br /&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;With all that in mind, this is how a skeleton of our YANG model will look like:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;module cisco-route-static {
-  namespace &amp;quot;http://cisco.com/ns/yang/ned/ios&amp;quot;;
-  prefix ned;
-  container route {
-    list ip-route-interface-forwarding-list {
-      key &amp;quot;prefix mask&amp;quot;;
-      leaf prefix { type string; }
-      leaf mask { type string; }
-      list fwd-list {
-        key &amp;quot;fwd&amp;quot;;
-        leaf fwd { type string; }
-      }
-    }
-  }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;YANG&amp;rsquo;s syntax is pretty light-weight and looks very similar to JSON. The topmost &lt;code&gt;module&lt;/code&gt; defines the model&amp;rsquo;s name and encloses all other elements. The first two statements are used to define XML namespace and prefix that I&amp;rsquo;ve described in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/01/25/netconf-intro/&#34;&gt;previous post&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h2 id=&#34;refactoring-a-yang-model&#34;&gt;Refactoring a YANG model&lt;/h2&gt;
-
-&lt;p&gt;At this stage the model can already be instantiated by &lt;strong&gt;pyang&lt;/strong&gt; and &lt;strong&gt;pyangbind&lt;/strong&gt;, however there&amp;rsquo;s a couple of very important changes and additions that I wanted to make to demonstrate some of the other features of YANG.&lt;/p&gt;
-
-&lt;p&gt;The first of them is common IETF data types. So far in our model we&amp;rsquo;ve assumed that prefix and mask can take &lt;strong&gt;any&lt;/strong&gt; value in string format. But what if we wanted to check that the values we use are, in fact, the correctly-formatted IPv4 addresses and netmasks before sending them to the device? That is where IETF common data types come to the rescue. All what we need to do is add an import statement to define which model to use and we can start referencing them in our type definitions:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;...
-import ietf-yang-types { prefix &amp;quot;yang&amp;quot;; }
-import ietf-inet-types { prefix &amp;quot;inet&amp;quot;; }
-...
-leaf prefix { type inet:ipv4-address; }
-leaf mask { type yang:dotted-quad; }
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This solves the problem for the prefix part of a static route but how about its next-hop? Next-hops can be defined as either strings (representing an interface name) or IPv4 addresses. To make sure we can use either of these two types in the &lt;code&gt;fwd&lt;/code&gt; leaf node we can define its type as a &lt;code&gt;union&lt;/code&gt;. This built-in type is literally a union, a logical OR, of all its member elements. This is how we can change the &lt;code&gt;fwd&lt;/code&gt; leaf definition:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;...
-typedef ip-next-hop {
-  type union {
-    type inet:ipv4-address;
-    type string;
-  }
-}
-...
-leaf fwd { type ip-next-hop; }
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;So far we&amp;rsquo;ve been concentrating on the simplest form of a static route, which doesn&amp;rsquo;t include any of the optional arguments. Let&amp;rsquo;s add the leaf nodes for name, AD, tag, track and permanent options of the static route:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;...
-leaf metric { type uint8; }
-leaf name { type string; }
-leaf tag { type uint8; }
-leaf track { type uint8; }
-leaf permanent { type empty; }
-...
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Since &lt;strong&gt;track&lt;/strong&gt; and &lt;strong&gt;permanent&lt;/strong&gt; options are mutually exclusive they should not appear in the configuration at the same time. To model that we can use the &lt;code&gt;choice&lt;/code&gt; YANG statement. Let&amp;rsquo;s remove the &lt;strong&gt;track&lt;/strong&gt; and &lt;strong&gt;permanent&lt;/strong&gt; leafs from the model and replace them with this:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;choice track-or-perm {
-  leaf track { type uint8; }
-  leaf permanent { type empty; }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;And finally, we need to add an options for VRF. When VRF is defined the whole &lt;code&gt;ip-route-interface-forwarding-list&lt;/code&gt; gets encapsulated inside a list called &lt;code&gt;vrf&lt;/code&gt;. This list has just one more leaf element &lt;code&gt;name&lt;/code&gt; which plays the role of this lists&amp;rsquo; key. In order to model this we can use another oft-used YANG concept called &lt;code&gt;grouping&lt;/code&gt;. I like to think of it as a Python function, a reusable part of code that can be referenced multiple times by its name. Here are the final changes to our model to include the VRF support:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;grouping ip-route-list {
-  list ip-route-interface-forwarding-list {
-      ...
-  }
-}
-grouping vrf-grouping {
-  list vrf {
-    key &amp;quot;name&amp;quot;;
-    leaf name { type string; }
-    uses ip-route-list;
-  }
-}
-container route {
-  uses vrf-grouping;
-  uses ip-route-list;
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Each element in a YANG model is optional by default, which means that the &lt;code&gt;route&lt;/code&gt; container can include any number of VRF and non-VRF routes. The full YANG model can be found &lt;a href=&#34;https://github.com/networkop/yang/blob/master/yang-101/cisco-route-static.yang&#34; target=&#34;_blank&#34;&gt;here&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h1 id=&#34;modifying-static-route-configuration&#34;&gt;Modifying static route configuration&lt;/h1&gt;
-
-&lt;p&gt;Now let me demonstrate how to use our newly built YANG model to change the next-hop of an existing static route. Using &lt;a href=&#34;https://github.com/mbj4668/pyang&#34; target=&#34;_blank&#34;&gt;pyang&lt;/a&gt; we need to generate a Python module based on the YANG model.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;pyang --plugindir $PYBINDPLUGIN -f pybind -o binding.py cisco-route-static.yang
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;From a Python shell, download the current static IP route configuration:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;import requests
-url = &amp;quot;http://{h}:{p}/restconf/api/config/native/ip/route?deep&amp;quot;.format(h=&#39;192.168.145.51&#39;, p=&#39;80&#39;)
-headers = {&#39;accept&#39;: &#39;application/vnd.yang.data+json&#39;}
-result = requests.get(url, auth=(&#39;admin&#39;, &#39;admin&#39;), headers=headers)
-current_json = result.text
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Import the downloaded JSON into a YANG model instance:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;import binding
-import pyangbind.lib.pybindJSON as pybindJSON
-model = pybindJSON.loads_ietf(current_json, binding, &amp;quot;cisco_route_static&amp;quot;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Delete the old next-hop and replace it with &lt;strong&gt;12.12.12.2&lt;/strong&gt;:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;route = model.route.ip_route_interface_forwarding_list[&amp;quot;2.2.2.2 255.255.255.255&amp;quot;]
-route.fwd_list.delete(&amp;quot;GigabitEthernet2&amp;quot;)
-route.fwd_list.add(&amp;quot;12.12.12.2&amp;quot;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Save the updated model in a JSON file with the help of a &lt;a href=&#34;https://github.com/networkop/yang/blob/master/yang-101/helpers.py&#34; target=&#34;_blank&#34;&gt;write_file&lt;/a&gt; function:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;json_data = pybindJSON.dumps(model, mode=&#39;ietf&#39;)
-write_file(&#39;new_conf.json&#39;, json_data)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;updating-running-configuration&#34;&gt;Updating running configuration&lt;/h1&gt;
-
-&lt;p&gt;If we tried sending the &lt;code&gt;new_conf.json&lt;/code&gt; file now, the device would have responded with an error:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;missing element: prefix in /ios:native/ios:ip/ios:route/ios:ip-route-interface-forwarding-list
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;In our JSON file the order of elements inside a JSON object can be different from what was defined in the YANG model. This is expected since one of the fundamental principles of JSON is that an object is an &lt;strong&gt;unordered&lt;/strong&gt; collection of name/value pairs. However it looks like behind the scenes IOS XE converts JSON to XML before processing and expects all elements to come in a strict, predefined order. Fortunately, this &lt;a href=&#34;https://github.com/CiscoDevNet/openconfig-getting-started/issues/4&#34; target=&#34;_blank&#34;&gt;bug&lt;/a&gt; is already known and we can hope that Cisco will implement the fix for IOS XE soon. In the meantime, we&amp;rsquo;re gonna have to resort to sending XML.&lt;/p&gt;
-
-&lt;p&gt;Following the procedure described in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/01/25/netconf-intro/&#34;&gt;previous post&lt;/a&gt;, we can use &lt;strong&gt;json2xml&lt;/strong&gt; tool to convert our instance into an XML document. Here we hit another issue. Since &lt;strong&gt;json2xml&lt;/strong&gt; was designed to produce a NETCONF-compliant XML, it wraps the payload inside a &lt;strong&gt;data&lt;/strong&gt; or a &lt;strong&gt;config&lt;/strong&gt; element. Thankfully, &lt;strong&gt;json2xml&lt;/strong&gt; is a Python script and can be easily patched to produce a RESTCONF-compliant XML. The following is a diff between the original and the patched files&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;408c409
-&amp;lt;     if args.target not in [&amp;quot;data&amp;quot;, &amp;quot;config&amp;quot;]:
-+++
-&amp;gt;     if args.target not in [&amp;quot;data&amp;quot;, &amp;quot;config&amp;quot;, &amp;quot;restconf&amp;quot;]:
-437c438,442
-&amp;lt;     ET.ElementTree(root_el).write(outfile, encoding=&amp;quot;utf-8&amp;quot;, xml_declaration=True)
-+++
-&amp;gt;     if args.target != &#39;restconf&#39;:
-&amp;gt;         ET.ElementTree(root_el).write(outfile, encoding=&amp;quot;utf-8&amp;quot;, xml_declaration=True)
-&amp;gt;     else:
-&amp;gt;         ET.ElementTree(list(root_el)[0]).write(outfile, encoding=&amp;quot;utf-8&amp;quot;, xml_declaration=True)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Instead of patching the original file, I&amp;rsquo;ve applied the above changes to a local copy of the file. Once patched, the following commands should produce the needed XML.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;pyang -f jtox -o static-route.jtox cisco-route-static.yang
-./json2xml -t restconf -o new_conf.xml static-route.jtox new_conf.json
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The final step would be to send the generated XML to the IOS XE device. Since we are replacing the old static IP route configuration we&amp;rsquo;re gonna have to use HTTP PUT to overwrite the old data.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;curl -v -k -u admin:admin -H &amp;quot;Content-Type: application/vnd.yang.data+xml&amp;quot; \
- -X PUT http://192.168.145.51/restconf/api/config/native/ip/route/ -d @new_conf.xml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;verification&#34;&gt;Verification&lt;/h1&gt;
-
-&lt;p&gt;Back at the IOS XE CLI we can see the new static IP route installed.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;TEST#sh run | i ip route
-ip route 2.2.2.2 255.255.255.255 12.12.12.2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;more-examples&#34;&gt;More examples&lt;/h1&gt;
-
-&lt;p&gt;As always there are more examples available in my &lt;a href=&#34;https://github.com/networkop/yang/tree/master/yang-101&#34; target=&#34;_blank&#34;&gt;YANG 101 repo&lt;/a&gt;&lt;/p&gt;
-
-&lt;hr /&gt;
-
-&lt;p&gt;The exercise we&amp;rsquo;ve done in this post, though useful from a learning perspective, can come in very handy when dealing with vendors who forget or simply don&amp;rsquo;t want to share their YANG models with their customers (I know of at least one vendor that would only publish tree representations of their YANG models). In the upcoming posts I&amp;rsquo;ll show how to create a simple Python library to program static routes via RESTCONF and finally how to build an Ansible module to do that.&lt;/p&gt;
 </description>
     </item>
     

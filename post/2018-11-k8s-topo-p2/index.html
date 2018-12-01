@@ -1,0 +1,693 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="In the previous post I&rsquo;ve demonstrated a special-purpose CNI plugin for network simulations inside kubernetes called meshnet. I&rsquo;ve shown how relatively easy it is to build a simple 3-node topology spread across multiple kubernetes nodes. However, when it comes to real-life large-scale topology simulations, using meshnet &ldquo;as is&rdquo; becomes problematic due to the following reasons:
+ Uploading topology information into etcd requires a lot of manual effort. Any customisation like startup configuration injection or exposure of internal ports is still a manual process.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2018-11-k8s-topo-p2/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2018-11-k8s-topo-p2/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2018-11-k8s-topo-p2/">
+  <meta property="og:title" content="Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration | networkop">
+  <meta property="og:description" content="In the previous post I&rsquo;ve demonstrated a special-purpose CNI plugin for network simulations inside kubernetes called meshnet. I&rsquo;ve shown how relatively easy it is to build a simple 3-node topology spread across multiple kubernetes nodes. However, when it comes to real-life large-scale topology simulations, using meshnet &ldquo;as is&rdquo; becomes problematic due to the following reasons:
+ Uploading topology information into etcd requires a lot of manual effort. Any customisation like startup configuration injection or exposure of internal ports is still a manual process.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2018-12-01T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2018-12-01T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2018-12-01 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      1 Dec 2018
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    9 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2018-11-k8s-topo-p2/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Large-scale%20network%20simulations%20in%20Kubernetes%2c%20Part%202%20-%20Network%20topology%20orchestration&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-11-k8s-topo-p2%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-11-k8s-topo-p2%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-11-k8s-topo-p2%2f&amp;title=Large-scale%20network%20simulations%20in%20Kubernetes%2c%20Part%202%20-%20Network%20topology%20orchestration"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Large-scale%20network%20simulations%20in%20Kubernetes%2c%20Part%202%20-%20Network%20topology%20orchestration&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2018-11-k8s-topo-p2%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>In the <a href="/post/2018-11-k8s-topo-p1/">previous post</a> I&rsquo;ve demonstrated a special-purpose CNI plugin for network simulations inside kubernetes called <a href="https://github.com/networkop/meshnet-cni" target="_blank">meshnet</a>. I&rsquo;ve shown how relatively easy it is to build a simple 3-node topology spread across multiple kubernetes nodes. However, when it comes to real-life large-scale topology simulations, using meshnet &ldquo;as is&rdquo; becomes problematic due to the following reasons:</p>
+
+<ol>
+<li>Uploading topology information into etcd requires a lot of manual effort.</li>
+<li>Any customisation like startup configuration injection or exposure of internal ports is still a manual process.</li>
+</ol>
+
+<p>That is why I built <a href="https://github.com/networkop/k8s-topo" target="_blank">k8s-topo</a> - an orchestrator for network simulations inside kubernetes. It automates a lot of these manual steps and provides a simple and user-friendly interface to create networks of any size and configuration.</p>
+
+<h1 id="k8s-topo-overview">k8s-topo overview</h1>
+
+<p><a href="https://github.com/networkop/k8s-topo" target="_blank">k8s-topo</a> is a Python script that creates network topologies inside k8s based on a simple YAML file. It uses syntax similar to <a href="https://github.com/networkop/arista-ceos-topo" target="_blank">docker-topo</a> with a few modifications to account for the specifics of kubernetes environment. For instance, the following file is all what&rsquo;s required to create and configure a simple 3-node topology:</p>
+
+<pre><code class="language-yaml">etcd_port: 32379
+links:
+  - endpoints: [&quot;host-1:eth1:12.12.12.1/24&quot;, &quot;host-2:eth1:12.12.12.2/24&quot;]
+  - endpoints: [&quot;host-1:eth2:13.13.13.1/24&quot;, &quot;host-3:eth1:13.13.13.3/24&quot;]
+  - endpoints: [&quot;host-2:eth2:23.23.23.2/24&quot;, &quot;host-3:eth2:23.23.23.3/24&quot;]
+</code></pre>
+
+<p>Behind the scenes it uses <a href="https://github.com/kubernetes-client/python" target="_blank">kubernetes</a> and <a href="https://github.com/kragniz/python-etcd3" target="_blank">etcd</a> python libraries to accomplish the following things:</p>
+
+<ul>
+<li>Upload topology information into etcd</li>
+<li>Create a pod for each network device mentioned in the topology file</li>
+<li>If present, mount devices startup configuration as volumes inside pods</li>
+<li>Expose internal HTTPs port as a <a href="https://kubernetes.io/docs/concepts/services-networking/service/#nodeport" target="_blank">NodePort</a> service for every device</li>
+</ul>
+
+<p><img src="/img/k8s-topo.png" alt="k8s-topo" /></p>
+
+<p>At the time of writing, k8s-topo supported three devices types, that get matched based on the device hostname prefix:</p>
+
+<ul>
+<li>Host device - an Alpine image, matched by prefix <code>host</code></li>
+<li>cEOS device - an Arista cEOS image, matched by prefix <code>sw</code></li>
+<li>Quagga device - an Alpine image with Quagga package installed, matched by prefix <code>qrtr</code></li>
+</ul>
+
+<p>As an optional extra, k8s-topo can generate a <a href="https://www.tutorialspoint.com/d3js/d3js_graphs.htm" target="_blank">D3.js</a> graph that visualises the deployed network topology on an interactive web graph as will be shown later.</p>
+
+<h1 id="installation">Installation</h1>
+
+<p>There are two main ways to install k8s-topo. The more traditional way will install k8s-topo as a python script on a local machine:</p>
+
+<pre><code>pip3 install git+https://github.com/networkop/k8s-topo.git
+</code></pre>
+
+<p>Another option is to install k8s-topo as a pod on top of a kubernetes cluster (it could be the same cluster that will be used for network simulations). For this option, we first need to build a k8s-topo docker image:</p>
+
+<pre><code>build.sh &lt;dockerhub_username&gt;
+</code></pre>
+
+<p>And then create a pod and its associated service:</p>
+
+<pre><code>kubectl create -f kube-k8s-topo.yml
+</code></pre>
+
+<p>Technically, it doesn&rsquo;t matter where the k8s-topo is installed as long as it can access the k8s cluster and meshnet&rsquo;s etcd service. However, for the sake of simplicity, examples below will assume hosted k8s install, which means that we only need to specify the <code>etcd_port</code> variable, leaving all others as default (e.g. <code>etcd_host = localhost</code>).</p>
+
+<h1 id="random-topology-examples">Random topology examples</h1>
+
+<p>To demonstrate capabilities of our orchestrator, I&rsquo;ve written a random topology <a href="https://github.com/networkop/k8s-topo/blob/master/examples/builder/builder" target="_blank">builder script</a> that generates a <a href="https://en.wikipedia.org/wiki/Loop-erased_random_walk" target="_blank">uniform spanning tree</a> graph, which is then used to create a topology definition YAML file along with a set of configuration files for each device. These configuration files accomplish two things:</p>
+
+<ul>
+<li>Configure a unique Loopback IP address in the <code>198.51.100.0/24</code> range</li>
+<li>Enable OSPF on all directly connected interfaces</li>
+</ul>
+
+<p>The goal of this script is to be able to generate random large-scale network topologies that would be easy to test by simply ping-sweeping the range of all configured loopback addresses.</p>
+
+<p>All following demos assume that meshnet CNI  plugin has already been installed, as described in the <a href="/post/2018-11-k8s-topo-p1/">previous post</a>. Let&rsquo;s start with a relatively small example of 50 cEOS containers.</p>
+
+<h2 id="building-a-50-node-ceos-topology">Building a 50-node cEOS topology</h2>
+
+<blockquote>
+<p>Before we can start building cEOS topologies, we need to make the cEOS Docker image available in a private docker registry. Refer to the k8s-topo Github repository for a complete list of <a href="https://github.com/networkop/k8s-topo#private-docker-registry-setup" target="_blank">instructions</a>.</p>
+</blockquote>
+
+<p>First, we&rsquo;ll generate a random 50-node topology. From inside the k8s-topo pod run:</p>
+
+<pre><code class="language-bash">./examples/builder/builder --prefix sw 50 0
+Total number of links generated: 49
+</code></pre>
+
+<p>Prefix <code>sw</code> ensures that configured devices will be based on Arista cEOS image.</p>
+
+<p>Next, we can use k8s-topo to create our random topology inside k8s:</p>
+
+<pre><code class="language-bash">./bin/k8s-topo --create examples/builder/random.yml
+</code></pre>
+
+<p>Some of the versions of cEOS don&rsquo;t have the <code>net.ipv4.ip_forward</code> bit set which means no transit traffic will be allowed. In order to fix that, we can run the following command which modifies this setting on all running cEOS devices:</p>
+
+<pre><code class="language-bash">./bin/k8s-topo --eif examples/builder/random.yml
+INFO:__main__:All pods are running, trying to enable ip forwarding for cEOS pods
+INFO:__main__:All cEOS pods have IP forwarding enabled
+</code></pre>
+
+<p>To be able see the generated topology we can run the following command, which creates a D3 graph and prints the URL we can use to access it.</p>
+
+<pre><code class="language-bash">/k8s-topo # ./bin/k8s-topo --graph examples/builder/random.yml
+INFO:__main__:D3 graph created
+INFO:__main__:URL: http://10.83.30.252:32080
+</code></pre>
+
+<p>The built-in nginx server renders a simple interactive web page with each device coloured according to the k8s node they are running on (in my case there are 4 nodes in total):</p>
+
+<p><img src="/img/k8s-topo-20.png" alt="20-node" /></p>
+
+<p>At this point we can run the ping-sweep test from any device to verify that we have complete end-to-end reachability:</p>
+
+<pre><code class="language-bash"># kubectl exec -it sw-1 bash
+bash-4.3# for i in `seq 1 50`; do ping -c 1 -W 1 198.51.100.$i|grep from; done
+64 bytes from 198.51.100.1: icmp_seq=1 ttl=64 time=0.061 ms
+64 bytes from 198.51.100.2: icmp_seq=1 ttl=54 time=187 ms
+64 bytes from 198.51.100.3: icmp_seq=1 ttl=56 time=139 ms
+64 bytes from 198.51.100.4: icmp_seq=1 ttl=49 time=238 ms
+64 bytes from 198.51.100.5: icmp_seq=1 ttl=53 time=189 ms
+64 bytes from 198.51.100.6: icmp_seq=1 ttl=50 time=238 ms
+64 bytes from 198.51.100.7: icmp_seq=1 ttl=61 time=71.6 ms
+64 bytes from 198.51.100.8: icmp_seq=1 ttl=62 time=42.3 ms
+64 bytes from 198.51.100.9: icmp_seq=1 ttl=59 time=91.0 ms
+64 bytes from 198.51.100.10: icmp_seq=1 ttl=61 time=43.8 ms
+64 bytes from 198.51.100.11: icmp_seq=1 ttl=60 time=60.8 ms
+64 bytes from 198.51.100.12: icmp_seq=1 ttl=60 time=70.7 ms
+64 bytes from 198.51.100.13: icmp_seq=1 ttl=57 time=134 ms
+64 bytes from 198.51.100.14: icmp_seq=1 ttl=48 time=251 ms
+64 bytes from 198.51.100.15: icmp_seq=1 ttl=63 time=27.8 ms
+64 bytes from 198.51.100.16: icmp_seq=1 ttl=62 time=35.6 ms
+64 bytes from 198.51.100.17: icmp_seq=1 ttl=54 time=182 ms
+64 bytes from 198.51.100.18: icmp_seq=1 ttl=60 time=68.4 ms
+64 bytes from 198.51.100.19: icmp_seq=1 ttl=59 time=97.9 ms
+64 bytes from 198.51.100.20: icmp_seq=1 ttl=64 time=9.81 ms
+64 bytes from 198.51.100.21: icmp_seq=1 ttl=58 time=114 ms
+64 bytes from 198.51.100.22: icmp_seq=1 ttl=52 time=192 ms
+64 bytes from 198.51.100.23: icmp_seq=1 ttl=59 time=102 ms
+64 bytes from 198.51.100.24: icmp_seq=1 ttl=59 time=87.5 ms
+64 bytes from 198.51.100.25: icmp_seq=1 ttl=61 time=66.7 ms
+64 bytes from 198.51.100.26: icmp_seq=1 ttl=55 time=148 ms
+64 bytes from 198.51.100.27: icmp_seq=1 ttl=61 time=60.6 ms
+64 bytes from 198.51.100.28: icmp_seq=1 ttl=62 time=47.2 ms
+64 bytes from 198.51.100.29: icmp_seq=1 ttl=63 time=18.8 ms
+64 bytes from 198.51.100.30: icmp_seq=1 ttl=52 time=202 ms
+64 bytes from 198.51.100.31: icmp_seq=1 ttl=61 time=49.2 ms
+64 bytes from 198.51.100.32: icmp_seq=1 ttl=62 time=42.9 ms
+64 bytes from 198.51.100.33: icmp_seq=1 ttl=49 time=252 ms
+64 bytes from 198.51.100.34: icmp_seq=1 ttl=60 time=77.8 ms
+64 bytes from 198.51.100.35: icmp_seq=1 ttl=49 time=217 ms
+64 bytes from 198.51.100.36: icmp_seq=1 ttl=49 time=232 ms
+64 bytes from 198.51.100.37: icmp_seq=1 ttl=50 time=218 ms
+64 bytes from 198.51.100.38: icmp_seq=1 ttl=63 time=18.6 ms
+64 bytes from 198.51.100.39: icmp_seq=1 ttl=63 time=24.6 ms
+64 bytes from 198.51.100.40: icmp_seq=1 ttl=49 time=223 ms
+64 bytes from 198.51.100.41: icmp_seq=1 ttl=61 time=48.4 ms
+64 bytes from 198.51.100.42: icmp_seq=1 ttl=48 time=233 ms
+64 bytes from 198.51.100.43: icmp_seq=1 ttl=64 time=11.0 ms
+64 bytes from 198.51.100.44: icmp_seq=1 ttl=51 time=210 ms
+64 bytes from 198.51.100.45: icmp_seq=1 ttl=62 time=51.6 ms
+64 bytes from 198.51.100.46: icmp_seq=1 ttl=57 time=125 ms
+64 bytes from 198.51.100.47: icmp_seq=1 ttl=51 time=222 ms
+64 bytes from 198.51.100.48: icmp_seq=1 ttl=53 time=181 ms
+64 bytes from 198.51.100.49: icmp_seq=1 ttl=63 time=33.8 ms
+64 bytes from 198.51.100.50: icmp_seq=1 ttl=60 time=71.1 ms
+</code></pre>
+
+<p>This test proves that <code>sw-1</code> can reach the loopback IP of every other device in the topology and, since the topology does not have any redundant links, also proves that k8s-topo, together with meshnet, have interconnected all devices correctly. If we had incorrectly connected at least one of the links, the OSPF adjacency would not have formed (due to incorrect source IP in the OSPF hello on NBMA network) and some of the pings would have failed.</p>
+
+<p>To destroy the network topology and clean-up any state stored in etcd, we can run the following command:</p>
+
+<pre><code>./bin/k8s-topo --destroy examples/builder/random.yml
+</code></pre>
+
+<h2 id="building-a-250-node-quagga-topology">Building a 250-node Quagga topology</h2>
+
+<p>Now let&rsquo;s take this up a notch and test a 250-node topology built out of Quagga containers. Once again, we&rsquo;ll use the builder script to generate a random spanning-tree graph and create all the required configuration files:</p>
+
+<pre><code class="language-bash">./examples/builder/builder 250 0
+Total number of links generated: 249
+</code></pre>
+
+<p>Now we can spin-up our 250-node topology:</p>
+
+<pre><code class="language-bash">./bin/k8s-topo --create examples/builder/random.yml
+</code></pre>
+
+<p>The generated graph is not as neat anymore but can be very handy when troubleshooting connectivity issues between different parts of topology</p>
+
+<p><img src="/img/k8s-topo-200.png" alt="200-node" /></p>
+
+<p>Finally, we can do a loopback ping-sweep test from any random node in our topology to prove that everything has been interconnected correctly:</p>
+
+<pre><code class="language-bash"># kubectl exec -it qrtr-19 sh
+/ # for i in `seq 1 250`; do ping -c 1 -W 1 198.51.100.$i|grep from; done
+64 bytes from 198.51.100.1: seq=0 ttl=39 time=2.867 ms
+64 bytes from 198.51.100.2: seq=0 ttl=42 time=1.979 ms
+64 bytes from 198.51.100.3: seq=0 ttl=23 time=3.339 ms
+64 bytes from 198.51.100.4: seq=0 ttl=37 time=2.348 ms
+64 bytes from 198.51.100.5: seq=0 ttl=52 time=1.277 ms
+64 bytes from 198.51.100.6: seq=0 ttl=33 time=2.662 ms
+64 bytes from 198.51.100.7: seq=0 ttl=49 time=1.054 ms
+64 bytes from 198.51.100.8: seq=0 ttl=40 time=2.320 ms
+64 bytes from 198.51.100.9: seq=0 ttl=48 time=1.127 ms
+64 bytes from 198.51.100.10: seq=0 ttl=61 time=0.425 ms
+&lt;...&gt;
+64 bytes from 198.51.100.240: seq=0 ttl=50 time=1.101 ms
+64 bytes from 198.51.100.241: seq=0 ttl=62 time=0.254 ms
+64 bytes from 198.51.100.242: seq=0 ttl=35 time=2.288 ms
+64 bytes from 198.51.100.243: seq=0 ttl=51 time=0.939 ms
+64 bytes from 198.51.100.244: seq=0 ttl=32 time=2.468 ms
+64 bytes from 198.51.100.245: seq=0 ttl=64 time=0.523 ms
+64 bytes from 198.51.100.246: seq=0 ttl=44 time=1.452 ms
+64 bytes from 198.51.100.247: seq=0 ttl=41 time=1.705 ms
+64 bytes from 198.51.100.248: seq=0 ttl=44 time=1.429 ms
+64 bytes from 198.51.100.249: seq=0 ttl=42 time=1.722 ms
+64 bytes from 198.51.100.250: seq=0 ttl=34 time=1.968 ms
+</code></pre>
+
+<h1 id="conclusion">Conclusion</h1>
+
+<p>For a very long time, when building real-life virtual network topologies, we had to compromise on the number of real network devices that can be simulated. This led to topology simplification and often resulted in parts of the real network topologies either missed or collapsed into a single virtual device. With k8s-topo and meshnet CNI plugin, we can now build one-to-one replicas of physical network topologies of any size and complexity, without sacrificing the level of detail.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/network-ci">network-ci</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2018-11-k8s-topo-p1/">Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</a></li>
+    
+    <li><a href="/post/2018-03-03-docker-multinet/">The problem of unpredictable interface order in multi-network Docker containers</a></li>
+    
+    <li><a href="/blog/2016/03/03/network-ci-demo-large/">Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC</a></li>
+    
+    <li><a href="/blog/2016/03/03/network-ci-demo-small/">Network-CI Part 2 - Small Network Demo</a></li>
+    
+    <li><a href="/blog/2016/02/25/network-ci-dev-setup/">Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
