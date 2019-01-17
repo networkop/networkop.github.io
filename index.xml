@@ -11,6 +11,219 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Multi-Vendor network Simulations at Scale with meshnet-cni and vrnetlab</title>
+      <link>https://networkop.co.uk/post/2019-01-k8s-vrnetlab/</link>
+      <pubDate>Thu, 17 Jan 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-01-k8s-vrnetlab/</guid>
+      <description>
+
+&lt;p&gt;In the &lt;a href=&#34;https://networkop.co.uk/post/2018-11-k8s-topo-p2/&#34;&gt;previous post&lt;/a&gt; I&amp;rsquo;ve demonstrated how to build virtual network topologies on top of Kubernetes with the help of &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet-cni&lt;/a&gt; plugin. As an example, I&amp;rsquo;ve shown topologies with 50 cEOS instances and 250 Quagga nodes. In both of these examples virtual network devices were running natively inside Docker containers, meaning they were running as (a set of) processes directly attached to the TCP/IP stack of the network namespace provided by the k8s pod. This works well for the native docker images, however, the overwhelming majority of virtual network devices are still being released as VMs. In addition to that, some of them require more than one VM and some special bootstrapping before they can they can be used for the first time. This means that in order to perform true multi-vendor network simulations, we need to find a way to run VMs inside containers, which, despite the seeming absurdity, is quite a common thing to do.&lt;/p&gt;
+
+&lt;h2 id=&#34;option-1-kubevirt&#34;&gt;Option 1 - kubevirt&lt;/h2&gt;
+
+&lt;p&gt;Kubevirt is a very popular project that provides the ability to run VMs inside k8s. It uses the power of &lt;a href=&#34;https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions&#34; target=&#34;_blank&#34;&gt;Custom Resource Definitions&lt;/a&gt; to extend the native k8s API to allow the definition of VM parameters (libvirt domainxml) same as you would do for any other native k8s resource. It runs each VM inside the containerised KVM hypervisor, attaching them to libvirt-managed networking stack.&lt;/p&gt;
+
+&lt;p&gt;However, since kubevirt is built for general-purpose VMs, making it work with virtual network devices requires a lot of work. Most of the bootstrapping tasks like startup configuration injection, disabling of ZTP and various OS-specific quirks like serial/video output selection for CSR or VCP reboot for VMX, would still need to be done after the pod is created. None of that is a major obstacle and hopefully virtual network OSs will also adopt standard server bootstrapping techniques like cloud-init, but until that happens we&amp;rsquo;d want to deal with those problems with as little effort as possible, which is where vrnetlab comes to the rescue.&lt;/p&gt;
+
+&lt;h2 id=&#34;option-2-vrnetlab&#34;&gt;Option 2 - vrnetlab&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://github.com/plajjan/vrnetlab&#34; target=&#34;_blank&#34;&gt;vrnetlab&lt;/a&gt; is an open-source project that runs virtual network devices in Docker containers for &amp;ldquo;convenient labbing, development and testing&amp;rdquo;. At the time of writing, vrnetlab supported close to a dozen of virtual NOSs across most of the major vendors:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Cisco - CSR, NXOS and XRV&lt;/li&gt;
+&lt;li&gt;Juniper - VMX and vQFX&lt;/li&gt;
+&lt;li&gt;Arista - vEOS&lt;/li&gt;
+&lt;li&gt;Nokia - VSR/SROS&lt;/li&gt;
+&lt;li&gt;Huawei - VRP&lt;/li&gt;
+&lt;li&gt;HP - VSR1000&lt;/li&gt;
+&lt;li&gt;Mikrotik - ROS&lt;/li&gt;
+&lt;li&gt;OpenWRT&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The way I see it, vrnetlab accomplishes two things:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Automates generation of Docker images from the original qcow2 or vmdk files&lt;/li&gt;
+&lt;li&gt;Interconnect virtual routers based on the user-defined topology&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;The above two things are loosely coupled and although vrnetlab docker images are built to expose VM&amp;rsquo;s network interfaces as TCP sockets (stitched together by the topology machine later), it&amp;rsquo;s still possible to use them for other purposes. My specific interest was to try and run vrnetlab images inside the kubernetes cluster with networking orchestrated by meshnet-cni.&lt;/p&gt;
+
+&lt;h2 id=&#34;patching-vrnetlab&#34;&gt;Patching vrnetlab&lt;/h2&gt;
+
+&lt;p&gt;Making it work turned out to be easier than I thought. All that I had to do was introduce a flag to control how the network interfaces are connected and add a special case for meshnet. This is a high-level logic of how the patch works:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;vrnetlab images now accept an additional optional argument called &lt;code&gt;--meshnet&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;this argument controls whether to connect VM to native docker interfaces or use the default TCP socket option&lt;/li&gt;
+&lt;li&gt;for every ethernet interface inside a container a bridge is created, enslaving this interface&lt;/li&gt;
+&lt;li&gt;VM is now attached to each one of those bridges instead of the TCP sockets&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;This patch is still in a &lt;a href=&#34;https://github.com/plajjan/vrnetlab/pull/188&#34; target=&#34;_blank&#34;&gt;pull request&lt;/a&gt; waiting to be tested so for the rest of this post I&amp;rsquo;ll be using &lt;a href=&#34;https://github.com/networkop/vrnetlab&#34; target=&#34;_blank&#34;&gt;my fork&lt;/a&gt;, which has all of these changes already merged.&lt;/p&gt;
+
+&lt;h2 id=&#34;demo&#34;&gt;Demo&lt;/h2&gt;
+
+&lt;p&gt;I&amp;rsquo;ll assume that the Kubernetes cluster is already installed along with both &lt;a href=&#34;https://networkop.co.uk/post/2018-11-k8s-topo-p1/&#34;&gt;meshnet-cni&lt;/a&gt; and &lt;a href=&#34;https://networkop.co.uk/post/2018-11-k8s-topo-p2/&#34;&gt;k8s-topo&lt;/a&gt;. For demonstration purposes, I&amp;rsquo;ll use a random topology with a mix of Juniper vMX (v17.2R1.13) and Cisco CSR1000v (v16.04.01) devices, both built using vrnetlab.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-vrnetlab.png&#34; alt=&#34;vrnetlab topology&#34; /&gt;&lt;/p&gt;
+
+&lt;h3 id=&#34;building-images&#34;&gt;Building images&lt;/h3&gt;
+
+&lt;p&gt;The first thing to do is download the patched version of vrnetlab:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;git clone --depth 1 https://github.com/networkop/vrnetlab.git
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now copy both images into their respective directories and for each one of them run:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;make docker-image
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The expected result is to have two local images that look something like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;core@node1 ~ $ docker images | grep vrnetlab
+vrnetlab/vr-csr   16.04.01    b701e7811221   2 days ago   1.76GB
+vrnetlab/vr-vmx   17.2R1.13   9a6af68dde78   2 days ago   4.7GB
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;uploading-images-to-a-private-registry&#34;&gt;Uploading images to a private registry&lt;/h3&gt;
+
+&lt;p&gt;Now we need to make these images available to all nodes in the cluster and the easiest way to do that is to upload them into a private docker registry. So from a node with cluster credentials, create a local registry:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl create -f https://raw.githubusercontent.com/networkop/k8s-topo/master/examples/docker-registry/docker-registry.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now use the service IP to create the registry URL variable:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;export REGISTRY=$(kubectl get service docker-registry -o json | jq -r &#39;.spec.clusterIP&#39;):5000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Assuming both images are stored on the localhost do:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker tag vrnetlab/vr-csr:16.04.01 $REGISTRY/vr-csr:16.04.01
+docker push $REGISTRY/vr-csr:16.04.01
+
+docker tag vrnetlab/vr-vmx:17.2R1.13 $REGISTRY/vr-vmx:17.2R1.13
+docker push $REGISTRY/vr-vmx:17.2R1.13
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Once uploaded, we can query the following registry URL to confirm that:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;curl -X GET http://$REGISTRY/v2/_catalog
+{&amp;quot;repositories&amp;quot;:[&amp;quot;vr-csr&amp;quot;,&amp;quot;vr-vmx&amp;quot;]}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;creating-the-network-topology&#34;&gt;Creating the network topology&lt;/h3&gt;
+
+&lt;p&gt;First, connect to the k8s-topo pod:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl exec -it k8s-topo sh
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Create the image URL environment variables for both CSR and vMX. These will later be used by the &lt;code&gt;k8s-topo&lt;/code&gt; script.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;export REGISTRY=$(kubectl get service docker-registry -o json | jq -r &#39;.spec.clusterIP&#39;):5000
+export CSR_IMAGE=$REGISTRY/vr-csr:16.04.01
+export VMX_IMAGE=$REGISTRY/vr-vmx:17.2R1.13
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Generate a random spanning-tree topology with a mix of vmx and csr devices. The prefix argument accepts a list of one or more prefixes which determine the image to be used for the device.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./examples/builder/builder 20 0 --prefix vmx csr
+Total number of links generated: 19
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now use the &lt;code&gt;k8s-topo&lt;/code&gt; script to create the topology and corresponding services:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./bin/k8s-topo --create examples/builder/random.yml 
+INFO:__main__:All data has been uploaded to etcd
+INFO:__main__:All pods have been created successfully
+INFO:__main__:
+ alias csr-8=&#39;ssh -p 30010 vrnetlab@localhost&#39;
+ alias vmx-15=&#39;ssh -p 30014 vrnetlab@localhost&#39;
+ alias csr-4=&#39;ssh -p 30008 vrnetlab@localhost&#39;
+ alias csr-14=&#39;ssh -p 30003 vrnetlab@localhost&#39;
+ alias vmx-19=&#39;ssh -p 30016 vrnetlab@localhost&#39;
+ alias vmx-11=&#39;ssh -p 30012 vrnetlab@localhost&#39;
+ alias vmx-5=&#39;ssh -p 30018 vrnetlab@localhost&#39;
+ alias csr-20=&#39;ssh -p 30007 vrnetlab@localhost&#39;
+ alias csr-16=&#39;ssh -p 30004 vrnetlab@localhost&#39;
+ alias csr-10=&#39;ssh -p 30001 vrnetlab@localhost&#39;
+ alias vmx-1=&#39;ssh -p 30011 vrnetlab@localhost&#39;
+ alias csr-2=&#39;ssh -p 30006 vrnetlab@localhost&#39;
+ alias vmx-13=&#39;ssh -p 30013 vrnetlab@localhost&#39;
+ alias vmx-17=&#39;ssh -p 30015 vrnetlab@localhost&#39;
+ alias csr-12=&#39;ssh -p 30002 vrnetlab@localhost&#39;
+ alias csr-18=&#39;ssh -p 30005 vrnetlab@localhost&#39;
+ alias csr-6=&#39;ssh -p 30009 vrnetlab@localhost&#39;
+ alias vmx-7=&#39;ssh -p 30019 vrnetlab@localhost&#39;
+ alias vmx-9=&#39;ssh -p 30020 vrnetlab@localhost&#39;
+ alias vmx-3=&#39;ssh -p 30017 vrnetlab@localhost&#39;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If LLDP is required between nodes, it can be enabled with this command:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./bin/k8s-topo --lldp examples/builder/random.yml 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;verification&#34;&gt;Verification&lt;/h3&gt;
+
+&lt;p&gt;Finally, it&amp;rsquo;s time to verify the connectivity between the nodes. Since all of the devices come up with minimal configuration, I&amp;rsquo;ll pick a random pair to demonstrate the LLDP and IP connectivity:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ vmx-11
+Warning: Permanently added &#39;[localhost]:30012&#39; (ECDSA) to the list of known hosts.
+Password:
+--- JUNOS 17.2R1.13 Kernel 64-bit  JNPR-10.3-20170523.350481_build
+vrnetlab&amp;gt; configure 
+Entering configuration mode
+vrnetlab# set interfaces ge-0/0/3 unit 0 family inet address 12.12.12.1/24 
+vrnetlab# set protocols lldp interface all 
+vrnetlab# set protocols lldp port-id-subtype interface-name 
+vrnetlab# commit and-quit 
+commit complete
+Exiting configuration mode
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;And now configure the other side of the link:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ csr-6
+Warning: Permanently added &#39;[localhost]:30009&#39; (RSA) to the list of known hosts.
+Password: 
+
+csr1000v#conf t
+Enter configuration commands, one per line.  End with CNTL/Z.
+csr1000v(config)#lldp run
+csr1000v(config)#int gigabitEthernet 2
+csr1000v(config-if)#ip address 12.12.12.2 255.255.255.0
+csr1000v(config-if)#no shut
+csr1000v(config-if)#exit
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At this point, both devices should be able to ping and see each other as LLDP neighbors.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;csr1000v#sh lldp neighbors 
+Capability codes:
+    (R) Router, (B) Bridge, (T) Telephone, (C) DOCSIS Cable Device
+    (W) WLAN Access Point, (P) Repeater, (S) Station, (O) Other
+
+Device ID           Local Intf     Hold-time  Capability      Port ID
+0005.86f0.f7c0      Gi2            120        B,R             ge-0/0/3
+
+Total entries displayed: 1
+
+csr1000v#ping 12.12.12.1
+Type escape sequence to abort.
+Sending 5, 100-byte ICMP Echos to 12.12.12.1, timeout is 2 seconds:
+!!!!!
+Success rate is 100 percent (5/5), round-trip min/avg/max = 2/8/18 ms
+csr1000v#
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</title>
       <link>https://networkop.co.uk/post/2018-11-k8s-topo-p2/</link>
       <pubDate>Sat, 01 Dec 2018 00:00:00 +0000</pubDate>
@@ -3048,270 +3261,6 @@ router:
 &lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;To see more example, follow &lt;a href=&#34;https://github.com/networkop/yang/tree/master/yaml-101&#34; target=&#34;_blank&#34;&gt;this link&lt;/a&gt; to my Github repo.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Configuring Cisco IOS XE With YDK and OpenDaylight</title>
-      <link>https://networkop.co.uk/blog/2017/02/22/odl-ydk/</link>
-      <pubDate>Wed, 22 Feb 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/02/22/odl-ydk/</guid>
-      <description>
-
-&lt;p&gt;In the previous posts about &lt;a href=&#34;https://networkop.co.uk/blog/2017/01/25/netconf-intro/&#34;&gt;NETCONF&lt;/a&gt; and &lt;a href=&#34;https://networkop.co.uk/blog/2017/02/15/restconf-yang/&#34;&gt;RESTCONF&lt;/a&gt; I&amp;rsquo;ve demonstrated how to interact with Cisco IOS XE device directly from the Linux shell of my development VM. This approach works fine in some cases, e.g. whenever I setup a new DC fabric, I would make calls directly to the devices I&amp;rsquo;m configuring. However, it becomes impractical in the Ops world where change is constant and involves a large number of devices. This is where centralised service orchestrators come to the fore. The prime examples of such platforms are Network Services Orchestrator from Tail-f/Cisco and open-source project OpenDaylight. In this post we&amp;rsquo;ll concentrate on ODL and how to make it work with Cisco IOS XE. Additionally, I&amp;rsquo;ll show how to use an open-source tool &lt;a href=&#34;https://developer.cisco.com/site/ydk/&#34; target=&#34;_blank&#34;&gt;YDK&lt;/a&gt; to generate Python bindings for native YANG models and how it compares with &lt;strong&gt;pyangbind&lt;/strong&gt;.&lt;/p&gt;
-
-&lt;h1 id=&#34;opendaylight-primer&#34;&gt;OpenDaylight primer&lt;/h1&gt;
-
-&lt;p&gt;OpenDaylight is a swiss army knife of SDN controllers. At the moment it is comprised of dozens of projects implementing all possible sorts of SDN functionality starting from Openflow controller all the way up to L3VPN orchestrator. ODL speaks most of the modern Southbound protocols like Openflow, SNMP, NETCONF and BGP. The brain of the controller is in the Service Abstraction Layer, a framework to model all network-related characteristics and properties. All logic inside SAL is modelled in YANG which is why I called it the godfather of YANG models. Towards the end users ODL exposes Java function calls for applications running on the same host and REST API for application running remotely.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/odl-sal.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;OpenDaylight has several commercial offerings from companies involved in its development. Most notable ones are from Brocade and Cisco. Here I will allow myself a bit of a rant, feel free to skip it to go straight to the technical stuff.&lt;/p&gt;
-
-&lt;p&gt;One thing I find interesting is that Cisco are being so secretive about their Open SDN Controller, perhaps due to the earlier market pressure to come up with a single SDN story, but still have a very large number of contributors to this open-source project. It could be the case of having an egg in each basket, but the number of Cisco&amp;rsquo;s employees involved in ODL development is substantial. I wonder if, now that the use cases for ACI and ODL have finally formed and ACI still not showing the uptake originally expected, Cisco will change their strategy and start promoting ODL more aggressively, or at least stop hiding it deep in the bowels of &lt;a href=&#34;cisco.com&#34; target=&#34;_blank&#34;&gt;cisco.com&lt;/a&gt;. Or, perhaps, it will always stay in the shade of Tail-f&amp;rsquo;s NSC and Insieme&amp;rsquo;s ACI and will be used only for customer with unique requirements, e.g. to have both OpenStack and network devices managed through the same controller.&lt;/p&gt;
-
-&lt;h1 id=&#34;environment-setup&#34;&gt;Environment setup&lt;/h1&gt;
-
-&lt;p&gt;We&amp;rsquo;ll use the same environment we&amp;rsquo;ve setup in the &lt;a href=&#34;https://networkop.co.uk/blog/2017/01/25/netconf-intro/&#34;&gt;previous posts&lt;/a&gt;, consisting of a CSR1K and a Linux VM connected to the same network inside my hypervisor. IOS XE device needs to have &lt;code&gt;netconf-yang&lt;/code&gt; configured in order to enable the northbound NETCONF interface.&lt;/p&gt;
-
-&lt;p&gt;On the same Linux VM, I&amp;rsquo;ve downloaded and launched the latest version of ODL (Boron-SR2), and enabled NETCONF and RESTCONF plugins.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;unzip distribution-karaf-0.5.2-Boron-SR2.zip
-mv distribution-karaf-0.5.2-Boron-SR2 odl-0.5.2
-cd odl-0.5.2/
-./bin/karaf
-opendaylight-user@root&amp;gt;feature:install odl-netconf-connector-all
-opendaylight-user@root&amp;gt;feature:install odl-restconf-all
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;We&amp;rsquo;ll use NETCONF to connect to Cisco IOS XE device and RESTCONF to interact with ODL from a Linux shell.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/odl-ydk.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;It might be useful to turn on logging in karaf console to catch any errors we might encounter later:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;opendaylight-user@root&amp;gt;log:tail
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;connecting-ios-xe-to-odl&#34;&gt;Connecting IOS XE to ODL&lt;/h1&gt;
-
-&lt;p&gt;According to ODL &lt;a href=&#34;http://docs.opendaylight.org/en/stable-boron/user-guide/netconf-user-guide.html&#34; target=&#34;_blank&#34;&gt;NETCONF&lt;/a&gt; user guide, in order to connect a new device to the controller, we need to create an XML document which will include the IP, port and user credentials of the IOS XE device. Here&amp;rsquo;s the excerpt from the &lt;a href=&#34;https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1&#34; target=&#34;_blank&#34;&gt;full XML document&lt;/a&gt;:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-xml&#34;&gt;&amp;lt;module xmlns=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:config&amp;quot;&amp;gt;
-  &amp;lt;type xmlns:prefix=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&amp;quot;&amp;gt;prefix:sal-netconf-connector&amp;lt;/type&amp;gt;
-  &amp;lt;name&amp;gt;CSR1K&amp;lt;/name&amp;gt;
-  &amp;lt;address xmlns=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&amp;quot;&amp;gt;192.168.145.51&amp;lt;/address&amp;gt;
-  &amp;lt;port xmlns=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&amp;quot;&amp;gt;830&amp;lt;/port&amp;gt;
-  &amp;lt;username xmlns=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&amp;quot;&amp;gt;admin&amp;lt;/username&amp;gt;
-  &amp;lt;password xmlns=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&amp;quot;&amp;gt;admin&amp;lt;/password&amp;gt;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Assuming this XML is saved in a file called &lt;a href=&#34;https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.1&#34; target=&#34;_blank&#34;&gt;new_device.xml.1&lt;/a&gt;, we can use &lt;code&gt;curl&lt;/code&gt; to send it to ODL&amp;rsquo;s netconf-connector plugin:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;curl -v -k -u admin:admin -H &amp;quot;Content-Type: application/xml&amp;quot; -X POST \
- http://localhost:8181/restconf/config/network-topology:network-topology\
- /topology/topology-netconf/node/controller-config/yang-ext:mount/config:modules\
-  -d @new_device.xml.1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;When the controller gets this information it will try to connect to the device via NETCONF and do the following three things:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Discover device capabilities advertised in the Hello message&lt;/li&gt;
-&lt;li&gt;Download all YANG models advertised by the device into the &lt;code&gt;./cache/schema&lt;/code&gt; directory&lt;/li&gt;
-&lt;li&gt;Go through all of the imports in each model and verify that they can be satisfied&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;After ODL downloads all of the 260 available models (can take up to 20 minutes) we will see the following errors in the karaf console:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;Netconf device does not provide all yang models reported in hello message capabilities
-Unable to build schema context, unsatisfied imports
-Initialization in sal failed, disconnecting from device
-No more sources for schema context
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Due to inconsistencies between the advertised and the available models, ODL fails to build the full device YANG schema context, which ultimately results in inability to connect the device to the controller. However, we won&amp;rsquo;t need all of the 260 models advertised by the device. In fact, most of the configuration can be done through a single Cisco native YANG model, &lt;code&gt;ned&lt;/code&gt;. With ODL it is possible to override the default capabilities advertised in the Hello message and &amp;ldquo;pin&amp;rdquo; only the ones that are going to be used. Assuming that ODL has downloaded most of the models at the previous step, we can simply tell it use the selected few with the following additions to the &lt;a href=&#34;https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2&#34; target=&#34;_blank&#34;&gt;XML document&lt;/a&gt;:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-xml&#34;&gt;&amp;lt;yang-module-capabilities xmlns=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&amp;quot;&amp;gt;
-    &amp;lt;override&amp;gt;true&amp;lt;/override&amp;gt;
-    &amp;lt;capability xmlns=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&amp;quot;&amp;gt;
-      urn:ietf:params:xml:ns:yang:ietf-inet-types?module=ietf-inet-types&amp;amp;amp;revision=2013-07-15
-    &amp;lt;/capability&amp;gt;
-    &amp;lt;capability xmlns=&amp;quot;urn:opendaylight:params:xml:ns:yang:controller:md:sal:connector:netconf&amp;quot;&amp;gt;
-      http://cisco.com/ns/yang/ned/ios?module=ned&amp;amp;amp;revision=2016-10-24
-    &amp;lt;/capability&amp;gt;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Assuming the updated XML is saved in &lt;a href=&#34;https://github.com/networkop/yang/blob/master/odl-101/new_device.xml.2&#34; target=&#34;_blank&#34;&gt;new_device.xml.2&lt;/a&gt; file, the following command will update the current configuration of &lt;strong&gt;CSR1K&lt;/strong&gt; device:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;curl -v -k -u admin:admin -H &amp;quot;Content-Type: application/xml&amp;quot; -X PUT \
-http://localhost:8181/restconf/config/network-topology:network-topology\
-/topology/topology-netconf/node/controller-config\
-/yang-ext:mount/config:modules/module\
-/odl-sal-netconf-connector-cfg:sal-netconf-connector\
-/CSR1K -d @new_device.xml.2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;We can then verify that the device has been successfully mounted to the controller:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;curl -v -k -u admin:admin http://localhost:8181/restconf/operational\
-/network-topology:network-topology/ | python -m json.tool
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The output should look similar to the following with the connection-status set to &lt;code&gt;connected&lt;/code&gt; and no detected &lt;code&gt;unavailable-capabilities&lt;/code&gt;:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;&amp;quot;netconf-node-topology:connection-status&amp;quot;: &amp;quot;connected&amp;quot;,
-&amp;quot;netconf-node-topology:host&amp;quot;: &amp;quot;192.168.145.51&amp;quot;,
-&amp;quot;netconf-node-topology:port&amp;quot;: 830,
-&amp;quot;netconf-node-topology:unavailable-capabilities&amp;quot;: {},
-&amp;quot;node-id&amp;quot;: &amp;quot;CSR1K&amp;quot;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At this point we should be able to interact with IOS XE&amp;rsquo;s native YANG model through ODL&amp;rsquo;s RESTCONF interface using the following URL&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt; http://localhost:8181/restconf/config/network-topology:network-topology\
- /topology/topology-netconf/node/CSR1K/yang-ext:mount/ned:native
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The only thing that&amp;rsquo;s missing is the actual configuration data. To generate it, I&amp;rsquo;ll use a new open-source tool called YDK.&lt;/p&gt;
-
-&lt;h1 id=&#34;ydk-primer&#34;&gt;YDK primer&lt;/h1&gt;
-
-&lt;p&gt;Yang Development Kit is a suite of tools to work with NETCONF/RESTCONF interfaces of a network device. The way I see it, YDK accomplishes two things:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Generates API bindings for programming languages (Python and C++) from YANG models&lt;/li&gt;
-&lt;li&gt;Creates an abstraction layer to interact with southbound protocols (NETCONF or RESTCONF) in a uniform way&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;There&amp;rsquo;s a lot of overlap between the tools that we&amp;rsquo;ve used &lt;a href=&#34;https://networkop.co.uk/blog/2017/02/15/restconf-yang/&#34;&gt;before&lt;/a&gt; and YDK. Effectively YDK combines in itself the functions of a NETCONF client, a REST client, pyangbind and pyang(the latter is used internally for model verification). Since one of the main functions of YDK is API generation I thought it&amp;rsquo;d be interesting to know how it compares to Rob Shakir&amp;rsquo;s &lt;strong&gt;pyangbind&lt;/strong&gt; plugin. The following information is what I&amp;rsquo;ve managed to find on the Internet and from the comment of Santiago Alvarez below:&lt;/p&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;Feature&lt;/th&gt;
-&lt;th&gt;Pyangbind&lt;/th&gt;
-&lt;th&gt;YDK&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;PL support&lt;/td&gt;
-&lt;td&gt;Python&lt;/td&gt;
-&lt;td&gt;Python, C++ with Ruby and Go in the pipeline&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;Serialization&lt;/td&gt;
-&lt;td&gt;JSON, XML&lt;/td&gt;
-&lt;td&gt;only XML &lt;a href=&#34;https://github.com/CiscoDevNet/ydk-gen/blob/master/sdk/python/core/ydk/providers/codec_provider.py#L53&#34; target=&#34;_blank&#34;&gt;at this stage&lt;/a&gt; with JSON coming up in a few weeks&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;Southbound interfaces&lt;/td&gt;
-&lt;td&gt;N/A&lt;/td&gt;
-&lt;td&gt;NETCONF, RESTCONF with ODL coming up in a few weeks&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;Support&lt;/td&gt;
-&lt;td&gt;Cisco&amp;rsquo;s devnet team&lt;/td&gt;
-&lt;td&gt;Rob Shakir&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;p&gt;So it looks like YDK is a very promising alternative to &lt;strong&gt;pyangbind&lt;/strong&gt;, however I, personally, would still prefer to use &lt;strong&gt;pyangbind&lt;/strong&gt; due to familiarity, simplicity and the fact that I don&amp;rsquo;t need the above extra features offered by YDK right now. However, given that YDK has been able to achieve so much in just under one year of its existence, I don&amp;rsquo;t discount the possibility that I may switch to YDK as it becomes more mature and feature-rich.&lt;/p&gt;
-
-&lt;h1 id=&#34;python-binding-generation-with-ydk-gen&#34;&gt;Python binding generation with YDK-GEN&lt;/h1&gt;
-
-&lt;p&gt;One of the first things we need to do is install YDK-GEN, the tools responsible for API bindings generation, and it&amp;rsquo;s core Python packages on the local machine. The following few commands are my version of the official &lt;a href=&#34;https://github.com/CiscoDevNet/ydk-gen&#34; target=&#34;_blank&#34;&gt;installation procedure&lt;/a&gt;:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;git clone https://github.com/CiscoDevNet/ydk-gen.git ~/ydk-gen
-pip install -r ~/ydk-gen/requirements.txt
-export YDKGEN_HOME=~/ydk-gen/
-~/ydk-gen/generate.py --python --core
-pip install ~/ydk-gen/gen-api/python/ydk/dist/ydk*.tar.gz
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;YDK-GEN generates Python bindings based on the so-called &lt;strong&gt;bundle profile&lt;/strong&gt;. This is a simple JSON document which lists all YANG models to include in the output package. In our case we&amp;rsquo;d need to include a &lt;code&gt;ned&lt;/code&gt; model along with all its imports. The sample below shows only the model specification. Refer to my &lt;a href=&#34;https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json&#34; target=&#34;_blank&#34;&gt;Github repo&lt;/a&gt; for a complete bundle profile for Cisco IOS XE native YANG model.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;{&amp;quot;models&amp;quot;:{&amp;quot;git&amp;quot;:[{&amp;quot;url&amp;quot;:&amp;quot;https://github.com/YangModels/yang.git&amp;quot;,
-  &amp;quot;commits&amp;quot;:[{&amp;quot;commitid&amp;quot;:&amp;quot;6f4a025431103f8cbbf3405ce01bdc61d0811b1d&amp;quot;,
-    &amp;quot;file&amp;quot;:[&amp;quot;vendor/cisco/xe/1641/ned.yang&amp;quot;,
-      &amp;quot;vendor/cisco/xe/1641/tailf-common.yang&amp;quot;,
-      &amp;quot;vendor/cisco/xe/1641/tailf-meta-extensions.yang&amp;quot;,
-      &amp;quot;vendor/cisco/xe/1641/tailf-cli-extensions.yang&amp;quot;,
-      &amp;quot;standard/ietf/RFC/ietf-inet-types.yang&amp;quot;,
-      &amp;quot;standard/ietf/RFC/ietf-yang-types.yang&amp;quot;]
-      }]}]}}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Assuming that the IOS XE bundle profile is saved in a file called &lt;a href=&#34;https://github.com/networkop/yang/blob/master/odl-101/cisco-ios-xe_0_1_0.json&#34; target=&#34;_blank&#34;&gt;cisco-ios-xe_0_1_0.json&lt;/a&gt;, we can use YDK to generate and install the Python binding package:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;~/ydk-gen/generate.py --python --bundle cisco-ios-xe_0_1_0.json -v
-pip install ~/ydk-gen/gen-api/python/cisco_ios_xe-bundle/dist/ydk*.tar.gz
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;configuring-bgp-with-ydk&#34;&gt;Configuring BGP with YDK&lt;/h1&gt;
-
-&lt;p&gt;Now we can start configuring BGP using our newly generated Python package. First, we need to create an instance of BGP configuration data:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;from ydk.models.cisco_ios_xe.ned import Native
-bgp = Native().router.Bgp()
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The configuration will follow the pattern defined in the original model, which is why it&amp;rsquo;s important to understand &lt;a href=&#34;https://networkop.co.uk/blog/2017/02/15/restconf-yang/&#34;&gt;the internal structure&lt;/a&gt; of a YANG model. YANG leafs are represented as simple instance attributes. All YANG containers need to be explicitly instantiated, just like the &lt;code&gt;Native&lt;/code&gt; and &lt;code&gt;Bgp&lt;/code&gt; classes in the example above. Presence containers (&lt;code&gt;router&lt;/code&gt; in the above example) will be instantiated at the same time as its parent container, inside the &lt;code&gt;__init__&lt;/code&gt; function of the &lt;code&gt;Native&lt;/code&gt; class. Don&amp;rsquo;t worry if this doesn&amp;rsquo;t make sense, use &lt;strong&gt;iPython&lt;/strong&gt; or any IDE with autocompletion and after a few tries, you&amp;rsquo;ll get the hang of it.&lt;/p&gt;
-
-&lt;p&gt;Let&amp;rsquo;s see how we can set the local BGP AS number and add a new BGP peer to the neighbor list.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;bgp.id = 100
-new_neighbor = bgp.Neighbor()
-new_neighbor.id = &#39;2.2.2.2&#39;
-new_neighbor.remote_as = 65100
-bgp.neighbor.append(new_neighbor)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At this point of time all data is stored inside the instance of a &lt;code&gt;Bgp&lt;/code&gt; class. In order to get an XML representation of it, we need to use YDK&amp;rsquo;s XML provider and encoding service:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;from ydk.providers import CodecServiceProvider
-from ydk.services import CodecService
-provider = CodecServiceProvider(type=&amp;quot;xml&amp;quot;)
-codec = CodecService()
-xml_string = codec.encode(provider, bgp)
-print xml_string
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;All what we&amp;rsquo;ve got left now is to send the data to ODL:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;import requests
-url = (&amp;quot;http://localhost:8181/restconf&amp;quot;
-       &amp;quot;/config/network-topology:network-topology&amp;quot;
-       &amp;quot;/topology/topology-netconf/node&amp;quot;
-       &amp;quot;/CSR1K/yang-ext:mount/ned:native&amp;quot;
-       &amp;quot;/router&amp;quot;)
-headers = {&#39;Content-Type&#39;: &#39;application/xml&#39;}
-result = requests.post(url, auth=(&#39;admin&#39;, &#39;admin&#39;), headers=headers, data=xml_string)
-print result.status_code
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The controller should have returned the status code &lt;code&gt;204 No Content&lt;/code&gt;, meaning that configuration has been changed successfully.&lt;/p&gt;
-
-&lt;h1 id=&#34;verification&#34;&gt;Verification&lt;/h1&gt;
-
-&lt;p&gt;Back at the IOS XE CLI we can see the new BGP configuration that has been pushed down from the controller.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;TEST#sh run | i router
-router bgp 100
- bgp log-neighbor-changes
- neighbor 2.2.2.2 remote-as 65100
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;more-examples&#34;&gt;More examples&lt;/h1&gt;
-
-&lt;p&gt;You can find a shorter version of the above procedure in my &lt;a href=&#34;https://github.com/networkop/yang/tree/master/odl-101&#34; target=&#34;_blank&#34;&gt;ODL 101 repo&lt;/a&gt;.&lt;/p&gt;
 </description>
     </item>
     
