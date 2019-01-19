@@ -33,6 +33,6 @@ weight = 50
 
 # Who is this guy?
 
-Michael Kashin is a network engineer, CCIE #42378, focused on architecture, integration and automation of new network deployments for Telco and Enterprise customers. He has 10+ years of experience designing scale-out networking solutions in complex heterogeneous environments. His interests extend into other areas of IT stack like compute virtualization and DevOps that's why most of the posts in this blog are about network automation and SDN. 
+Network Architect, CCIE with software engineering experience. I like solving complex problems and building solutions that span multiple layers of IT stack.
 
 **All information and opinions in this blog are my own and do not reflect the views of my current, past of future employers**. Please use all provided code at your own peril.
