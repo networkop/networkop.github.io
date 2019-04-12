@@ -359,8 +359,8 @@
 <li>Download cirros and CumulusVX images and upload them to Glance</li>
 <li>Create a virtual network</li>
 <li>Update security rules to allow inbound ICMP and SSH connections</li>
-<li>Create a pair of VMs - one based on cirros and one based on CumulusVX image</li>
-</ol>
+
+<li><p>Create a pair of VMs - one based on cirros and one based on CumulusVX image</p>
 
 <pre><code>curl -L -o ./cirros http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
 curl -L -o ./cumulusVX http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2
@@ -376,8 +376,8 @@ rm ./cumulusVX
 openstack network create --provider-network-type vxlan irb-net
 
 openstack subnet create --subnet-range 10.0.100.160/27 --network irb-net \
-      --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
-      --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
+  --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
+  --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
 
 openstack flavor create --id 1 --ram 256 --disk 1 --vcpus 1 m1.nano
 openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
@@ -385,13 +385,14 @@ openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
 ADMIN_PROJECT_ID=$(openstack project show 'admin' -f value -c id)
 ADMIN_SEC_GROUP=$(openstack security group list --project ${ADMIN_PROJECT_ID} | awk '/ default / {print $2}')
 openstack security group rule create --ingress --ethertype IPv4 \
-    --protocol icmp ${ADMIN_SEC_GROUP}
+--protocol icmp ${ADMIN_SEC_GROUP}
 openstack security group rule create --ingress --ethertype IPv4 \
-    --protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
+--protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
 
 openstack server create --image cirros --flavor m1.nano --net irb-net VM1
 openstack server create --image cumulus --flavor m1.tiny --net irb-net VR1
-</code></pre>
+</code></pre></li>
+</ol>
 
 <p>The only thing worth noting in the above script is that a default gateway <code>10.0.100.161</code> gets overridden by a default host route pointing to <code>10.0.100.190</code>. Normally, to demonstrate DC-GW IRB scenario, I would have setup a gateway-less L2 only subnet, however in that case I wouldn&rsquo;t have been able to demonstrate BGPaaS on the same network, since this feature relies on having a gateway IP setup (which later acts as a BGP session termination endpoint). So instead of setting up two separate networks I&rsquo;ve decided to implement this hack to minimise the required configuration.</p>
 

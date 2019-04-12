@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Every time when I get bored from my day job I tend to find some small interesting project that I can do that can give me an instant sense of accomplishment and as the result lift my spirits and improve motivation. So this time I remembered when someone once asked me if they could use Terraform to control their physical network devices and I had to explain how this is the wrong tool for the job.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2019-04-tf-yang/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2019-04-tf-yang/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2019-04-tf-yang/">
+  <meta property="og:title" content="Terraforming your physical network with YANG | networkop">
+  <meta property="og:description" content="Every time when I get bored from my day job I tend to find some small interesting project that I can do that can give me an instant sense of accomplishment and as the result lift my spirits and improve motivation. So this time I remembered when someone once asked me if they could use Terraform to control their physical network devices and I had to explain how this is the wrong tool for the job.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2019-04-11T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2019-04-11T00:00:00&#43;00:00">
+  
+
+  
+
+  <title>Terraforming your physical network with YANG | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Terraforming your physical network with YANG</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2019-04-11 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      11 Apr 2019
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    6 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2019-04-tf-yang/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Terraforming%20your%20physical%20network%20with%20YANG&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-04-tf-yang%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-04-tf-yang%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-04-tf-yang%2f&amp;title=Terraforming%20your%20physical%20network%20with%20YANG"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Terraforming%20your%20physical%20network%20with%20YANG&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-04-tf-yang%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>Every time when I get bored from my day job I tend to find some small interesting project that I can do that can give me an instant sense of accomplishment and as the result lift my spirits and improve motivation. So this time I remembered when someone once asked me if they could use Terraform to control their physical network devices and I had to explain how this is the wrong tool for the job. Somehow the question got stuck in my head and now it came to fruition in the form of <a href="https://github.com/networkop/terraform-yang" target="_blank">terraform-yang</a>.</p>
+
+<p>This is a small Terraform plugin (provider) that allows users to manipulate interface-level settings of a network device. And I&rsquo;m not talking about a VM in the cloud that runs network OS of your favourite vendor, this stuff is trivial and doesn&rsquo;t require anything special from Terraform. I&rsquo;m talking about Terraform controlling your individual physical network devices over an OpenConfig&rsquo;s gNMI interface with standard Create/Read/Update/Delete operations exposed all the way to Terraform&rsquo;s playbooks (or whatever they are called). Network Infrastructure as code nirvana&hellip;</p>
+
+<p><img src="/img/tf-gnmi.png" alt="" /></p>
+
+<h2 id="writing-a-custom-terraform-provider-for-a-network-device">Writing a custom Terraform provider for a network device</h2>
+
+<p>Although this may look scary at the beginning, the process of creating your own TF provider is fairly easy. In fact a provider is nothing but a pointer to a remote API, which from the client point of view is just a URL (or a session to that URL) along with the necessary authentication credentials. TF provider simply combines all that information in a struct, which is later made available to various resource-specific API calls. For a network device with a gNMI interface, this is all the work that needs to be done to initialise the provider:</p>
+
+<pre><code class="language-go">cfg := &amp;gnmi.Config{
+	Addr:     d.Get(&quot;address&quot;).(string),
+	TLS:      d.Get(&quot;tls&quot;).(bool),
+	Username: d.Get(&quot;username&quot;).(string),
+	Password: d.Get(&quot;password&quot;).(string),
+}
+client, err := gnmi.Dial(cfg)
+</code></pre>
+
+<p>The only problem with this approach is that we have multiple devices and obviously it wouldn&rsquo;t make sense to write a dedicated provider for each one. This is where Terraform <a href="https://www.terraform.io/docs/configuration/providers.html#alias-multiple-provider-instances" target="_blank">aliases</a> come to the rescue. With aliases we can define different providers that all use the same custom gNMI provider logic. This is how a <code>provider.tf</code> file may look like:</p>
+
+<pre><code class="language-json">provider &quot;gnmi&quot; {
+  alias    = &quot;SW1&quot;
+  address  = &quot;192.0.2.0:6030&quot;
+  username = &quot;admin&quot;
+  password = &quot;admin&quot;
+}
+
+provider &quot;gnmi&quot; {
+  alias    = &quot;SW2&quot;
+  address  = &quot;192.0.2.1:6030&quot;
+  username = &quot;admin&quot;
+  password = &quot;admin&quot;
+}
+</code></pre>
+
+<h2 id="writing-a-resource-for-an-interface">Writing a resource for an interface</h2>
+
+<p>Most of the work and logic goes into resources. Each resource represents an object hosted by a provider, that can be manipulated, i.e. created, updated and deleted. For public clouds, this could be a VM, a disk or a security group. For my little experiment, I&rsquo;ve picked the simplest (and most common) configuration object that exists on a network device - an interface. I didn&rsquo;t have time to boil the ocean so I decided to expose only a subset of interface-level settings:</p>
+
+<ul>
+<li>description</li>
+<li>switchport flag</li>
+<li>IPv4 Address</li>
+<li>Access VLAN</li>
+<li>Trunk VLANs</li>
+</ul>
+
+<p>In order to build the structured configuration data, I&rsquo;m using Go structs generated by <a href="https://github.com/openconfig/ygot" target="_blank">ygot</a> based on OpenConfig&rsquo;s YANG models. A little hint for those of you who&rsquo;ve read my Ansible &amp; YANG <a href="https://networkop.co.uk/tags/ansible-yang/" target="_blank">series</a> and know what pyangbind or YDK are: ygot to gNMI is what pyangbind/YDK is to ncclient. So to configure a new interface, I first build an empty struct skeleton with ygot, populate it with values inside <a href="https://github.com/networkop/terraform-yang/blob/master/resource_interface.go#L64" target="_blank"><code>resourceInterfaceCreate()</code></a> and then do <code>gnmi.Set()</code> to send them off to the device. The logic for <a href="https://github.com/networkop/terraform-yang/blob/master/resource_interface.go#L156" target="_blank">resource update</a> is slightly more complicated since it should take into account mutually exclusive modes (e.g. switchport) and the behaviour when multiple conflicting arguments are defined. But ultimately you can decide how far you want to go and for a simple use case I&rsquo;ve chosen, it only took me a few hours to <a href="https://github.com/networkop/terraform-yang/blob/master/resource_interface.go#L64" target="_blank">codify</a> the logic I wanted.</p>
+
+<h2 id="using-a-gnmi-interface-resource">Using a gNMI interface resource</h2>
+
+<p>With all of the provider/resource work done, making interface changes becomes really easy. Here&rsquo;s an example of two different interfaces being configured on two different devices. The <code>provider</code> argument points TF to one of the pre-defined aliases (i.e. network devices) and <code>name</code> tells it which interface to configure. The rest of the arguments should be fairly self-explanatory.</p>
+
+<pre><code class="language-json">resource &quot;gnmi_interface&quot; &quot;SW1_Eth1&quot; {
+    provider = &quot;gnmi.SW1&quot;
+    name = &quot;Ethernet1&quot;
+    description = &quot;TF_INT_ETH1&quot;
+    switchport = false
+    ipv4_address = &quot;12.12.12.1/24&quot;
+}
+resource &quot;gnmi_interface&quot; &quot;SW2_Eth1&quot; {
+    provider = &quot;gnmi.SW1&quot;
+    name = &quot;Ethernet1&quot;
+    description = &quot;TF_INT_ETH1&quot;
+    switchport = true
+    trunk_vlans = [100, 200]
+}
+</code></pre>
+
+<h2 id="surprises-and-gotchas">Surprises and Gotchas</h2>
+
+<p>While writing this plugin I&rsquo;ve stumbled across several interesting and what I thought were surprising issues with gNMI and OpenConfig models in general.</p>
+
+<p>Firstly, because the gNMI spec is in a constant state of flux, the official <a href="https://github.com/openconfig" target="_blank">tools</a> may not work with your device out of the box. There may be slightly different implementations of gNMI/gRPC clients, which obviously make it difficult to operate in a multivendor environment.</p>
+
+<p>Second, I was surprised to discover that a lot of structured data is still encoded as JSON. This JSON is serialised into a string and later encoded as protobuf as it gets sent to the device but still, my naive assumption was that protobuf was used for everything.</p>
+
+<p>Third, there are still a lot of vendor augments to standard openconfig models, which results in a vendor-specific ygot code. This feels almost like we&rsquo;ve gone back to automating vendor-specific CLIs with all their quirks and corner cases.</p>
+
+<p>Fourth, there&rsquo;s still a lot of YANG&lt;-&gt;CLI translation going on under the hood, especially for the configuration part (less for telemetry), so always expect the unexpected.</p>
+
+<p>Finally, I was initially bemused by the gNMI message format. I didn&rsquo;t understand why I can have multiple updates in a single notification message and what&rsquo;s the purpose of <a href="https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md#21-reusable-notification-message-format" target="_blank">duplicates</a>. Until I realised that one of the primary use cases for gNMI was streaming telemetry and the protocol format was designed to work for both that and configuration updates. Some of these and other protocol-specific things still don&rsquo;t make a lot of sense to me, and the <a href="https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md#21-reusable-notification-message-format" target="_blank">GNMI specification</a> doesn&rsquo;t do a very good job explaining why (not sure if it&rsquo;s even supposed to).</p>
+
+<p>But as I&rsquo;ve said multiple times before, just having the gNMI support that we have today, is way, way much better than not having it and having to rely on vendor-specific CLIs.</p>
+
+<h2 id="outro">Outro</h2>
+
+<p>I always liked writing plugins. They may look like some serious piece of software but in reality, they&rsquo;re just a bunch of for loops and conditionals, so writing them is really easy. Not only do you get all of the boilerplate code that exposes all the bells and whistles you might need, but you also have tons of production-grade examples of how to write this kind of stuff <a href="https://github.com/terraform-providers" target="_blank">available on Github</a>. So don&rsquo;t treat <a href="https://github.com/networkop/terraform-yang" target="_blank">terraform-yang</a> as a serious project, this was just a proof-of-concept and a learning exercise. I&rsquo;m not convinced this is the right way to configure your network, although I feel the same way about most of the other popular automation tools out there.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2019-01-k8s-vrnetlab/">Multi-Vendor Network Simulations at Scale with meshnet-cni and vrnetlab</a></li>
+    
+    <li><a href="/post/2018-11-k8s-topo-p2/">Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</a></li>
+    
+    <li><a href="/post/2018-11-k8s-topo-p1/">Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</a></li>
+    
+    <li><a href="/post/2018-03-03-docker-multinet/">The problem of unpredictable interface order in multi-network Docker containers</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+

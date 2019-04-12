@@ -408,81 +408,69 @@
 <hr />
 
 <ul>
-<li><strong>Port security</strong> - makes sure that incoming packet has the correct source MAC and IP addresses.</li>
-</ul>
+<li><p><strong>Port security</strong> - makes sure that incoming packet has the correct source MAC and IP addresses.</p>
 
 <pre><code>table=0 (ls_in_port_sec_l2), priority=50, match=(inport == &quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&quot;
-  &amp;&amp; eth.src == {fa:16:3e:4f:2f:b8}), action=(next;)
+&amp;&amp; eth.src == {fa:16:3e:4f:2f:b8}), action=(next;)
 table=1 (ls_in_port_sec_ip), priority=90, match=(inport == &quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&quot;
-  &amp;&amp; eth.src == fa:16:3e:4f:2f:b8 &amp;&amp; ip4.src == {10.0.0.2}), action=(next;)
-</code></pre>
+&amp;&amp; eth.src == fa:16:3e:4f:2f:b8 &amp;&amp; ip4.src == {10.0.0.2}), action=(next;)
+</code></pre></li>
 
-<ul>
-<li><strong>Egress ACL</strong> - set of tables that implement Neutron&rsquo;s Egress Port Security functionality. Default rules allow all egress traffic from a VM. The first flow below matches all new connections coming from VM1 and marks them for connection tracking with <code>reg0[1] = 1</code>. The next table catches these marked packets and commits them to the connection tracker. Special <code>ct_label=0/1</code> action ensures return traffic is allowed which is a standard behaviour of all stateful firewalls.</li>
-</ul>
+<li><p><strong>Egress ACL</strong> - set of tables that implement Neutron&rsquo;s Egress Port Security functionality. Default rules allow all egress traffic from a VM. The first flow below matches all new connections coming from VM1 and marks them for connection tracking with <code>reg0[1] = 1</code>. The next table catches these marked packets and commits them to the connection tracker. Special <code>ct_label=0/1</code> action ensures return traffic is allowed which is a standard behaviour of all stateful firewalls.</p>
 
 <pre><code>table=6 (ls_in_acl), priority=2002 , match=(((ct.new &amp;&amp; !ct.est) ||
-  (!ct.new &amp;&amp; ct.est &amp;&amp; !ct.rpl &amp;&amp; ct_label.blocked == 1)) &amp;&amp;
-  (inport == &quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&quot; &amp;&amp; ip4)),
-  action=(reg0[1] = 1; next;)
+(!ct.new &amp;&amp; ct.est &amp;&amp; !ct.rpl &amp;&amp; ct_label.blocked == 1)) &amp;&amp;
+(inport == &quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&quot; &amp;&amp; ip4)),
+action=(reg0[1] = 1; next;)
 table=9 (ls_in_stateful), priority=100  , match=(reg0[1] == 1),
-  action=(ct_commit(ct_label=0/1); next;)
-</code></pre>
+action=(ct_commit(ct_label=0/1); next;)
+</code></pre></li>
 
-<ul>
-<li><strong>ARP Responder</strong> - matches an incoming ARP/ND request and generates an appropriate ARP/ND response. The way it is accomplished is similar to Neutron&rsquo;s native <a href="/blog/2016/05/06/neutron-l2pop/">ARP responder</a> feature. Effectively an ARP request gets transformed into an ARP response by swapping source and destination fields.</li>
-</ul>
+<li><p><strong>ARP Responder</strong> - matches an incoming ARP/ND request and generates an appropriate ARP/ND response. The way it is accomplished is similar to Neutron&rsquo;s native <a href="/blog/2016/05/06/neutron-l2pop/">ARP responder</a> feature. Effectively an ARP request gets transformed into an ARP response by swapping source and destination fields.</p>
 
 <pre><code>table=10(ls_in_arp_rsp), priority=50, match=(arp.tpa == 10.0.0.5 &amp;&amp; arp.op == 1),
-  action=(eth.dst = eth.src; eth.src = fa:16:3e:2a:60:32; arp.op = 2; /* ARP reply */
-  arp.tha = arp.sha; arp.sha = fa:16:3e:2a:60:32; arp.tpa = arp.spa; arp.spa = 10.0.0.5;
-  outport = inport; flags.loopback = 1; output;)
-</code></pre>
+action=(eth.dst = eth.src; eth.src = fa:16:3e:2a:60:32; arp.op = 2; /* ARP reply */
+arp.tha = arp.sha; arp.sha = fa:16:3e:2a:60:32; arp.tpa = arp.spa; arp.spa = 10.0.0.5;
+outport = inport; flags.loopback = 1; output;)
+</code></pre></li>
 
-<ul>
-<li><strong>DHCP Processing</strong> - set of tables that implement the DHCP server functionality using the approach similar to the ARP responder described above.</li>
-</ul>
+<li><p><strong>DHCP Processing</strong> - set of tables that implement the DHCP server functionality using the approach similar to the ARP responder described above.</p>
 
 <pre><code>table=12(ls_in_dhcp_response), priority=100, match=(inport == &quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&quot;
-  &amp;&amp; eth.src == fa:16:3e:4f:2f:b8 &amp;&amp; ip4.src == 0.0.0.0 &amp;&amp; ip4.dst == 255.255.255.255
-  &amp;&amp; udp.src == 68 &amp;&amp; udp.dst == 67 &amp;&amp; reg0[3]),
-  action=(eth.dst = eth.src; eth.src = fa:16:3e:94:b6:bc; ip4.dst = 10.0.0.2;
-  ip4.src = 10.0.0.1; udp.src = 67; udp.dst = 68; outport = inport; flags.loopback = 1; output;)
-</code></pre>
+&amp;&amp; eth.src == fa:16:3e:4f:2f:b8 &amp;&amp; ip4.src == 0.0.0.0 &amp;&amp; ip4.dst == 255.255.255.255
+&amp;&amp; udp.src == 68 &amp;&amp; udp.dst == 67 &amp;&amp; reg0[3]),
+action=(eth.dst = eth.src; eth.src = fa:16:3e:94:b6:bc; ip4.dst = 10.0.0.2;
+ip4.src = 10.0.0.1; udp.src = 67; udp.dst = 68; outport = inport; flags.loopback = 1; output;)
+</code></pre></li>
 
-<ul>
-<li><strong>Destination Lookup</strong> - implements L2 forwarding based on the destination MAC address of a frame. At this stage the <strong>outport</strong> variable is set to the VM3&rsquo;s port UUID.</li>
-</ul>
+<li><p><strong>Destination Lookup</strong> - implements L2 forwarding based on the destination MAC address of a frame. At this stage the <strong>outport</strong> variable is set to the VM3&rsquo;s port UUID.</p>
 
 <pre><code>table=13(ls_in_l2_lkup), priority=50, match=(eth.dst == fa:16:3e:2a:60:32),
-  action=(outport = &quot;5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879&quot;; output;)
+action=(outport = &quot;5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879&quot;; output;)
 
-</code></pre>
+</code></pre></li>
 
-<ul>
-<li><strong>Ingress ACL</strong> - set of tables that implement Neutron&rsquo;s Ingress Port security. For the sake of argument let&rsquo;s assume that we have enabled inbound SSH connections. The principle is same as before - the packet gets matched in one table and submitted to connection tracking in another table.</li>
-</ul>
+<li><p><strong>Ingress ACL</strong> - set of tables that implement Neutron&rsquo;s Ingress Port security. For the sake of argument let&rsquo;s assume that we have enabled inbound SSH connections. The principle is same as before - the packet gets matched in one table and submitted to connection tracking in another table.</p>
 
 <pre><code>table=4 (ls_out_acl), priority=2002 , match=(((ct.new &amp;&amp; !ct.est)
-  || (!ct.new &amp;&amp; ct.est &amp;&amp; !ct.rpl &amp;&amp; ct_label.blocked == 1))
-  &amp;&amp; (outport == &quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&quot; &amp;&amp; ip4
-  &amp;&amp; ip4.src == 0.0.0.0/0 &amp;&amp; tcp &amp;&amp; tcp.dst == 22)),
-  action=(reg0[1] = 1; next;
+|| (!ct.new &amp;&amp; ct.est &amp;&amp; !ct.rpl &amp;&amp; ct_label.blocked == 1))
+&amp;&amp; (outport == &quot;26c23a54-6a91-48fd-a019-3bd8a7e118de&quot; &amp;&amp; ip4
+&amp;&amp; ip4.src == 0.0.0.0/0 &amp;&amp; tcp &amp;&amp; tcp.dst == 22)),
+action=(reg0[1] = 1; next;
 table=6 (ls_out_stateful), priority=100  , match=(reg0[1] == 1),
-  action=(ct_commit(ct_label=0/1); next;)
-</code></pre>
+action=(ct_commit(ct_label=0/1); next;)
+</code></pre></li>
 
-<ul>
-<li><strong>Port Security</strong> - implements inbound port security for destination VM by checking the sanity of destination MAC and IP addresses.</li>
-</ul>
+<li><p><strong>Port Security</strong> - implements inbound port security for destination VM by checking the sanity of destination MAC and IP addresses.</p>
 
 <pre><code>table=7 (ls_out_port_sec_ip), priority=90, match=(outport == &quot;5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879&quot;
-  &amp;&amp; eth.dst == fa:16:3e:2a:60:32 &amp;&amp; ip4.dst == {255.255.255.255, 224.0.0.0/4, 10.0.0.5}),
-  action=(next;)
+&amp;&amp; eth.dst == fa:16:3e:2a:60:32 &amp;&amp; ip4.dst == {255.255.255.255, 224.0.0.0/4, 10.0.0.5}),
+action=(next;)
 table=8 (ls_out_port_sec_l2), priority=50, match=(outport == &quot;5c62cfbe-0b2f-4c2a-98c3-7ee76c9d2879&quot;
-  &amp;&amp; eth.dst == {fa:16:3e:2a:60:32}),
-  action=(output;)
-</code></pre>
+&amp;&amp; eth.dst == {fa:16:3e:2a:60:32}),
+action=(output;)
+</code></pre></li>
+</ul>
 
 <h2 id="l3-datapath">L3 datapath</h2>
 
@@ -524,14 +512,12 @@ table=8 (ls_out_port_sec_l2), priority=50, match=(outport == &quot;5c62cfbe-0b2f
 <hr />
 
 <ul>
-<li><strong>Port security</strong> - implements sanity check for all incoming packets.</li>
-</ul>
+<li><p><strong>Port security</strong> - implements sanity check for all incoming packets.</p>
 
 <pre><code>table=0 (lr_in_admission), priority=50, match=((eth.mcast || eth.dst == fa:16:3e:7e:96:e7)
- &amp;&amp; inport == &quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&quot;), action=(next;)
-</code></pre>
+&amp;&amp; inport == &quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&quot;), action=(next;)
+</code></pre></li>
 
-<ul>
 <li><p><strong>IP Input</strong> - performs additional L3 sanity checks and implements typical IP services of a router (e.g. ICMP/ARP reply)</p>
 
 <pre><code>table=1 (lr_in_ip_input), priority=100, match=(ip4.src == {169.254.128.2, 169.254.128.3}),
@@ -559,15 +545,13 @@ action=(ct_snat; next;)
 action=(flags.loopback = 1; ct_dnat(10.0.0.5);)
 </code></pre></li>
 
-<li><p><strong>IP routing</strong> - implements L3 forwarding based on the destination IP address. At this stage the <code>outport</code> is decided, IP TTL is decremented and the new next-hop IP is set in register0.</p></li>
-</ul>
+<li><p><strong>IP routing</strong> - implements L3 forwarding based on the destination IP address. At this stage the <code>outport</code> is decided, IP TTL is decremented and the new next-hop IP is set in register0.</p>
 
 <pre><code>table=5 (lr_in_ip_routing), priority=1, match=(ip4.dst == 0.0.0.0/0),
-  action=(ip.ttl--; reg0 = 169.254.0.1; reg1 = 169.254.0.54; eth.src = fa:16:3e:39:c8:d8;
-  outport = &quot;lrp-dc1ae9e3-d8fd-4451-aed8-3d6ddc5d095b&quot;; flags.loopback = 1; next;)
-</code></pre>
+action=(ip.ttl--; reg0 = 169.254.0.1; reg1 = 169.254.0.54; eth.src = fa:16:3e:39:c8:d8;
+outport = &quot;lrp-dc1ae9e3-d8fd-4451-aed8-3d6ddc5d095b&quot;; flags.loopback = 1; next;)
+</code></pre></li>
 
-<ul>
 <li><p><strong>Next Hop Resolver</strong> - discovers the next-hop MAC address for a packet. This could either be a statically configured value when the next-hop is an OVN-managed router or a dynamic binding learned through ARP and stored in a special <code>MAC_Binding</code> table of Southbound DB.</p>
 
 <pre><code>table=6 (lr_in_arp_resolve), priority=100, match=(outport == &quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&quot;
@@ -576,20 +560,18 @@ table=6 (lr_in_arp_resolve), priority=0, match=(ip4),
 action=(get_arp(outport, reg0); next;)
 </code></pre></li>
 
-<li><p><strong>SNAT</strong> - implements what is commonly known as overload NAT. Translates source IP, source UDP/TCP port number and ICMP Query ID to hide them behind a single IP address</p></li>
-</ul>
+<li><p><strong>SNAT</strong> - implements what is commonly known as overload NAT. Translates source IP, source UDP/TCP port number and ICMP Query ID to hide them behind a single IP address</p>
 
 <pre><code>table=0 (lr_out_snat), priority=25, match=(ip &amp;&amp; ip4.src == 10.0.0.0/24),
-  action=(ct_snat(169.254.0.54);)
-</code></pre>
+action=(ct_snat(169.254.0.54);)
+</code></pre></li>
 
-<ul>
-<li><strong>Output</strong> - send the packet out the port determined during the IP routing stage.</li>
-</ul>
+<li><p><strong>Output</strong> - send the packet out the port determined during the IP routing stage.</p>
 
 <pre><code>table=1 (lr_out_delivery), priority=100, match=(outport == &quot;lrp-gtsp-186d8754-cc4b-40fd-9e5d-b0d26fc063bd&quot;),
-  action=(output;)
-</code></pre>
+action=(output;)
+</code></pre></li>
+</ul>
 
 <p>This was a very high-level, abridged and simplified version of how logical datapaths are built in OVN. Hopefully this lays enough groundwork to move on to the official <a href="http://openvswitch.org/support/dist-docs/ovn-northd.8.html" target="_blank">northd documentation</a> which describes both L2 and L3 datapaths in much greater detail.</p>
 
