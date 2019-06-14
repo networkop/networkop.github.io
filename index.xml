@@ -11,6 +11,249 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Network-as-a-Service Part 1 - Frameworkless automation</title>
+      <link>https://networkop.co.uk/post/2019-06-naas-p1/</link>
+      <pubDate>Thu, 13 Jun 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-06-naas-p1/</guid>
+      <description>
+
+&lt;p&gt;Recently I&amp;rsquo;ve been pondering the idea of cloud-like method of consumption of traditional (physical) networks. My main premise for this was that users of a network don&amp;rsquo;t have to wait hours or days for their services to be provisioned when all that&amp;rsquo;s required is a simple change of an access port. Let me reinforce it by an example. In a typical data center network, the configuration of the core (fabric) is fairly static, while the config at the edge can change constantly as servers get added, moved or reconfigured. Things get even worse when using infrastructure-as-code with CI/CD pipelines to generate and test the configuration since it&amp;rsquo;s hard to expose only a subset of it all to the end users and it certainly wouldn&amp;rsquo;t make sense to trigger a pipeline every time a vlan is changed on an edge port.&lt;/p&gt;
+
+&lt;p&gt;This is where Network-as-a-Service (NaaS) platform fits in. The idea is that it would expose the required subset of configuration to the end user and will take care of applying it to the devices in a fast and safe way. In this series of blogposts I will describe and demonstrate a prototype of such a platform, implemented on top of Kubernetes, using &lt;a href=&#34;https://napalm.readthedocs.io/en/latest/&#34; target=&#34;_blank&#34;&gt;Napalm&lt;/a&gt; as southbound API towards the devices.&lt;/p&gt;
+
+&lt;h2 id=&#34;frameworkless-automation&#34;&gt;Frameworkless automation&lt;/h2&gt;
+
+&lt;p&gt;One thing I&amp;rsquo;ve decided NOT to do is build NaaS around a single automation framework. The tendency to use a single framework to solve all sorts of automation problems can lead to a lot of unnecessary hacking and additional complexity. When you&amp;rsquo;re finding yourself constantly writing custom libraries to perform some logic that can not be done natively within the framework, perhaps it&amp;rsquo;s time to step back and reassess your tools. The benefit of having a single tool, may not be worth the time and effort spent customising it. A much better approach is to split the functionality into multiple services and standardise what information is supposed to be passed between them. Exactly what microservices architecture is all about. You can still use frameworks within each service if it makes sense, but these can be easily swapped when a newer and better alternative comes along without causing a platform-wide impact.&lt;/p&gt;
+
+&lt;p&gt;One problem that needs to be solved, however, is where to run all these microservices. The choice of Kubernetes here may seem like a bit of a stretch to some since it can get quite complicated to troubleshoot and manage. However, in return, I get a number of constructs (e.g. authentication, deployments, ingress) that are an integral part of any platform &amp;ldquo;for free&amp;rdquo;. After all, as Kelsey Hightower said:&lt;/p&gt;
+
+&lt;blockquote class=&#34;twitter-tweet&#34;&gt;&lt;p lang=&#34;en&#34; dir=&#34;ltr&#34;&gt;Kubernetes is a platform for building platforms. It&amp;#39;s a better place to start; not the endgame.&lt;/p&gt;&amp;mdash; Kelsey Hightower (@kelseyhightower) &lt;a href=&#34;https://twitter.com/kelseyhightower/status/935252923721793536?ref_src=twsrc%5Etfw&#34;&gt;November 27, 2017&lt;/a&gt;&lt;/blockquote&gt;
+&lt;script async src=&#34;https://platform.twitter.com/widgets.js&#34; charset=&#34;utf-8&#34;&gt;&lt;/script&gt;
+
+
+&lt;p&gt;So here is a list of reasons why I&amp;rsquo;ve decided to build NaaS on top of Kubernetes:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;I can define arbitrary APIs (via custom resources) with whatever structure I like.&lt;/li&gt;
+&lt;li&gt;These resources are stored, versioned and can be exposed externally.&lt;/li&gt;
+&lt;li&gt;With &lt;a href=&#34;https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.0.md#schemaObject&#34; target=&#34;_blank&#34;&gt;openAPI schema&lt;/a&gt;, I can define the structure and values of my APIs (similar to YANG but much easier to write).&lt;/li&gt;
+&lt;li&gt;I get built-in multitenancy through namespaces.&lt;/li&gt;
+&lt;li&gt;I get AAA with Role-based Access Control, and not just a simple passwords-in-a-text file kind of AAA, but proper TLS-based authentication with oAuth integration.&lt;/li&gt;
+&lt;li&gt;I get a client-side code with libraries in python, js and go.&lt;/li&gt;
+&lt;li&gt;I get admission controls that allow me to mutate (e.g. expand interface ranges) and validate (e.g. enforce per-tenant separation) requests before they get accepted.&lt;/li&gt;
+&lt;li&gt;I get secret management to store sensitive information (e.g. device inventory)&lt;/li&gt;
+&lt;li&gt;All data is stored in etcd, which can be easily backed up/restored.&lt;/li&gt;
+&lt;li&gt;All variables, scripts, templates and data models are stored as k8s configmap resources and can be retrieved, updated and versioned.&lt;/li&gt;
+&lt;li&gt;Operator pattern allows me to write a very simple code to &amp;ldquo;watch&amp;rdquo; the incoming requests and do some arbitrary logic described in any language or framework of my choice.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Not to mention all of the more standard capabilities like container orchestration, lifecycle management and auto-healing.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-foundation-of-naas&#34;&gt;The foundation of NaaS&lt;/h2&gt;
+
+&lt;p&gt;Before I get to the end-user API part, I need to make sure I have the mechanism to modify the configuration of my network devices. Below is the high-level diagram that depicts how this can be implemented using two services:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Scheduler&lt;/strong&gt; - a web server that accepts requests with the list of devices to be provisioned and schedules the enforcers to push it. This service is built on top of a K8s &lt;a href=&#34;https://kubernetes.io/docs/concepts/workloads/controllers/deployment/&#34; target=&#34;_blank&#34;&gt;deployment&lt;/a&gt; which controls the expected number and health of scheduler pods and recreates them if any one of them fails.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Enforcer&lt;/strong&gt; - one or more job runners created by the scheduler, combining the data models and templates and using the result to replace the running configuration of the devices. This service is ephemeral as &lt;a href=&#34;https://kubernetes.io/docs/concepts/workloads/controllers/jobs-run-to-completion/&#34; target=&#34;_blank&#34;&gt;jobs&lt;/a&gt; will run to completion and stop, however, logs can still be viewed for some time after the completion.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/naas-p1.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;scheduler-architecture&#34;&gt;Scheduler architecture&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-1/scheduler/scheduler.py&#34; target=&#34;_blank&#34;&gt;Scheduler&lt;/a&gt;, just like all the other services in NaaS, is written in Python. The web server component has a single webhook that handles incoming HTTP POST requests with JSON payload containing the list of devices.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;@app.route(&amp;quot;/configure&amp;quot;, methods=[&amp;quot;POST&amp;quot;])
+def webhook():
+    log.info(f&amp;quot;Got incoming request from {request.remote_addr}&amp;quot;)
+    payload = request.get_json(force=True)
+    devices = payload.get(&amp;quot;devices&amp;quot;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The next thing it does is read the device inventory mounted as a local volume from the Kubernetes secret store and decide how many devices to schedule on a single runner. This gives the flexibility to change the number of devices processed by a single runner (scale-up vs scale-out).&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;sliced_inventory = [x for x in inv_slicer(devices_inventory, step)]
+schedule(sliced_inventory)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, for each slice of the inventory, scheduler creates a Kubernetes &lt;a href=&#34;https://kubernetes.io/docs/concepts/workloads/controllers/jobs-run-to-completion/&#34; target=&#34;_blank&#34;&gt;job&lt;/a&gt; based on a pre-defined template, with base64-encoded inventory slice as an environment variable.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;t = Template(job_template)
+job_manifest = t.render(
+  job={&amp;quot;name&amp;quot;: job_name, &amp;quot;inventory&amp;quot;: encode(inventory_slice)}
+)
+
+return api.create_namespaced_job(
+  get_current_namespace(), yaml.safe_load(job_manifest), pretty=True
+)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;In order for the scheduler to function, it needs to have several supporting Kubernetes resources:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Deployment&lt;/strong&gt; to perform the lifecycle management of the app&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Service&lt;/strong&gt; to expose the deployed application internally&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Ingress&lt;/strong&gt; to expose the above service to the outside world&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Configmap&lt;/strong&gt; to store the actual python script&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Secret&lt;/strong&gt; to store the device inventory&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;RBAC&lt;/strong&gt; rules to allow scheduler to read configmaps and create jobs&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Most of these resources (with the exception of configmaps) are defined in a single &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-1/scheduler/manifest.yaml&#34; target=&#34;_blank&#34;&gt;manifest file&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;enforcer-architecture&#34;&gt;Enforcer architecture&lt;/h2&gt;
+
+&lt;p&gt;The current implementation of the enforcer uses &lt;a href=&#34;https://nornir.readthedocs.io/en/stable/index.html&#34; target=&#34;_blank&#34;&gt;Nornir&lt;/a&gt; together with &lt;a href=&#34;https://nornir.readthedocs.io/en/stable/plugins/tasks/text.html#nornir.plugins.tasks.text.template_string&#34; target=&#34;_blank&#34;&gt;Jinja&lt;/a&gt; and &lt;a href=&#34;https://nornir.readthedocs.io/en/stable/plugins/tasks/networking.html#nornir.plugins.tasks.networking.napalm_configure&#34; target=&#34;_blank&#34;&gt;Napalm&lt;/a&gt; plugins. The choice of the framework here is arbitrary and Nornir can easily be replaced with Ansible or any other framework or script. The only coupling between the enforcer and the scheduler is the format of the inventory file, which can be changed quite easily if necessary.&lt;/p&gt;
+
+&lt;p&gt;The enforcer runner is built out of two containers. The first one to run is an &lt;a href=&#34;https://kubernetes.io/docs/concepts/workloads/pods/init-containers/&#34; target=&#34;_blank&#34;&gt;init container&lt;/a&gt; that decodes the base64-encoded inventory and saves it into a file that is later used by the main container.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;encoded_inv = os.getenv(&amp;quot;INVENTORY&amp;quot;, &amp;quot;&amp;quot;)
+decoded_inv = base64.b64decode(encoded_inv)
+inv_yaml = yaml.safe_load(decoded_inv.decode())
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The second container is the one that runs the device configuration &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-1/enforcer/enforcer.py&#34; target=&#34;_blank&#34;&gt;logic&lt;/a&gt;. Firstly, it retrieves the list of all device data models and templates and passes them to the &lt;code&gt;push_config&lt;/code&gt; task.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;models = get_configmaps(labels={&amp;quot;app&amp;quot;: &amp;quot;naas&amp;quot;, &amp;quot;type&amp;quot;: &amp;quot;model&amp;quot;})
+templates = get_configmaps(labels={&amp;quot;app&amp;quot;: &amp;quot;naas&amp;quot;, &amp;quot;type&amp;quot;: &amp;quot;template&amp;quot;})
+result = nr.run(task=push_config, models=models, templates=templates)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Inside that task, a list of sorted data models get combined with jinja templates to build the full device configuration:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;for ordered_model in sorted(my_models):
+  model = yaml.safe_load(ordered_model.data.get(&amp;quot;structured-config&amp;quot;))
+  template_name = ordered_model.metadata.annotations.get(&amp;quot;template&amp;quot;)
+  for template in templates:
+    if template.metadata.name == template_name:
+      r = task.run(
+        name=f&amp;quot;Building {template_name}&amp;quot;,
+        task=template_string,
+        template=template.data.get(&amp;quot;template&amp;quot;),
+        model=model,
+      )
+      cli_config += r.result
+      cli_config += &amp;quot;\n&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, we push the resulting config to all the devices in the local inventory:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;result = task.run(
+  task=networking.napalm_configure,
+  replace=True,
+  configuration=task.host[&amp;quot;config&amp;quot;],
+)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;demo&#34;&gt;Demo&lt;/h2&gt;
+
+&lt;p&gt;Before we begin the demonstration, I wanted to mention a few notes about my code and test environments:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;All code for this blogpost series will be stored in &lt;a href=&#34;https://github.com/networkop/network-as-a-service&#34; target=&#34;_blank&#34;&gt;NaaS&lt;/a&gt; Github repository, separated in different tagged branches (part-1, part-2, etc.)&lt;/li&gt;
+&lt;li&gt;For this and subsequent demos I&amp;rsquo;ll be using a couple of Arista EOS devices connected back-to-back with 20 interfaces.&lt;/li&gt;
+&lt;li&gt;All bash commands, their dependencies and variables are stored in a number of makefiles in the &lt;code&gt;.mk&lt;/code&gt; directory. I&amp;rsquo;ll provide the actual bash commands only when it&amp;rsquo;s needed for clarity, but all commands can be looked up in makefiles.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The code for this post can be downloaded &lt;a href=&#34;https://github.com/networkop/network-as-a-service/archive/part-1.zip&#34; target=&#34;_blank&#34;&gt;here&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h4 id=&#34;build-the-test-topology&#34;&gt;Build the test topology&lt;/h4&gt;
+
+&lt;p&gt;Any two EOS devices can be used as a testbed, as long as they can be accessed over eAPI. I build my testbed with &lt;a href=&#34;https://github.com/networkop/docker-topo&#34; target=&#34;_blank&#34;&gt;docker-topo&lt;/a&gt; and c(vEOS) &lt;a href=&#34;https://github.com/networkop/docker-topo/tree/master/topo-extra-files/veos&#34; target=&#34;_blank&#34;&gt;image&lt;/a&gt;. This step will build a local topology with two containerised vEOS-lab devices:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make topo
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&#34;build-the-local-kubernetes-cluster&#34;&gt;Build the local Kubernetes cluster&lt;/h4&gt;
+
+&lt;p&gt;The following step will build a docker-based &lt;a href=&#34;https://github.com/kubernetes-sigs/kind&#34; target=&#34;_blank&#34;&gt;kind&lt;/a&gt; cluster with a single control plane and a single worker node.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make kubernetes
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&#34;check-that-the-cluster-is-functional&#34;&gt;Check that the cluster is functional&lt;/h4&gt;
+
+&lt;p&gt;The following step will build a base docker image and push it to dockerhub. It is assumed that the user has done &lt;code&gt;docker login&lt;/code&gt; and has his username saved in &lt;code&gt;DOCKERHUB_USER&lt;/code&gt; environment variable.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;export KUBECONFIG=&amp;quot;$(kind get kubeconfig-path --name=&amp;quot;naas&amp;quot;)&amp;quot;
+make warmup
+kubectl get pod test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This is a 100MB image, so it may take a few minutes for test pod to transition from &lt;code&gt;ContainerCreating&lt;/code&gt; to &lt;code&gt;Running&lt;/code&gt;&lt;/p&gt;
+
+&lt;h4 id=&#34;deploy-the-services&#34;&gt;Deploy the services&lt;/h4&gt;
+
+&lt;p&gt;This next command will perform the following steps:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Upload the enforcer and scheduler scripts as configmaps.&lt;/li&gt;
+&lt;li&gt;Create Traefik (HTTP proxy) daemonset to be used as ingress.&lt;/li&gt;
+&lt;li&gt;Upload generic device data model along with its template and label them accordingly.&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Create a deployment, service and ingress resources for the scheduler service.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make scheduler-build
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;If running as non-root, the user may be prompted for a sudo password.&lt;/p&gt;
+
+&lt;h4 id=&#34;test&#34;&gt;Test&lt;/h4&gt;
+
+&lt;p&gt;In order to demonstrate how it works, I will do two things. First, I&amp;rsquo;ll issue a POST request from my localhost to the address registered on ingress (&lt;a href=&#34;http://api.naas/configure&#34; target=&#34;_blank&#34;&gt;http://api.naas/configure&lt;/a&gt;) with payload requesting the provisioning of all devices.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;wget -O- --post-data=&#39;{&amp;quot;devices&amp;quot;:[&amp;quot;all&amp;quot;]}&#39; --header=&#39;Content-Type:application/json&#39; http://api.naas/configure
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;A few seconds later, we can view the logs of the scheduler to confirm that it received the request:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl logs deploy/scheduler
+
+2019-06-13 10:29:22 INFO scheduler - webhook: Got incoming request from 10.32.0.3
+2019-06-13 10:29:22 INFO scheduler - webhook: Request JSON payload {&#39;devices&#39;: [&#39;all&#39;]}
+2019-06-13 10:29:22 INFO scheduler - get_inventory: Reading the inventory file
+2019-06-13 10:29:22 INFO scheduler - webhook: Scheduling 2 devices on a single runner
+2019-06-13 10:29:22 INFO scheduler - create_job: Creating job job-eiw829
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;We can also view the logs of the scheduled Nornir runner:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl logs jobs/job-eiw829    
+2019-06-13 10:29:27 INFO enforcer - push_configs: Found models: [&#39;generic-cm&#39;]
+2019-06-13 10:29:27 INFO enforcer - push_configs: Downloading Template configmaps
+2019-06-13 10:29:27 INFO enforcer - get_configmaps: Retrieving the list of ConfigMaps matching labels {&#39;app&#39;: &#39;naas&#39;, &#39;type&#39;: &#39;template&#39;}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, when logged into one of the devices, we should see the new configuration changes applied, including the new alias:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;devicea#show run | include alias
+alias FOO BAR
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Another piece of configuration that has been added is a special event-handler that issues an API call to the scheduler every time its startup configuration is overwritten. This may potentially be used as an enforcement mechanism to prevent anyone from saving the changes done manually, but included here mainly to demonstrate the scheduler API:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;devicea#show run | i alias
+alias FOO BAR
+devicea#conf t 
+devicea(config)#no alias FOO
+devicea(config)#end
+devicea#write
+Copy completed successfully.
+devicea#show run |  i alias
+devicea#show run |  i alias
+alias FOO BAR
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;coming-up&#34;&gt;Coming up&lt;/h2&gt;
+
+&lt;p&gt;Now that we have the mechanism to push the network changes based on models and templates, we can start building the user-facing part of the NaaS platform. In the next post, I&amp;rsquo;ll demonstrate the architecture and implementation of a &lt;strong&gt;watcher&lt;/strong&gt; - a service that listens to custom resources and builds a device interface data model to be used by the scheduler.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Terraform your physical network with YANG</title>
       <link>https://networkop.co.uk/post/2019-04-tf-yang/</link>
       <pubDate>Thu, 11 Apr 2019 00:00:00 +0000</pubDate>
@@ -3127,15 +3370,6 @@ verify:
 &lt;li&gt;&lt;p&gt;Tools - this part, IMHO, is the most crucial. In order for people to start using YANG models we have to have the right tools that would be versatile enough to allow network engineers to be limited only by their imagination and at the same time be as robust as the CLI. So I wanted to give a big shout out to all the people contributing to open-source projects like &lt;strong&gt;pyang&lt;/strong&gt;, &lt;strong&gt;YDK&lt;/strong&gt; and many others that I have missed or don&amp;rsquo;t know about. You&amp;rsquo;re doing a great job guys, don&amp;rsquo;s stop.&lt;/p&gt;&lt;/li&gt;
 &lt;/ol&gt;
 </description>
-    </item>
-    
-    <item>
-      <title>YANG &amp; Ansible</title>
-      <link>https://networkop.co.uk/tags/ansible-yang/</link>
-      <pubDate>Tue, 04 Apr 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/tags/ansible-yang/</guid>
-      <description></description>
     </item>
     
   </channel>

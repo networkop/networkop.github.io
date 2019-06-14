@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Recently I&rsquo;ve been pondering the idea of cloud-like method of consumption of traditional (physical) networks. My main premise for this was that users of a network don&rsquo;t have to wait hours or days for their services to be provisioned when all that&rsquo;s required is a simple change of an access port. Let me reinforce it by an example. In a typical data center network, the configuration of the core (fabric) is fairly static, while the config at the edge can change constantly as servers get added, moved or reconfigured.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2019-06-naas-p1/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2019-06-naas-p1/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2019-06-naas-p1/">
+  <meta property="og:title" content="Network-as-a-Service Part 1 - Frameworkless automation | networkop">
+  <meta property="og:description" content="Recently I&rsquo;ve been pondering the idea of cloud-like method of consumption of traditional (physical) networks. My main premise for this was that users of a network don&rsquo;t have to wait hours or days for their services to be provisioned when all that&rsquo;s required is a simple change of an access port. Let me reinforce it by an example. In a typical data center network, the configuration of the core (fabric) is fairly static, while the config at the edge can change constantly as servers get added, moved or reconfigured.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2019-06-13T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2019-06-13T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/naas-p1.png"/>
+
+<meta name="twitter:title" content="Network-as-a-Service Part 1 - Frameworkless automation"/>
+<meta name="twitter:description" content="Network-as-a-Service Part 1 - building the foundation"/>
+
+
+  <title>Network-as-a-Service Part 1 - Frameworkless automation | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Network-as-a-Service Part 1 - Frameworkless automation</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2019-06-13 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      13 Jun 2019
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    10 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2019-06-naas-p1/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Network-as-a-Service%20Part%201%20-%20Frameworkless%20automation&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p1%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p1%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p1%2f&amp;title=Network-as-a-Service%20Part%201%20-%20Frameworkless%20automation"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Network-as-a-Service%20Part%201%20-%20Frameworkless%20automation&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p1%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>Recently I&rsquo;ve been pondering the idea of cloud-like method of consumption of traditional (physical) networks. My main premise for this was that users of a network don&rsquo;t have to wait hours or days for their services to be provisioned when all that&rsquo;s required is a simple change of an access port. Let me reinforce it by an example. In a typical data center network, the configuration of the core (fabric) is fairly static, while the config at the edge can change constantly as servers get added, moved or reconfigured. Things get even worse when using infrastructure-as-code with CI/CD pipelines to generate and test the configuration since it&rsquo;s hard to expose only a subset of it all to the end users and it certainly wouldn&rsquo;t make sense to trigger a pipeline every time a vlan is changed on an edge port.</p>
+
+<p>This is where Network-as-a-Service (NaaS) platform fits in. The idea is that it would expose the required subset of configuration to the end user and will take care of applying it to the devices in a fast and safe way. In this series of blogposts I will describe and demonstrate a prototype of such a platform, implemented on top of Kubernetes, using <a href="https://napalm.readthedocs.io/en/latest/" target="_blank">Napalm</a> as southbound API towards the devices.</p>
+
+<h2 id="frameworkless-automation">Frameworkless automation</h2>
+
+<p>One thing I&rsquo;ve decided NOT to do is build NaaS around a single automation framework. The tendency to use a single framework to solve all sorts of automation problems can lead to a lot of unnecessary hacking and additional complexity. When you&rsquo;re finding yourself constantly writing custom libraries to perform some logic that can not be done natively within the framework, perhaps it&rsquo;s time to step back and reassess your tools. The benefit of having a single tool, may not be worth the time and effort spent customising it. A much better approach is to split the functionality into multiple services and standardise what information is supposed to be passed between them. Exactly what microservices architecture is all about. You can still use frameworks within each service if it makes sense, but these can be easily swapped when a newer and better alternative comes along without causing a platform-wide impact.</p>
+
+<p>One problem that needs to be solved, however, is where to run all these microservices. The choice of Kubernetes here may seem like a bit of a stretch to some since it can get quite complicated to troubleshoot and manage. However, in return, I get a number of constructs (e.g. authentication, deployments, ingress) that are an integral part of any platform &ldquo;for free&rdquo;. After all, as Kelsey Hightower said:</p>
+
+<blockquote class="twitter-tweet"><p lang="en" dir="ltr">Kubernetes is a platform for building platforms. It&#39;s a better place to start; not the endgame.</p>&mdash; Kelsey Hightower (@kelseyhightower) <a href="https://twitter.com/kelseyhightower/status/935252923721793536?ref_src=twsrc%5Etfw">November 27, 2017</a></blockquote>
+<script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+
+
+<p>So here is a list of reasons why I&rsquo;ve decided to build NaaS on top of Kubernetes:</p>
+
+<ol>
+<li>I can define arbitrary APIs (via custom resources) with whatever structure I like.</li>
+<li>These resources are stored, versioned and can be exposed externally.</li>
+<li>With <a href="https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.0.md#schemaObject" target="_blank">openAPI schema</a>, I can define the structure and values of my APIs (similar to YANG but much easier to write).</li>
+<li>I get built-in multitenancy through namespaces.</li>
+<li>I get AAA with Role-based Access Control, and not just a simple passwords-in-a-text file kind of AAA, but proper TLS-based authentication with oAuth integration.</li>
+<li>I get a client-side code with libraries in python, js and go.</li>
+<li>I get admission controls that allow me to mutate (e.g. expand interface ranges) and validate (e.g. enforce per-tenant separation) requests before they get accepted.</li>
+<li>I get secret management to store sensitive information (e.g. device inventory)</li>
+<li>All data is stored in etcd, which can be easily backed up/restored.</li>
+<li>All variables, scripts, templates and data models are stored as k8s configmap resources and can be retrieved, updated and versioned.</li>
+<li>Operator pattern allows me to write a very simple code to &ldquo;watch&rdquo; the incoming requests and do some arbitrary logic described in any language or framework of my choice.</li>
+</ol>
+
+<p>Not to mention all of the more standard capabilities like container orchestration, lifecycle management and auto-healing.</p>
+
+<h2 id="the-foundation-of-naas">The foundation of NaaS</h2>
+
+<p>Before I get to the end-user API part, I need to make sure I have the mechanism to modify the configuration of my network devices. Below is the high-level diagram that depicts how this can be implemented using two services:</p>
+
+<ul>
+<li><strong>Scheduler</strong> - a web server that accepts requests with the list of devices to be provisioned and schedules the enforcers to push it. This service is built on top of a K8s <a href="https://kubernetes.io/docs/concepts/workloads/controllers/deployment/" target="_blank">deployment</a> which controls the expected number and health of scheduler pods and recreates them if any one of them fails.</li>
+<li><strong>Enforcer</strong> - one or more job runners created by the scheduler, combining the data models and templates and using the result to replace the running configuration of the devices. This service is ephemeral as <a href="https://kubernetes.io/docs/concepts/workloads/controllers/jobs-run-to-completion/" target="_blank">jobs</a> will run to completion and stop, however, logs can still be viewed for some time after the completion.</li>
+</ul>
+
+<p><img src="/img/naas-p1.png" alt="" /></p>
+
+<h2 id="scheduler-architecture">Scheduler architecture</h2>
+
+<p><a href="https://github.com/networkop/network-as-a-service/blob/part-1/scheduler/scheduler.py" target="_blank">Scheduler</a>, just like all the other services in NaaS, is written in Python. The web server component has a single webhook that handles incoming HTTP POST requests with JSON payload containing the list of devices.</p>
+
+<pre><code class="language-python">@app.route(&quot;/configure&quot;, methods=[&quot;POST&quot;])
+def webhook():
+    log.info(f&quot;Got incoming request from {request.remote_addr}&quot;)
+    payload = request.get_json(force=True)
+    devices = payload.get(&quot;devices&quot;)
+</code></pre>
+
+<p>The next thing it does is read the device inventory mounted as a local volume from the Kubernetes secret store and decide how many devices to schedule on a single runner. This gives the flexibility to change the number of devices processed by a single runner (scale-up vs scale-out).</p>
+
+<pre><code class="language-python">sliced_inventory = [x for x in inv_slicer(devices_inventory, step)]
+schedule(sliced_inventory)
+</code></pre>
+
+<p>Finally, for each slice of the inventory, scheduler creates a Kubernetes <a href="https://kubernetes.io/docs/concepts/workloads/controllers/jobs-run-to-completion/" target="_blank">job</a> based on a pre-defined template, with base64-encoded inventory slice as an environment variable.</p>
+
+<pre><code class="language-python">t = Template(job_template)
+job_manifest = t.render(
+  job={&quot;name&quot;: job_name, &quot;inventory&quot;: encode(inventory_slice)}
+)
+
+return api.create_namespaced_job(
+  get_current_namespace(), yaml.safe_load(job_manifest), pretty=True
+)
+</code></pre>
+
+<p>In order for the scheduler to function, it needs to have several supporting Kubernetes resources:</p>
+
+<ol>
+<li><strong>Deployment</strong> to perform the lifecycle management of the app</li>
+<li><strong>Service</strong> to expose the deployed application internally</li>
+<li><strong>Ingress</strong> to expose the above service to the outside world</li>
+<li><strong>Configmap</strong> to store the actual python script</li>
+<li><strong>Secret</strong> to store the device inventory</li>
+<li><strong>RBAC</strong> rules to allow scheduler to read configmaps and create jobs</li>
+</ol>
+
+<p>Most of these resources (with the exception of configmaps) are defined in a single <a href="https://github.com/networkop/network-as-a-service/blob/part-1/scheduler/manifest.yaml" target="_blank">manifest file</a>.</p>
+
+<h2 id="enforcer-architecture">Enforcer architecture</h2>
+
+<p>The current implementation of the enforcer uses <a href="https://nornir.readthedocs.io/en/stable/index.html" target="_blank">Nornir</a> together with <a href="https://nornir.readthedocs.io/en/stable/plugins/tasks/text.html#nornir.plugins.tasks.text.template_string" target="_blank">Jinja</a> and <a href="https://nornir.readthedocs.io/en/stable/plugins/tasks/networking.html#nornir.plugins.tasks.networking.napalm_configure" target="_blank">Napalm</a> plugins. The choice of the framework here is arbitrary and Nornir can easily be replaced with Ansible or any other framework or script. The only coupling between the enforcer and the scheduler is the format of the inventory file, which can be changed quite easily if necessary.</p>
+
+<p>The enforcer runner is built out of two containers. The first one to run is an <a href="https://kubernetes.io/docs/concepts/workloads/pods/init-containers/" target="_blank">init container</a> that decodes the base64-encoded inventory and saves it into a file that is later used by the main container.</p>
+
+<pre><code class="language-python">encoded_inv = os.getenv(&quot;INVENTORY&quot;, &quot;&quot;)
+decoded_inv = base64.b64decode(encoded_inv)
+inv_yaml = yaml.safe_load(decoded_inv.decode())
+</code></pre>
+
+<p>The second container is the one that runs the device configuration <a href="https://github.com/networkop/network-as-a-service/blob/part-1/enforcer/enforcer.py" target="_blank">logic</a>. Firstly, it retrieves the list of all device data models and templates and passes them to the <code>push_config</code> task.</p>
+
+<pre><code class="language-python">models = get_configmaps(labels={&quot;app&quot;: &quot;naas&quot;, &quot;type&quot;: &quot;model&quot;})
+templates = get_configmaps(labels={&quot;app&quot;: &quot;naas&quot;, &quot;type&quot;: &quot;template&quot;})
+result = nr.run(task=push_config, models=models, templates=templates)
+</code></pre>
+
+<p>Inside that task, a list of sorted data models get combined with jinja templates to build the full device configuration:</p>
+
+<pre><code class="language-python">for ordered_model in sorted(my_models):
+  model = yaml.safe_load(ordered_model.data.get(&quot;structured-config&quot;))
+  template_name = ordered_model.metadata.annotations.get(&quot;template&quot;)
+  for template in templates:
+    if template.metadata.name == template_name:
+      r = task.run(
+        name=f&quot;Building {template_name}&quot;,
+        task=template_string,
+        template=template.data.get(&quot;template&quot;),
+        model=model,
+      )
+      cli_config += r.result
+      cli_config += &quot;\n&quot;
+</code></pre>
+
+<p>Finally, we push the resulting config to all the devices in the local inventory:</p>
+
+<pre><code class="language-python">result = task.run(
+  task=networking.napalm_configure,
+  replace=True,
+  configuration=task.host[&quot;config&quot;],
+)
+</code></pre>
+
+<h2 id="demo">Demo</h2>
+
+<p>Before we begin the demonstration, I wanted to mention a few notes about my code and test environments:</p>
+
+<ul>
+<li>All code for this blogpost series will be stored in <a href="https://github.com/networkop/network-as-a-service" target="_blank">NaaS</a> Github repository, separated in different tagged branches (part-1, part-2, etc.)</li>
+<li>For this and subsequent demos I&rsquo;ll be using a couple of Arista EOS devices connected back-to-back with 20 interfaces.</li>
+<li>All bash commands, their dependencies and variables are stored in a number of makefiles in the <code>.mk</code> directory. I&rsquo;ll provide the actual bash commands only when it&rsquo;s needed for clarity, but all commands can be looked up in makefiles.</li>
+</ul>
+
+<p>The code for this post can be downloaded <a href="https://github.com/networkop/network-as-a-service/archive/part-1.zip" target="_blank">here</a>.</p>
+
+<h4 id="build-the-test-topology">Build the test topology</h4>
+
+<p>Any two EOS devices can be used as a testbed, as long as they can be accessed over eAPI. I build my testbed with <a href="https://github.com/networkop/docker-topo" target="_blank">docker-topo</a> and c(vEOS) <a href="https://github.com/networkop/docker-topo/tree/master/topo-extra-files/veos" target="_blank">image</a>. This step will build a local topology with two containerised vEOS-lab devices:</p>
+
+<pre><code>make topo
+</code></pre>
+
+<h4 id="build-the-local-kubernetes-cluster">Build the local Kubernetes cluster</h4>
+
+<p>The following step will build a docker-based <a href="https://github.com/kubernetes-sigs/kind" target="_blank">kind</a> cluster with a single control plane and a single worker node.</p>
+
+<pre><code>make kubernetes
+</code></pre>
+
+<h4 id="check-that-the-cluster-is-functional">Check that the cluster is functional</h4>
+
+<p>The following step will build a base docker image and push it to dockerhub. It is assumed that the user has done <code>docker login</code> and has his username saved in <code>DOCKERHUB_USER</code> environment variable.</p>
+
+<pre><code>export KUBECONFIG=&quot;$(kind get kubeconfig-path --name=&quot;naas&quot;)&quot;
+make warmup
+kubectl get pod test
+</code></pre>
+
+<p>This is a 100MB image, so it may take a few minutes for test pod to transition from <code>ContainerCreating</code> to <code>Running</code></p>
+
+<h4 id="deploy-the-services">Deploy the services</h4>
+
+<p>This next command will perform the following steps:</p>
+
+<ol>
+<li>Upload the enforcer and scheduler scripts as configmaps.</li>
+<li>Create Traefik (HTTP proxy) daemonset to be used as ingress.</li>
+<li>Upload generic device data model along with its template and label them accordingly.</li>
+
+<li><p>Create a deployment, service and ingress resources for the scheduler service.</p>
+
+<pre><code>make scheduler-build
+</code></pre></li>
+</ol>
+
+<p>If running as non-root, the user may be prompted for a sudo password.</p>
+
+<h4 id="test">Test</h4>
+
+<p>In order to demonstrate how it works, I will do two things. First, I&rsquo;ll issue a POST request from my localhost to the address registered on ingress (<a href="http://api.naas/configure" target="_blank">http://api.naas/configure</a>) with payload requesting the provisioning of all devices.</p>
+
+<pre><code>wget -O- --post-data='{&quot;devices&quot;:[&quot;all&quot;]}' --header='Content-Type:application/json' http://api.naas/configure
+</code></pre>
+
+<p>A few seconds later, we can view the logs of the scheduler to confirm that it received the request:</p>
+
+<pre><code>kubectl logs deploy/scheduler
+
+2019-06-13 10:29:22 INFO scheduler - webhook: Got incoming request from 10.32.0.3
+2019-06-13 10:29:22 INFO scheduler - webhook: Request JSON payload {'devices': ['all']}
+2019-06-13 10:29:22 INFO scheduler - get_inventory: Reading the inventory file
+2019-06-13 10:29:22 INFO scheduler - webhook: Scheduling 2 devices on a single runner
+2019-06-13 10:29:22 INFO scheduler - create_job: Creating job job-eiw829
+</code></pre>
+
+<p>We can also view the logs of the scheduled Nornir runner:</p>
+
+<pre><code>kubectl logs jobs/job-eiw829    
+2019-06-13 10:29:27 INFO enforcer - push_configs: Found models: ['generic-cm']
+2019-06-13 10:29:27 INFO enforcer - push_configs: Downloading Template configmaps
+2019-06-13 10:29:27 INFO enforcer - get_configmaps: Retrieving the list of ConfigMaps matching labels {'app': 'naas', 'type': 'template'}
+</code></pre>
+
+<p>Finally, when logged into one of the devices, we should see the new configuration changes applied, including the new alias:</p>
+
+<pre><code>devicea#show run | include alias
+alias FOO BAR
+</code></pre>
+
+<p>Another piece of configuration that has been added is a special event-handler that issues an API call to the scheduler every time its startup configuration is overwritten. This may potentially be used as an enforcement mechanism to prevent anyone from saving the changes done manually, but included here mainly to demonstrate the scheduler API:</p>
+
+<pre><code>devicea#show run | i alias
+alias FOO BAR
+devicea#conf t 
+devicea(config)#no alias FOO
+devicea(config)#end
+devicea#write
+Copy completed successfully.
+devicea#show run |  i alias
+devicea#show run |  i alias
+alias FOO BAR
+</code></pre>
+
+<h2 id="coming-up">Coming up</h2>
+
+<p>Now that we have the mechanism to push the network changes based on models and templates, we can start building the user-facing part of the NaaS platform. In the next post, I&rsquo;ll demonstrate the architecture and implementation of a <strong>watcher</strong> - a service that listens to custom resources and builds a device interface data model to be used by the scheduler.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2019-04-tf-yang/">Terraform your physical network with YANG</a></li>
+    
+    <li><a href="/post/2019-01-k8s-vrnetlab/">Multi-Vendor Network Simulations at Scale with meshnet-cni and vrnetlab</a></li>
+    
+    <li><a href="/post/2018-11-k8s-topo-p2/">Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</a></li>
+    
+    <li><a href="/post/2018-11-k8s-topo-p1/">Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</a></li>
+    
+    <li><a href="/post/2018-03-03-docker-multinet/">The problem of unpredictable interface order in multi-network Docker containers</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
