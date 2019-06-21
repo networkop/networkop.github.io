@@ -11,6 +11,328 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Network-as-a-Service Part 2 - Designing a Network API</title>
+      <link>https://networkop.co.uk/post/2019-06-naas-p2/</link>
+      <pubDate>Thu, 20 Jun 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-06-naas-p2/</guid>
+      <description>
+
+&lt;p&gt;In the &lt;a href=&#34;https://networkop.co.uk/post/2019-06-naas-p1/&#34;&gt;previous post&lt;/a&gt;, we&amp;rsquo;ve examined the foundation of the Network-as-a-Service platform. A couple of services were used to build the configuration from data models and templates and push it to network devices using Nornir and Napalm. In this post, we&amp;rsquo;ll focus on the user-facing part of the platform. I&amp;rsquo;ll show how to expose a part of the device data model via a custom API built on top of Kubernetes and how to tie it together with the rest of the platform components.&lt;/p&gt;
+
+&lt;h2 id=&#34;interacting-with-a-kubernetes-api&#34;&gt;Interacting with a Kubernetes API&lt;/h2&gt;
+
+&lt;p&gt;There are two main ways to interact with a &lt;a href=&#34;https://kubernetes.io/docs/concepts/overview/kubernetes-api/&#34; target=&#34;_blank&#34;&gt;Kubernetes API&lt;/a&gt;: one using a &lt;a href=&#34;https://kubernetes.io/docs/reference/using-api/client-libraries/&#34; target=&#34;_blank&#34;&gt;client library&lt;/a&gt;, which is how NaaS services communicate with K8s internally, the other way is with a command line tool called &lt;code&gt;kubectl&lt;/code&gt;, which is intended to be used by humans. In either case, each API request is expected to contain at least the following fields:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;apiVersion&lt;/strong&gt; - all API resources are grouped and versioned to allow multiple versions of the same kind to co-exist at the same time.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;kind&lt;/strong&gt; - defines the type of object to be created.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;metadata&lt;/strong&gt; - collection of request attributes like name, namespaces, labels etc.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;spec&lt;/strong&gt; - the actual payload of the request containing the attributes of the requested object.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;In order to describe these fields in a concise and human-readable way, API requests are often written in YAML, which is why you&amp;rsquo;ll see a lot of YAML snippets throughout this post. You can treat each one of those snippets as a separate API call that can be applied to a K8s cluster using a &lt;code&gt;kubectl apply&lt;/code&gt; command.&lt;/p&gt;
+
+&lt;h2 id=&#34;designing-a-network-interface-api&#34;&gt;Designing a Network Interface API&lt;/h2&gt;
+
+&lt;p&gt;The structure and logic behind any user-facing API can be very customer-specific. Although the use-case I&amp;rsquo;m focusing on here is a very simple one, my goal is to demonstrate the idea which, if necessary, can be adapted to other needs and requirements. So let&amp;rsquo;s assume we want to allow end users to change access ports configuration of multiple devices and this is how a sample API request may look like:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;apiVersion: network.as.a.service/v1
+kind: Interface
+metadata:
+  name: request-001
+  namespace: tenant-a
+spec:
+  services:
+    - devicename: deviceA
+      ports: [&amp;quot;1&amp;quot;, &amp;quot;15&amp;quot;]
+      vlan: 10
+      trunk: yes
+    - devicename: deviceB
+      ports: [&amp;quot;1&amp;quot;,&amp;quot;10&amp;quot;, &amp;quot;11&amp;quot;]
+      vlan: 110
+      trunk: no
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;There are a few things to note in the above request:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Every request will have a unique name per namespace (tenant).&lt;/li&gt;
+&lt;li&gt;The main payload inside the &lt;code&gt;.spec&lt;/code&gt; property is a list of (VLAN) network services that need to be configured on network devices.&lt;/li&gt;
+&lt;li&gt;Each element of the list contains the name of the device, list of ports and a VLAN number to be associated with them.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s see what it takes to make Kubernetes &amp;ldquo;understand&amp;rdquo; this API.&lt;/p&gt;
+
+&lt;h2 id=&#34;introducing-kubernetes-crds&#34;&gt;Introducing Kubernetes CRDs&lt;/h2&gt;
+
+&lt;p&gt;API server is the main component of the control plane of a Kubernetes cluster. It receives all incoming requests, validates them, notifies the respective controllers and stores them in a database.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-api.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Apart from the APIs exposing a set of standard resources, there&amp;rsquo;s an ability to define &lt;a href=&#34;https://kubernetes.io/docs/tasks/access-kubernetes-api/custom-resources/custom-resource-definitions/&#34; target=&#34;_blank&#34;&gt;custom resources&lt;/a&gt; - user-defined data structures that an API server can accept and store. Custom resources are the main building blocks for a lot of platforms built on top of K8s and at the very least they allow users to store and retrieve some arbitrary YAML data.&lt;/p&gt;
+
+&lt;p&gt;In order to be able to create a custom resource, we need to define it with a custom resource definition (CRD) object that would describe the name of the resource, the api group it belongs to and, optionally, the structure and values of the YAML data via OpenAPI v3 &lt;a href=&#34;https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.0.md#schemaObject&#34; target=&#34;_blank&#34;&gt;schema&lt;/a&gt;. This is how a CRD for the above Interface API would look like:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: interfaces.network.as.a.service
+spec:
+  group: network.as.a.service
+  versions:
+  - name: v1
+    served: true
+    storage: true
+  scope: Namespaced
+  subresources:
+    status: {}
+  names:
+    plural: interfaces
+    singular: interface
+    kind: Interface
+    shortNames:
+    - intf
+  validation:
+    openAPIV3Schema:
+      required: [&amp;quot;spec&amp;quot;]
+      properties:
+        spec:
+          required: [&amp;quot;services&amp;quot;]
+          properties:
+            services:
+              type: array
+              items: 
+                type: object
+                required: [&amp;quot;devicename&amp;quot;, &amp;quot;vlan&amp;quot;, &amp;quot;ports&amp;quot;]
+                properties:
+                  devicename: 
+                    type: string
+                  vlan:
+                    type: integer
+                    minimum: 1
+                    maximum: 4094
+                  ports:
+                    type: array
+                    items:
+                      type: string
+                  trunk:
+                    type: boolean
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;As soon as we &lt;code&gt;kubectl apply&lt;/code&gt; the above YAML, our API server will expose the &lt;code&gt;Interface&lt;/code&gt; API  for all external users to perform standard CRUD operations on, and store the results alongside other K8s resources in etcd datastore.&lt;/p&gt;
+
+&lt;h2 id=&#34;kubernetes-custom-controllers&#34;&gt;Kubernetes custom controllers&lt;/h2&gt;
+
+&lt;p&gt;Custom resources, by themselves, do not provide any way to define a business logic of what to do with their data. This job is normally performed by Kubernetes controllers that &amp;ldquo;watch&amp;rdquo; events that happen to these resources and perform actions based on that. This tandem between custom controllers and CRDs is so common, it led to the creation of an &lt;a href=&#34;https://coreos.com/operators/&#34; target=&#34;_blank&#34;&gt;operator pattern&lt;/a&gt; and a whole &lt;a href=&#34;https://twitter.com/alexellisuk/status/1132755044313522176&#34; target=&#34;_blank&#34;&gt;slew&lt;/a&gt; of operator frameworks with languages ranging from Go to Ansible.&lt;/p&gt;
+
+&lt;p&gt;However, as I&amp;rsquo;ve mentioned in the &lt;a href=&#34;https://networkop.co.uk/post/2019-06-naas-p1/&#34;&gt;previous post&lt;/a&gt;, sometimes using a framework does not give you any benefit and after having looked at some of the most popular ones, I&amp;rsquo;ve decided to settle on my own implementation which turned out to be a lot easier. In essence, all that&amp;rsquo;s required from a custom controller is to:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Subscribe to events about a custom resource (via K8s API).&lt;/li&gt;
+&lt;li&gt;Once an event is received, perform the necessary business logic.&lt;/li&gt;
+&lt;li&gt;Update the resource status if required.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Let&amp;rsquo;s see how these custom controllers are implemented inside the NaaS platform.&lt;/p&gt;
+
+&lt;h2 id=&#34;naas-controller-architecture&#34;&gt;NaaS controller architecture&lt;/h2&gt;
+
+&lt;p&gt;NaaS platform has a special &lt;strong&gt;watcher&lt;/strong&gt; service that implements all custom controller logic. Its main purpose is to process incoming &lt;code&gt;Interface&lt;/code&gt; API events and generate a device-centric interface data model based on them.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/naas-p2.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Internally, the watcher service is built out of two distinct controllers:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;interface-watcher&lt;/strong&gt; - listens to &lt;code&gt;Interface&lt;/code&gt; API events and updates a custom &lt;code&gt;Device&lt;/code&gt; resource that stores an aggregated device-centric view of all interface API requests received up to date. Once all the changes have been made, it updates the status of the request and notifies the scheduler about all the devices affected by this event.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;device-watcher&lt;/strong&gt; - listens to &lt;code&gt;Device&lt;/code&gt; API events and generates configmaps containing a device interface data model. These configmaps are then consumed by enforcers to build the access interface part of the total device configuration.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;interface-watcher-architecture&#34;&gt;Interface-watcher architecture&lt;/h2&gt;
+
+&lt;p&gt;The main loop of the &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-2/watcher/interface-watcher.py&#34; target=&#34;_blank&#34;&gt;interface-watcher&lt;/a&gt; receives &lt;code&gt;Interface&lt;/code&gt; API events as they arrive and processes each network service individually:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;for network_service in event_object[&amp;quot;spec&amp;quot;][&amp;quot;services&amp;quot;]:
+    results.append(
+        process_service(event_metadata, network_service, action, defaults)
+    )
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;For each service, depending on the type of the event, we either add, update or delete ports from the global device-centric model:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;device = get_or_create_device(device_name, defaults)
+device_data = device[&amp;quot;spec&amp;quot;]
+if action == &amp;quot;ADDED&amp;quot;:
+    device_data = add_ports(
+        network_service, device_data, resource_name, resource_namespace
+    )
+elif action == &amp;quot;DELETED&amp;quot;:
+    device_data = delete_ports(network_service, device_data, resource_name)
+elif action == &amp;quot;MODIFIED&amp;quot;:
+    device_data = delete_all_ports(device_data, resource_name)
+    device_data = add_ports(
+        network_service, device_data, resource_name, resource_namespace
+    )
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;For each of the added ports, we copy all settings from the original request and annotate it with metadata about its current owner and tenant:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;ports = origin.pop(&amp;quot;ports&amp;quot;)
+for port in ports:
+    destination[port] = dict()
+    destination[port] = origin
+    destination[port][&amp;quot;annotations&amp;quot;] = annotate(owner, namespace)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This results in the following custom &lt;code&gt;Device&lt;/code&gt; resource being created from the original &lt;code&gt;Interface&lt;/code&gt; API request:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;apiVersion: network.as.a.service/v1
+kind: Device
+metadata:
+  name: devicea
+  namespace: default
+spec:
+  &amp;quot;1&amp;quot;:
+    annotations:
+      namespace: tenant-a
+      owner: request-001
+      timestamp: &amp;quot;2019-06-19 22:09:02&amp;quot;
+    trunk: true
+    vlan: 10
+  &amp;quot;15&amp;quot;:
+    annotations:
+      namespace: tenant-a
+      owner: request-001
+      timestamp: &amp;quot;2019-06-19 22:09:02&amp;quot;
+    trunk: true
+    vlan: 10
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;As subsequent requests can add or overwrite port ownership information, metadata allows the controller to be selective about which ports to modify in order to not accidentally delete ports assigned to a different owner:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;new_destination = copy.deepcopy(destination)
+for port in origin[&amp;quot;ports&amp;quot;]:
+    if (port in destination) and (
+        destination[port].get(&amp;quot;annotations&amp;quot;, {}).get(&amp;quot;owner&amp;quot;, &amp;quot;&amp;quot;) == owner
+    ):
+        log.debug(f&amp;quot;Removing port {port} from structured config&amp;quot;)
+        new_destination.pop(port, None)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Once the event has been processed, interface-watcher updates the device resource with the new values:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;device[&amp;quot;spec&amp;quot;] = device_data
+update_device(device_name, device, defaults)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The last command triggers a MODIFIED event on the &lt;code&gt;Device&lt;/code&gt; CR and this is where the next controller kicks in.&lt;/p&gt;
+
+&lt;h2 id=&#34;device-watcher-architecture&#34;&gt;Device-watcher architecture&lt;/h2&gt;
+
+&lt;p&gt;The job of a &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-2/watcher/device-watcher.py&#34; target=&#34;_blank&#34;&gt;device-watcher&lt;/a&gt; is to, first, extract the payload from the above request:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;event_object = event[&amp;quot;object&amp;quot;]
+event_metadata = event_object[&amp;quot;metadata&amp;quot;
+device_name = event_metadata[&amp;quot;name&amp;quot;]
+device_data = event_object[&amp;quot;spec&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The payload is then serialised into a string and saved as a configmap with additional pointers to Jinja template and order/priority number to help the enforcer build the full device configuration:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;k8s_api = client.CoreV1Api()
+body = {
+    &amp;quot;metadata&amp;quot;: {
+        &amp;quot;name&amp;quot;: device_name,
+        &amp;quot;annotations&amp;quot;: {&amp;quot;order&amp;quot;: &amp;quot;99&amp;quot;, &amp;quot;template&amp;quot;: &amp;quot;interface.j2&amp;quot;},
+        &amp;quot;labels&amp;quot;: {&amp;quot;device&amp;quot;: device_name, &amp;quot;app&amp;quot;: &amp;quot;naas&amp;quot;, &amp;quot;type&amp;quot;: &amp;quot;model&amp;quot;},
+    },
+    &amp;quot;data&amp;quot;: {&amp;quot;structured-config&amp;quot;: yaml.safe_dump(device_data)},
+}
+
+k8s_api.replace_namespaced_config_map(
+    device_name, event_metadata[&amp;quot;namespace&amp;quot;], body
+)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The remaining part of the workflow is similar to what was described in the previous post. The scheduler receives the request with the list of devices to be re-provisioned, spins up the required number of enforcers who collect all relevant data models, combine them with Jinja templates and push the new config.&lt;/p&gt;
+
+&lt;h2 id=&#34;demo&#34;&gt;Demo&lt;/h2&gt;
+
+&lt;p&gt;This demo will pick up from where the previous one has left off. The assumption is that the test topology, K8s cluster and scheduler/enforcer services are already deployed as described in the &lt;a href=&#34;https://networkop.co.uk/post/2019-06-naas-p1/&#34;&gt;previous post&lt;/a&gt;. The code for this demo can be downloaded &lt;a href=&#34;https://github.com/networkop/network-as-a-service/archive/part-2.zip&#34; target=&#34;_blank&#34;&gt;here&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h3 id=&#34;deploy-the-watcher-service&#34;&gt;Deploy the watcher service&lt;/h3&gt;
+
+&lt;pre&gt;&lt;code&gt;make watcher-build
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The above command performs the following actions:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Creates &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-2/crds/00_namespace.yaml&#34; target=&#34;_blank&#34;&gt;two namespaces&lt;/a&gt; that will represent different platform tenants&lt;/li&gt;
+&lt;li&gt;Creates &lt;code&gt;Interface&lt;/code&gt; and &lt;code&gt;Device&lt;/code&gt; &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-2/crds/01_crd.yaml&#34; target=&#34;_blank&#34;&gt;CRD objects&lt;/a&gt; describing our custom APIs&lt;/li&gt;
+&lt;li&gt;Deploys both watcher &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-2/watcher/manifest.yaml&#34; target=&#34;_blank&#34;&gt;custom controllers&lt;/a&gt; along with the necessary RBAC rules&lt;/li&gt;
+&lt;li&gt;Uploads the interface &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-2/templates/interface.j2&#34; target=&#34;_blank&#34;&gt;jinja template&lt;/a&gt; to be used by enforcers&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;test&#34;&gt;Test&lt;/h2&gt;
+
+&lt;p&gt;Issue the &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-2/crds/03_cr.yaml&#34; target=&#34;_blank&#34;&gt;first&lt;/a&gt; &lt;code&gt;Interface&lt;/code&gt; API call:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl apply -f crds/03_cr.yaml         
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Check the logs of the interface-watcher to make sure it&amp;rsquo;s picked up the &lt;code&gt;Interface&lt;/code&gt; ADDED event:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl logs deploy/interface-watcher
+2019-06-20 08:20:01 INFO interface-watcher - interface_watcher: Watching Interface CRDs
+2019-06-20 08:20:09 INFO interface-watcher - process_services: Received ADDED event request-001 of Interface kind
+2019-06-20 08:20:09 INFO interface-watcher - process_service: Processing ADDED config for Vlans 10 on device devicea
+2019-06-20 08:20:09 INFO interface-watcher - get_device: Reading the devicea device resource
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Check the logs of the device-watcher to make sure it has detected the &lt;code&gt;Device&lt;/code&gt; API event:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl logs deploy/device-watcher
+2019-06-20 08:20:09 INFO device-watcher - update_configmaps: Updating ConfigMap for devicea
+2019-06-20 08:20:09 INFO device-watcher - update_configmaps: Creating configmap for devicea
+2019-06-20 08:20:09 INFO device-watcher - update_configmaps: Configmap devicea does not exist yet. Creating
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Check the logs of the scheduler service to see if it has been notified about the change:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl logs deploy/scheduler
+2019-06-20 08:20:09 INFO scheduler - webhook: Got incoming request from 10.32.0.4
+2019-06-20 08:20:09 INFO scheduler - webhook: Request JSON payload {&#39;devices&#39;: [&#39;devicea&#39;, &#39;deviceb&#39;]}
+2019-06-20 08:20:09 INFO scheduler - create_job: Creating job job-6rlwg0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Check the logs of the enforcer service to see if device configs have been generated and pushed:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl logs jobs/job-6rlwg0
+2019-06-20 08:20:18 INFO enforcer - push_configs: Downloading Model configmaps
+2019-06-20 08:20:18 INFO enforcer - get_configmaps: Retrieving the list of ConfigMaps matching labels {&#39;app&#39;: &#39;naas&#39;, &#39;type&#39;: &#39;model&#39;}
+2019-06-20 08:20:18 INFO enforcer - push_configs: Found models: [&#39;devicea&#39;, &#39;deviceb&#39;, &#39;generic-cm&#39;]
+2019-06-20 08:20:18 INFO enforcer - push_configs: Downloading Template configmaps
+2019-06-20 08:20:18 INFO enforcer - get_configmaps: Retrieving the list of ConfigMaps matching labels {&#39;app&#39;: &#39;naas&#39;, &#39;type&#39;: &#39;template&#39;}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, we can check the result on the device itself:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;devicea#sh run int eth1
+interface Ethernet1
+   description request-001
+   switchport trunk allowed vlan 10
+   switchport mode trunk
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;coming-up&#34;&gt;Coming up&lt;/h2&gt;
+
+&lt;p&gt;What we&amp;rsquo;ve covered so far is enough for end users to be able to modify access port settings on multiple devices via a standard API. However, there&amp;rsquo;s still nothing protecting the configuration created by one user from being overwritten by a request coming from a user in a different tenant. In the next post, I&amp;rsquo;ll show how to validate requests to make sure they do not cross the tenant boundaries. Additionally, I&amp;rsquo;ll show how to mutate incoming requests to be able to accept interface ranges and inject default values. To top it off, we&amp;rsquo;ll integrate NaaS with Google&amp;rsquo;s identity provider via OIDC to allow users to be mapped to different namespaces based on their google alias.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Network-as-a-Service Part 1 - Frameworkless automation</title>
       <link>https://networkop.co.uk/post/2019-06-naas-p1/</link>
       <pubDate>Thu, 13 Jun 2019 00:00:00 +0000</pubDate>
@@ -3158,217 +3480,6 @@ arista-1&amp;gt;
 &lt;p&gt;An so on and so forth&amp;hellip;&lt;/p&gt;
 
 &lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/tmux.gif&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices</title>
-      <link>https://networkop.co.uk/blog/2017/04/04/ansible-yang/</link>
-      <pubDate>Tue, 04 Apr 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/04/04/ansible-yang/</guid>
-      <description>
-
-&lt;p&gt;The idea of using Ansible for &lt;a href=&#34;http://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/&#34; target=&#34;_blank&#34;&gt;configuration changes&lt;/a&gt; and &lt;a href=&#34;https://github.com/networktocode/ntc-ansible&#34; target=&#34;_blank&#34;&gt;state verification&lt;/a&gt; is not new. However the approach I&amp;rsquo;m going to demonstrate in this post, using YANG and NETCONF, will have a few notable differences:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;I will not use any templates and absolutely no XML/JSON for device config generation&lt;/li&gt;
-&lt;li&gt;All changes will be pushed through a single, vendor and model-independent Ansible module&lt;/li&gt;
-&lt;li&gt;State verification will be done with no pattern-matching or screen-scraping&lt;/li&gt;
-&lt;li&gt;All configuration and operational state will be based on a couple of YAML files&lt;/li&gt;
-&lt;li&gt;To demonstrate the model-agnostic behaviour I will use a mixture of vendor&amp;rsquo;s native, IETF and OpenConfig YANG models&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;I hope this promise is exciting enough so without further ado, let&amp;rsquo;s get cracking.&lt;/p&gt;
-
-&lt;h1 id=&#34;environment-setup&#34;&gt;Environment setup&lt;/h1&gt;
-
-&lt;p&gt;The test environment will consist of a single instance of CSR1000v running IOS-XE version 16.4.1 and a single instance of vMX running JUNOS version 17.1R1.8. The VMs containing the two devices are deployed within a single hypervisor and connected with one interface to the management network and back-to-back with the second  pair of interfaces for BGP peering.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ansible-yang.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Each device contains some basic initial configuration to allow it be reachable from the Ansible server.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;interface GigabitEthernet1
-ip address 192.168.145.51 255.255.255.0
-!
-netconf-yang
-netconf-yang cisco-odm polling enable
-netconf-yang cisco-odm actions parse Interfaces
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;vMX configuration is quite similar. Static MAC address is &lt;a href=&#34;http://noshut.ru/2015/09/how-to-run-juniper-vmx-in-unetlab/&#34; target=&#34;_blank&#34;&gt;required&lt;/a&gt; in order for &lt;code&gt;ge&lt;/code&gt; interfaces to work.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;set system login user admin class super password admin123
-set system services netconf
-set interface fxp0 unit 0 family inet address 192.168.145.53/24
-set interface ge-0/0/0 mac 00:0c:29:fc:1a:b7
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;ansible-playbook-configuration&#34;&gt;Ansible playbook configuration&lt;/h1&gt;
-
-&lt;p&gt;My &lt;a href=&#34;https://github.com/networkop/yang/tree/master/ansible-101&#34; target=&#34;_blank&#34;&gt;Ansible-101&lt;/a&gt; repository contains two plays - one for configuration and one for state verification. The local inventory file contains details about the two devices along with the login credentials. All the work will be performed by a custom Ansible module stored in the &lt;code&gt;./library&lt;/code&gt; directory. This module is a wrapper for a &lt;code&gt;ydk_yaml&lt;/code&gt; module described in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/03/13/yaml-yang/&#34;&gt;previous post&lt;/a&gt;. I had to heavily modify the original &lt;code&gt;ydk_yaml&lt;/code&gt; module to work around some Ansible limitations, like the lack of support for &lt;strong&gt;set&lt;/strong&gt; data structures.&lt;br /&gt;
-This custom Ansible module also relies on a number of &lt;a href=&#34;https://networkop.co.uk/blog/2017/02/22/odl-ydk/&#34;&gt;YDK&lt;/a&gt; Python bindings to be pre-installed. Refer to my &lt;a href=&#34;https://github.com/networkop/yang/tree/master/yaml-101&#34; target=&#34;_blank&#34;&gt;YAML&lt;/a&gt;, &lt;a href=&#34;https://github.com/networkop/yang/tree/master/oper-101&#34; target=&#34;_blank&#34;&gt;Operational&lt;/a&gt; and &lt;a href=&#34;https://github.com/networkop/yang/tree/master/junos-101&#34; target=&#34;_blank&#34;&gt;JUNOS&lt;/a&gt; repositories for the instructions on how to install those modules.&lt;br /&gt;
-The desired configuration and expected operational state are documented inside a couple of device-specific host variable files. For each device there is a configuration file &lt;code&gt;config.yaml&lt;/code&gt;, describing the desired configuration state. For IOS-XE there is an additional file &lt;code&gt;verify.yaml&lt;/code&gt;, describing the expected operational state using the IETF interface YANG model (I couldn&amp;rsquo;t find how to get the IETF or OpenConfig state models to work on Juniper).&lt;br /&gt;
-All of these files follow the same structure:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Root container can be either &lt;code&gt;config&lt;/code&gt; or &lt;code&gt;verify&lt;/code&gt; and defines how the enclosed data is supposed to be used&lt;/li&gt;
-&lt;li&gt;First nested container has to match the top-most container of a YANG model. For example it could be &lt;strong&gt;bgp-state&lt;/strong&gt; for &lt;a href=&#34;https://github.com/YangModels/yang/blob/master/vendor/cisco/xe/1641/cisco-bgp-state.yang&#34; target=&#34;_blank&#34;&gt;cisco-bgp-state.yang&lt;/a&gt; or &lt;strong&gt;openconfig-bgp&lt;/strong&gt; for &lt;a href=&#34;https://github.com/openconfig/public/blob/master/release/models/bgp/openconfig-bgp.yang&#34; target=&#34;_blank&#34;&gt;openconfig-bgp.yang&lt;/a&gt; model&lt;/li&gt;
-&lt;li&gt;The remaining nested data has to follow the structure of the original YANG model as described in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/03/13/yaml-yang/&#34;&gt;previous post&lt;/a&gt;.&lt;br /&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Here&amp;rsquo;s how IOS-XE will be configured, using IETF interfaca YANG models (to unshut the interface) and Cisco&amp;rsquo;s native YANG model for interface IP and BGP settings:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;---
-config:
-  interfaces:
-    interface:
-      - name: GigabitEthernet3
-        enabled: true
-  native:
-    interface:
-      gigabitethernet:
-        - name: &#39;3&#39;
-          description: P2P link
-          ip:
-            address:
-              primary:
-                address: 12.12.12.1
-                mask: 255.255.255.0
-      loopback:
-        - name: 0
-          description: ROUTER ID
-          ip:
-            address:
-              primary:
-                address: 1.1.1.1
-                mask: 255.255.255.255
-    router:
-      bgp:
-        - id: 65111
-          bgp:
-            router_id: 1.1.1.1
-          neighbor:
-            - id: 12.12.12.2
-              remote_as: 65222
-          redistribute:
-            connected:
-              empty: empty
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;For JUNOS configuration, instead of the default humongous native model, I&amp;rsquo;ll use a set of much more light-weight OpenConfig YANG models to configure interfaces, BGP and redistribution policies:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;---
-config:
-  openconfig-interfaces:
-    interface:
-      - name: ge-0/0/0
-        subinterfaces:
-          subinterface:
-            - index: 0
-              ipv4:
-                addresses:
-                  address:
-                    - ip: 12.12.12.2/24
-                      config:
-                        ip: 12.12.2.2
-                        prefix_length: 24
-      - name: lo0
-        subinterfaces:
-          subinterface:
-            - index: 0
-              ipv4:
-                addresses:
-                  address:
-                    - ip: 2.2.2.2/32
-                      config:
-                        ip: 2.2.2.2
-                        prefix_length: 32
-  openconfig-policy:
-    policy_definitions:
-      policy_definition:
-        - name: CONNECTED-&amp;gt;BGP
-          statements:
-            statement:
-              - name: Loopback0
-                conditions:
-                  match_interface:
-                    config:
-                      interface: lo0
-                      subinterface: 0
-                actions:
-                  config:
-                    accept_route: empty
-  openconfig-bgp:
-    global_:
-      config:
-        as_: 65222
-    neighbors:
-      neighbor:
-        - neighbor_address: 12.12.12.1
-          config:
-            peer_group: YANG
-            peer_as: 65111
-    peer_groups:
-      peer_group:
-        - peer_group_name: YANG
-          config:
-            peer_as: 65111
-          apply_policy:
-            config:
-              export_policy:
-                - CONNECTED-&amp;gt;BGP
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;configuration&#34;&gt;Configuration&lt;/h1&gt;
-
-&lt;p&gt;Both devices now can be configured with just a single command:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ansible-playbook config.yaml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Behind the scenes, Ansible calls my custom &lt;code&gt;ydk_module&lt;/code&gt; and passes to it the full configuration state and device credentials. This module then constructs an empty YDK binding based on the name of a YANG model and &lt;a href=&#34;https://networkop.co.uk/blog/2017/03/13/yaml-yang/&#34;&gt;populates it recursively&lt;/a&gt; with the data from the &lt;code&gt;config&lt;/code&gt; container. Finally, it pushes the data to the device with the help of YDK NETCONF service provider.&lt;/p&gt;
-
-&lt;h1 id=&#34;verification&#34;&gt;Verification&lt;/h1&gt;
-
-&lt;p&gt;There&amp;rsquo;s one side to YANG which I have carefully avoided until now and it&amp;rsquo;s operational state models. These YANG models are built similarly to configuration models, but with a different goal - to extract the running state from a device. The reason why I&amp;rsquo;ve avoided them is that, unlike the configuration models, the current support for state models is limited and somewhat brittle.&lt;br /&gt;
-For example, JUNOS natively only supports state models as RPCs, where each RPC represents a certain &lt;code&gt;show&lt;/code&gt; command which, I assume, when passed to the devices gets evaluated, its output parsed and result returned back to the client. With IOX-XE things are a little better with a few of the operational models available in the current 16.4 release. You can check out my &lt;a href=&#34;https://github.com/networkop/yang/tree/master/oper-101&#34; target=&#34;_blank&#34;&gt;Github repo&lt;/a&gt; for some examples of how to check the interface and BGP neighbor state between the two IOS-XE devices. However, most of the models are still missing (I&amp;rsquo;m not counting the MIB-mapped YANG models) in the current release. The next few releases, though, are promised to come with an improved state model support, including some OpenConfig models, which is going to be super cool.&lt;br /&gt;
-So in this post, since I couldn&amp;rsquo;t get JUNOS OpenConfig models report any state and my IOS-XE BGP state model wouldn&amp;rsquo;t return any output unless the BGP peering was with another Cisco device or in the &lt;strong&gt;Idle&lt;/strong&gt; state, I&amp;rsquo;m going to have to resort to simply checking the state of physical interfaces. This is how a sample operational state file would look like (question marks are YAML&amp;rsquo;s special notation for sets which is how I decided to encode Enum data type):&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;---
-verify:
-  interfaces-state:
-    interface:
-      - name: GigabitEthernet3
-        oper_status:
-          ? up
-      - name: Loopback0
-        oper_status:
-          ? up
-      - name: GigabitEthernet2
-        oper_status:
-          ? down
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Once again, all expected state can be verified with a single command:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ansible-playbook verify.yaml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;If the state defined in that YAML file matches the data returned by the IOS-XE device, the playbook completes successfully. You can check that it works by shutting down one of the &lt;code&gt;GigabitEthernet3&lt;/code&gt; or &lt;code&gt;Loopback0&lt;/code&gt; interfaces and observing how Ansible module returns an error.&lt;/p&gt;
-
-&lt;h1 id=&#34;outro&#34;&gt;Outro&lt;/h1&gt;
-
-&lt;p&gt;Now that I&amp;rsquo;ve come to the end of my YANG series of posts I feel like I need to provide some concise and critical summary of everything I&amp;rsquo;ve been through. However, if there&amp;rsquo;s one thing I&amp;rsquo;ve learned in the last couple of months about YANG, it&amp;rsquo;s that things are changing very rapidly. Both Cisco and Juniper are working hard introducing new models and improving support for the existing ones. So one thing to keep in mind, if you&amp;rsquo;re reading this post a few months after it was published (April 2017), is that some or most of the above limitations may not exist and it&amp;rsquo;s always worth checking what the latest software release has to offer.&lt;/p&gt;
-
-&lt;p&gt;Finally, I wanted to say that I&amp;rsquo;m a strong believer that YANG models are the way forward for network device configuration and state verification, despite the timid scepticism of the networking industry. I think that there are two things that may improve the industry&amp;rsquo;s perception of YANG and help increase its adoption:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;&lt;p&gt;Support from networking vendors - we&amp;rsquo;ve already seen Cisco changing by introducing YANG support on IOS-XE instead of producing another dubious One-PK clone. So big thanks to them and I hope that other vendors will follow suit.&lt;/p&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Tools - this part, IMHO, is the most crucial. In order for people to start using YANG models we have to have the right tools that would be versatile enough to allow network engineers to be limited only by their imagination and at the same time be as robust as the CLI. So I wanted to give a big shout out to all the people contributing to open-source projects like &lt;strong&gt;pyang&lt;/strong&gt;, &lt;strong&gt;YDK&lt;/strong&gt; and many others that I have missed or don&amp;rsquo;t know about. You&amp;rsquo;re doing a great job guys, don&amp;rsquo;s stop.&lt;/p&gt;&lt;/li&gt;
-&lt;/ol&gt;
 </description>
     </item>
     

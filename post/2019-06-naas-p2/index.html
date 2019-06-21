@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="In the previous post, we&rsquo;ve examined the foundation of the Network-as-a-Service platform. A couple of services were used to build the configuration from data models and templates and push it to network devices using Nornir and Napalm. In this post, we&rsquo;ll focus on the user-facing part of the platform. I&rsquo;ll show how to expose a part of the device data model via a custom API built on top of Kubernetes and how to tie it together with the rest of the platform components.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2019-06-naas-p2/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2019-06-naas-p2/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2019-06-naas-p2/">
+  <meta property="og:title" content="Network-as-a-Service Part 2 - Designing a Network API | networkop">
+  <meta property="og:description" content="In the previous post, we&rsquo;ve examined the foundation of the Network-as-a-Service platform. A couple of services were used to build the configuration from data models and templates and push it to network devices using Nornir and Napalm. In this post, we&rsquo;ll focus on the user-facing part of the platform. I&rsquo;ll show how to expose a part of the device data model via a custom API built on top of Kubernetes and how to tie it together with the rest of the platform components.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2019-06-20T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2019-06-20T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/naas-p2.png"/>
+
+<meta name="twitter:title" content="Network-as-a-Service Part 2 - Designing a Network API"/>
+<meta name="twitter:description" content="Network-as-a-Service Part 2 - Designing a Network API with K8s CRDs and custom controllers"/>
+
+
+  <title>Network-as-a-Service Part 2 - Designing a Network API | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Network-as-a-Service Part 2 - Designing a Network API</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2019-06-20 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      20 Jun 2019
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    10 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2019-06-naas-p2/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Network-as-a-Service%20Part%202%20-%20Designing%20a%20Network%20API&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p2%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p2%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p2%2f&amp;title=Network-as-a-Service%20Part%202%20-%20Designing%20a%20Network%20API"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Network-as-a-Service%20Part%202%20-%20Designing%20a%20Network%20API&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p2%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>In the <a href="/post/2019-06-naas-p1/">previous post</a>, we&rsquo;ve examined the foundation of the Network-as-a-Service platform. A couple of services were used to build the configuration from data models and templates and push it to network devices using Nornir and Napalm. In this post, we&rsquo;ll focus on the user-facing part of the platform. I&rsquo;ll show how to expose a part of the device data model via a custom API built on top of Kubernetes and how to tie it together with the rest of the platform components.</p>
+
+<h2 id="interacting-with-a-kubernetes-api">Interacting with a Kubernetes API</h2>
+
+<p>There are two main ways to interact with a <a href="https://kubernetes.io/docs/concepts/overview/kubernetes-api/" target="_blank">Kubernetes API</a>: one using a <a href="https://kubernetes.io/docs/reference/using-api/client-libraries/" target="_blank">client library</a>, which is how NaaS services communicate with K8s internally, the other way is with a command line tool called <code>kubectl</code>, which is intended to be used by humans. In either case, each API request is expected to contain at least the following fields:</p>
+
+<ul>
+<li><strong>apiVersion</strong> - all API resources are grouped and versioned to allow multiple versions of the same kind to co-exist at the same time.</li>
+<li><strong>kind</strong> - defines the type of object to be created.</li>
+<li><strong>metadata</strong> - collection of request attributes like name, namespaces, labels etc.</li>
+<li><strong>spec</strong> - the actual payload of the request containing the attributes of the requested object.</li>
+</ul>
+
+<p>In order to describe these fields in a concise and human-readable way, API requests are often written in YAML, which is why you&rsquo;ll see a lot of YAML snippets throughout this post. You can treat each one of those snippets as a separate API call that can be applied to a K8s cluster using a <code>kubectl apply</code> command.</p>
+
+<h2 id="designing-a-network-interface-api">Designing a Network Interface API</h2>
+
+<p>The structure and logic behind any user-facing API can be very customer-specific. Although the use-case I&rsquo;m focusing on here is a very simple one, my goal is to demonstrate the idea which, if necessary, can be adapted to other needs and requirements. So let&rsquo;s assume we want to allow end users to change access ports configuration of multiple devices and this is how a sample API request may look like:</p>
+
+<pre><code class="language-yaml">apiVersion: network.as.a.service/v1
+kind: Interface
+metadata:
+  name: request-001
+  namespace: tenant-a
+spec:
+  services:
+    - devicename: deviceA
+      ports: [&quot;1&quot;, &quot;15&quot;]
+      vlan: 10
+      trunk: yes
+    - devicename: deviceB
+      ports: [&quot;1&quot;,&quot;10&quot;, &quot;11&quot;]
+      vlan: 110
+      trunk: no
+</code></pre>
+
+<p>There are a few things to note in the above request:</p>
+
+<ul>
+<li>Every request will have a unique name per namespace (tenant).</li>
+<li>The main payload inside the <code>.spec</code> property is a list of (VLAN) network services that need to be configured on network devices.</li>
+<li>Each element of the list contains the name of the device, list of ports and a VLAN number to be associated with them.</li>
+</ul>
+
+<p>Now let&rsquo;s see what it takes to make Kubernetes &ldquo;understand&rdquo; this API.</p>
+
+<h2 id="introducing-kubernetes-crds">Introducing Kubernetes CRDs</h2>
+
+<p>API server is the main component of the control plane of a Kubernetes cluster. It receives all incoming requests, validates them, notifies the respective controllers and stores them in a database.</p>
+
+<p><img src="/img/k8s-api.png" alt="" /></p>
+
+<p>Apart from the APIs exposing a set of standard resources, there&rsquo;s an ability to define <a href="https://kubernetes.io/docs/tasks/access-kubernetes-api/custom-resources/custom-resource-definitions/" target="_blank">custom resources</a> - user-defined data structures that an API server can accept and store. Custom resources are the main building blocks for a lot of platforms built on top of K8s and at the very least they allow users to store and retrieve some arbitrary YAML data.</p>
+
+<p>In order to be able to create a custom resource, we need to define it with a custom resource definition (CRD) object that would describe the name of the resource, the api group it belongs to and, optionally, the structure and values of the YAML data via OpenAPI v3 <a href="https://github.com/OAI/OpenAPI-Specification/blob/master/versions/3.0.0.md#schemaObject" target="_blank">schema</a>. This is how a CRD for the above Interface API would look like:</p>
+
+<pre><code class="language-yaml">apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: interfaces.network.as.a.service
+spec:
+  group: network.as.a.service
+  versions:
+  - name: v1
+    served: true
+    storage: true
+  scope: Namespaced
+  subresources:
+    status: {}
+  names:
+    plural: interfaces
+    singular: interface
+    kind: Interface
+    shortNames:
+    - intf
+  validation:
+    openAPIV3Schema:
+      required: [&quot;spec&quot;]
+      properties:
+        spec:
+          required: [&quot;services&quot;]
+          properties:
+            services:
+              type: array
+              items: 
+                type: object
+                required: [&quot;devicename&quot;, &quot;vlan&quot;, &quot;ports&quot;]
+                properties:
+                  devicename: 
+                    type: string
+                  vlan:
+                    type: integer
+                    minimum: 1
+                    maximum: 4094
+                  ports:
+                    type: array
+                    items:
+                      type: string
+                  trunk:
+                    type: boolean
+</code></pre>
+
+<p>As soon as we <code>kubectl apply</code> the above YAML, our API server will expose the <code>Interface</code> API  for all external users to perform standard CRUD operations on, and store the results alongside other K8s resources in etcd datastore.</p>
+
+<h2 id="kubernetes-custom-controllers">Kubernetes custom controllers</h2>
+
+<p>Custom resources, by themselves, do not provide any way to define a business logic of what to do with their data. This job is normally performed by Kubernetes controllers that &ldquo;watch&rdquo; events that happen to these resources and perform actions based on that. This tandem between custom controllers and CRDs is so common, it led to the creation of an <a href="https://coreos.com/operators/" target="_blank">operator pattern</a> and a whole <a href="https://twitter.com/alexellisuk/status/1132755044313522176" target="_blank">slew</a> of operator frameworks with languages ranging from Go to Ansible.</p>
+
+<p>However, as I&rsquo;ve mentioned in the <a href="/post/2019-06-naas-p1/">previous post</a>, sometimes using a framework does not give you any benefit and after having looked at some of the most popular ones, I&rsquo;ve decided to settle on my own implementation which turned out to be a lot easier. In essence, all that&rsquo;s required from a custom controller is to:</p>
+
+<ol>
+<li>Subscribe to events about a custom resource (via K8s API).</li>
+<li>Once an event is received, perform the necessary business logic.</li>
+<li>Update the resource status if required.</li>
+</ol>
+
+<p>Let&rsquo;s see how these custom controllers are implemented inside the NaaS platform.</p>
+
+<h2 id="naas-controller-architecture">NaaS controller architecture</h2>
+
+<p>NaaS platform has a special <strong>watcher</strong> service that implements all custom controller logic. Its main purpose is to process incoming <code>Interface</code> API events and generate a device-centric interface data model based on them.</p>
+
+<p><img src="/img/naas-p2.png" alt="" /></p>
+
+<p>Internally, the watcher service is built out of two distinct controllers:</p>
+
+<ol>
+<li><strong>interface-watcher</strong> - listens to <code>Interface</code> API events and updates a custom <code>Device</code> resource that stores an aggregated device-centric view of all interface API requests received up to date. Once all the changes have been made, it updates the status of the request and notifies the scheduler about all the devices affected by this event.</li>
+<li><strong>device-watcher</strong> - listens to <code>Device</code> API events and generates configmaps containing a device interface data model. These configmaps are then consumed by enforcers to build the access interface part of the total device configuration.</li>
+</ol>
+
+<h2 id="interface-watcher-architecture">Interface-watcher architecture</h2>
+
+<p>The main loop of the <a href="https://github.com/networkop/network-as-a-service/blob/part-2/watcher/interface-watcher.py" target="_blank">interface-watcher</a> receives <code>Interface</code> API events as they arrive and processes each network service individually:</p>
+
+<pre><code class="language-python">for network_service in event_object[&quot;spec&quot;][&quot;services&quot;]:
+    results.append(
+        process_service(event_metadata, network_service, action, defaults)
+    )
+</code></pre>
+
+<p>For each service, depending on the type of the event, we either add, update or delete ports from the global device-centric model:</p>
+
+<pre><code class="language-python">device = get_or_create_device(device_name, defaults)
+device_data = device[&quot;spec&quot;]
+if action == &quot;ADDED&quot;:
+    device_data = add_ports(
+        network_service, device_data, resource_name, resource_namespace
+    )
+elif action == &quot;DELETED&quot;:
+    device_data = delete_ports(network_service, device_data, resource_name)
+elif action == &quot;MODIFIED&quot;:
+    device_data = delete_all_ports(device_data, resource_name)
+    device_data = add_ports(
+        network_service, device_data, resource_name, resource_namespace
+    )
+</code></pre>
+
+<p>For each of the added ports, we copy all settings from the original request and annotate it with metadata about its current owner and tenant:</p>
+
+<pre><code class="language-python">ports = origin.pop(&quot;ports&quot;)
+for port in ports:
+    destination[port] = dict()
+    destination[port] = origin
+    destination[port][&quot;annotations&quot;] = annotate(owner, namespace)
+</code></pre>
+
+<p>This results in the following custom <code>Device</code> resource being created from the original <code>Interface</code> API request:</p>
+
+<pre><code class="language-yaml">apiVersion: network.as.a.service/v1
+kind: Device
+metadata:
+  name: devicea
+  namespace: default
+spec:
+  &quot;1&quot;:
+    annotations:
+      namespace: tenant-a
+      owner: request-001
+      timestamp: &quot;2019-06-19 22:09:02&quot;
+    trunk: true
+    vlan: 10
+  &quot;15&quot;:
+    annotations:
+      namespace: tenant-a
+      owner: request-001
+      timestamp: &quot;2019-06-19 22:09:02&quot;
+    trunk: true
+    vlan: 10
+</code></pre>
+
+<p>As subsequent requests can add or overwrite port ownership information, metadata allows the controller to be selective about which ports to modify in order to not accidentally delete ports assigned to a different owner:</p>
+
+<pre><code class="language-python">new_destination = copy.deepcopy(destination)
+for port in origin[&quot;ports&quot;]:
+    if (port in destination) and (
+        destination[port].get(&quot;annotations&quot;, {}).get(&quot;owner&quot;, &quot;&quot;) == owner
+    ):
+        log.debug(f&quot;Removing port {port} from structured config&quot;)
+        new_destination.pop(port, None)
+</code></pre>
+
+<p>Once the event has been processed, interface-watcher updates the device resource with the new values:</p>
+
+<pre><code class="language-python">device[&quot;spec&quot;] = device_data
+update_device(device_name, device, defaults)
+</code></pre>
+
+<p>The last command triggers a MODIFIED event on the <code>Device</code> CR and this is where the next controller kicks in.</p>
+
+<h2 id="device-watcher-architecture">Device-watcher architecture</h2>
+
+<p>The job of a <a href="https://github.com/networkop/network-as-a-service/blob/part-2/watcher/device-watcher.py" target="_blank">device-watcher</a> is to, first, extract the payload from the above request:</p>
+
+<pre><code class="language-python">event_object = event[&quot;object&quot;]
+event_metadata = event_object[&quot;metadata&quot;
+device_name = event_metadata[&quot;name&quot;]
+device_data = event_object[&quot;spec&quot;]
+</code></pre>
+
+<p>The payload is then serialised into a string and saved as a configmap with additional pointers to Jinja template and order/priority number to help the enforcer build the full device configuration:</p>
+
+<pre><code class="language-python">k8s_api = client.CoreV1Api()
+body = {
+    &quot;metadata&quot;: {
+        &quot;name&quot;: device_name,
+        &quot;annotations&quot;: {&quot;order&quot;: &quot;99&quot;, &quot;template&quot;: &quot;interface.j2&quot;},
+        &quot;labels&quot;: {&quot;device&quot;: device_name, &quot;app&quot;: &quot;naas&quot;, &quot;type&quot;: &quot;model&quot;},
+    },
+    &quot;data&quot;: {&quot;structured-config&quot;: yaml.safe_dump(device_data)},
+}
+
+k8s_api.replace_namespaced_config_map(
+    device_name, event_metadata[&quot;namespace&quot;], body
+)
+</code></pre>
+
+<p>The remaining part of the workflow is similar to what was described in the previous post. The scheduler receives the request with the list of devices to be re-provisioned, spins up the required number of enforcers who collect all relevant data models, combine them with Jinja templates and push the new config.</p>
+
+<h2 id="demo">Demo</h2>
+
+<p>This demo will pick up from where the previous one has left off. The assumption is that the test topology, K8s cluster and scheduler/enforcer services are already deployed as described in the <a href="/post/2019-06-naas-p1/">previous post</a>. The code for this demo can be downloaded <a href="https://github.com/networkop/network-as-a-service/archive/part-2.zip" target="_blank">here</a>.</p>
+
+<h3 id="deploy-the-watcher-service">Deploy the watcher service</h3>
+
+<pre><code>make watcher-build
+</code></pre>
+
+<p>The above command performs the following actions:</p>
+
+<ol>
+<li>Creates <a href="https://github.com/networkop/network-as-a-service/blob/part-2/crds/00_namespace.yaml" target="_blank">two namespaces</a> that will represent different platform tenants</li>
+<li>Creates <code>Interface</code> and <code>Device</code> <a href="https://github.com/networkop/network-as-a-service/blob/part-2/crds/01_crd.yaml" target="_blank">CRD objects</a> describing our custom APIs</li>
+<li>Deploys both watcher <a href="https://github.com/networkop/network-as-a-service/blob/part-2/watcher/manifest.yaml" target="_blank">custom controllers</a> along with the necessary RBAC rules</li>
+<li>Uploads the interface <a href="https://github.com/networkop/network-as-a-service/blob/part-2/templates/interface.j2" target="_blank">jinja template</a> to be used by enforcers</li>
+</ol>
+
+<h2 id="test">Test</h2>
+
+<p>Issue the <a href="https://github.com/networkop/network-as-a-service/blob/part-2/crds/03_cr.yaml" target="_blank">first</a> <code>Interface</code> API call:</p>
+
+<pre><code class="language-bash">kubectl apply -f crds/03_cr.yaml         
+</code></pre>
+
+<p>Check the logs of the interface-watcher to make sure it&rsquo;s picked up the <code>Interface</code> ADDED event:</p>
+
+<pre><code>kubectl logs deploy/interface-watcher
+2019-06-20 08:20:01 INFO interface-watcher - interface_watcher: Watching Interface CRDs
+2019-06-20 08:20:09 INFO interface-watcher - process_services: Received ADDED event request-001 of Interface kind
+2019-06-20 08:20:09 INFO interface-watcher - process_service: Processing ADDED config for Vlans 10 on device devicea
+2019-06-20 08:20:09 INFO interface-watcher - get_device: Reading the devicea device resource
+</code></pre>
+
+<p>Check the logs of the device-watcher to make sure it has detected the <code>Device</code> API event:</p>
+
+<pre><code>kubectl logs deploy/device-watcher
+2019-06-20 08:20:09 INFO device-watcher - update_configmaps: Updating ConfigMap for devicea
+2019-06-20 08:20:09 INFO device-watcher - update_configmaps: Creating configmap for devicea
+2019-06-20 08:20:09 INFO device-watcher - update_configmaps: Configmap devicea does not exist yet. Creating
+</code></pre>
+
+<p>Check the logs of the scheduler service to see if it has been notified about the change:</p>
+
+<pre><code>kubectl logs deploy/scheduler
+2019-06-20 08:20:09 INFO scheduler - webhook: Got incoming request from 10.32.0.4
+2019-06-20 08:20:09 INFO scheduler - webhook: Request JSON payload {'devices': ['devicea', 'deviceb']}
+2019-06-20 08:20:09 INFO scheduler - create_job: Creating job job-6rlwg0
+</code></pre>
+
+<p>Check the logs of the enforcer service to see if device configs have been generated and pushed:</p>
+
+<pre><code>kubectl logs jobs/job-6rlwg0
+2019-06-20 08:20:18 INFO enforcer - push_configs: Downloading Model configmaps
+2019-06-20 08:20:18 INFO enforcer - get_configmaps: Retrieving the list of ConfigMaps matching labels {'app': 'naas', 'type': 'model'}
+2019-06-20 08:20:18 INFO enforcer - push_configs: Found models: ['devicea', 'deviceb', 'generic-cm']
+2019-06-20 08:20:18 INFO enforcer - push_configs: Downloading Template configmaps
+2019-06-20 08:20:18 INFO enforcer - get_configmaps: Retrieving the list of ConfigMaps matching labels {'app': 'naas', 'type': 'template'}
+</code></pre>
+
+<p>Finally, we can check the result on the device itself:</p>
+
+<pre><code>devicea#sh run int eth1
+interface Ethernet1
+   description request-001
+   switchport trunk allowed vlan 10
+   switchport mode trunk
+</code></pre>
+
+<h2 id="coming-up">Coming up</h2>
+
+<p>What we&rsquo;ve covered so far is enough for end users to be able to modify access port settings on multiple devices via a standard API. However, there&rsquo;s still nothing protecting the configuration created by one user from being overwritten by a request coming from a user in a different tenant. In the next post, I&rsquo;ll show how to validate requests to make sure they do not cross the tenant boundaries. Additionally, I&rsquo;ll show how to mutate incoming requests to be able to accept interface ranges and inject default values. To top it off, we&rsquo;ll integrate NaaS with Google&rsquo;s identity provider via OIDC to allow users to be mapped to different namespaces based on their google alias.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2019-06-naas-p1/">Network-as-a-Service Part 1 - Frameworkless automation</a></li>
+    
+    <li><a href="/post/2019-04-tf-yang/">Terraform your physical network with YANG</a></li>
+    
+    <li><a href="/post/2019-01-k8s-vrnetlab/">Multi-Vendor Network Simulations at Scale with meshnet-cni and vrnetlab</a></li>
+    
+    <li><a href="/post/2018-11-k8s-topo-p2/">Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</a></li>
+    
+    <li><a href="/post/2018-11-k8s-topo-p1/">Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
