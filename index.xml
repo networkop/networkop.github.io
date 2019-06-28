@@ -11,6 +11,237 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Network-as-a-Service Part 3 - Authentication and Admission control</title>
+      <link>https://networkop.co.uk/post/2019-06-naas-p3/</link>
+      <pubDate>Thu, 27 Jun 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-06-naas-p3/</guid>
+      <description>
+
+&lt;p&gt;In the previous two posts, we&amp;rsquo;ve seen how to &lt;a href=&#34;https://networkop.co.uk/post/2019-06-naas-p2/&#34;&gt;build&lt;/a&gt; a custom network API with Kubernetes CRDs and &lt;a href=&#34;https://networkop.co.uk/post/2019-06-naas-p1/&#34;&gt;push&lt;/a&gt; the resulting configuration to network devices. In this post, we&amp;rsquo;ll apply the final touches by enabling oAuth2 authentication and enforcing separation between different tenants. All of these things are done while the API server processes incoming requests, so it would make sense to have a closer look at how it does that first.&lt;/p&gt;
+
+&lt;h2 id=&#34;kubernetes-request-admission-pipeline&#34;&gt;Kubernetes request admission pipeline&lt;/h2&gt;
+
+&lt;p&gt;Every incoming request has to go through several stages before it can get accepted and persisted by the API server. Some of these stages are mandatory (e.g. authentication), while some can be added through webhooks. The following diagram comes from another &lt;a href=&#34;https://kubernetes.io/blog/2019/03/21/a-guide-to-kubernetes-admission-controllers/&#34; target=&#34;_blank&#34;&gt;blogpost&lt;/a&gt; that covers each one of these stages in detail:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/admission-controller-phases.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Specifically for NaaS platform, this is how we&amp;rsquo;ll use the above stages:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;All users will authenticate with Google and get mapped to individual namespace/tenant based on their google alias.&lt;/li&gt;
+&lt;li&gt;Mutating webhook will be used to inject default values into each request and allow users to define ranges as well as individual ports.&lt;/li&gt;
+&lt;li&gt;Object schema validation will do the syntactic validation of each request.&lt;/li&gt;
+&lt;li&gt;Validating webhook will perform the semantic validation to make sure users cannot change ports assigned to a different tenant.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;The following sections will cover these stages individually.&lt;/p&gt;
+
+&lt;h2 id=&#34;authenticating-with-google&#34;&gt;Authenticating with Google&lt;/h2&gt;
+
+&lt;p&gt;Typically, external users are authenticated using X.509 certificates, however, lack of CRL or  OCSP support in Kubernetes creates a problem since lost or exposed certs cannot be revoked. One of the alternatives is to use &lt;a href=&#34;https://kubernetes.io/docs/reference/access-authn-authz/authentication/#openid-connect-tokens&#34; target=&#34;_blank&#34;&gt;OpenID Connect&lt;/a&gt; which works on top of the OAuth 2.0 protocol and is supported by a few very big identity providers like Google, Microsoft and Salesforce. Although OIDC has its own shortcomings (read &lt;a href=&#34;https://blog.gini.net/frictionless-kubernetes-openid-connect-integration-f1c356140937&#34; target=&#34;_blank&#34;&gt;this blogpost&lt;/a&gt; for details), it is still often preferred over X.509.&lt;/p&gt;
+
+&lt;p&gt;In order to authenticate users with OIDC, we need to do three things:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Configure the API server to bind different user aliases to their respective tenants.&lt;/li&gt;
+&lt;li&gt;Authenticate with the identity provider and get a signed token.&lt;/li&gt;
+&lt;li&gt;Update local credentials to use this token.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;The first step is pretty straightforward and can be done with a simple RBAC &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/oidc/manifest.yaml&#34; target=&#34;_blank&#34;&gt;manifest&lt;/a&gt;. The latter two steps can either be done manually or automatically with the help of &lt;a href=&#34;https://github.com/gini/dexter&#34; target=&#34;_blank&#34;&gt;dexter&lt;/a&gt;. NaaS Github repo contains a sample two-liner &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/dexter-auth-public.sh&#34; target=&#34;_blank&#34;&gt;bash script&lt;/a&gt; that uses dexter to authenticate with Google and save the token in the local &lt;code&gt;~/.kube/config&lt;/code&gt; file.&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;All that&amp;rsquo;s required from a NaaS administrator is to maintain an up-to-date tenant role bindings and users can authenticate and maintain their tokens independently.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h2 id=&#34;mutating-incoming-requests&#34;&gt;Mutating incoming requests&lt;/h2&gt;
+
+&lt;p&gt;Mutating webhooks are commonly used to inject additional information (a sidecar proxy for service meshes) or defaults values (default CPU/memory) into incoming requests. Both mutating and validating webhooks get triggered based on a set of &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/webhooks/template-webhook.yaml&#34; target=&#34;_blank&#34;&gt;rules&lt;/a&gt; that match the API group and type of the incoming request. If there&amp;rsquo;s a match, a webhook gets called by the API server with an HTTP POST request containing the full body of the original request. The NaaS mutating &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/webhooks/mutate.py&#34; target=&#34;_blank&#34;&gt;webhook&lt;/a&gt; is written in Python/Flask and the first thing it does is extract the payload and its type:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;request_info = request.json
+modified_spec = copy.deepcopy(request_info)
+workload_type = modified_spec[&amp;quot;request&amp;quot;][&amp;quot;kind&amp;quot;][&amp;quot;kind&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next, we set the default values and normalize ports:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;if workload_type == &amp;quot;Interface&amp;quot;:
+    defaults = get_defaults()
+    set_intf_defaults(modified_spec[&amp;quot;request&amp;quot;][&amp;quot;object&amp;quot;][&amp;quot;spec&amp;quot;], defaults)
+    normalize_ports(modified_spec[&amp;quot;request&amp;quot;][&amp;quot;object&amp;quot;][&amp;quot;spec&amp;quot;])
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The last function expands interface ranges, i.e. translates &lt;code&gt;1-5&lt;/code&gt; into &lt;code&gt;1,2,3,4,5&lt;/code&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;for port in ports:
+    if not &amp;quot;-&amp;quot; in port:
+        result.append(str(port))
+    else:
+        start, end = port.split(&amp;quot;-&amp;quot;)
+        for num in range(int(start), int(end) + 1):
+            result.append(str(num))  
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, we generate a json patch from the diff between the original and the mutated request, build a response and send it back to the API server.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;patch = jsonpatch.JsonPatch.from_diff(
+    request_info[&amp;quot;request&amp;quot;][&amp;quot;object&amp;quot;], modified_spec[&amp;quot;request&amp;quot;][&amp;quot;object&amp;quot;]
+)
+admission_response = {
+    &amp;quot;allowed&amp;quot;: True,
+    &amp;quot;uid&amp;quot;: request_info[&amp;quot;request&amp;quot;][&amp;quot;uid&amp;quot;],
+    &amp;quot;patch&amp;quot;: base64.b64encode(str(patch).encode()).decode(),
+    &amp;quot;patchtype&amp;quot;: &amp;quot;JSONPatch&amp;quot;,
+}
+return jsonify(admissionReview = {&amp;quot;response&amp;quot;: admission_response})
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;The &lt;a href=&#34;https://kubernetes.io/blog/2019/06/19/kubernetes-1-15-release-announcement/&#34; target=&#34;_blank&#34;&gt;latest&lt;/a&gt; (v1.15) release of Kubernetes has added support for default values to be defined inside the OpenAPI validation schema, making the job of writing mutating webhooks a lot easier.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h2 id=&#34;validating-incoming-requests&#34;&gt;Validating incoming requests&lt;/h2&gt;
+
+&lt;p&gt;As we&amp;rsquo;ve seen in the &lt;a href=&#34;https://networkop.co.uk/post/2019-06-naas-p2/&#34;&gt;previous post&lt;/a&gt;, it&amp;rsquo;s possible to use OpenAPI schema to perform syntactic validation of incoming requests, i.e. check the structure and the values of payload variables. This function is very similar to what you can &lt;a href=&#34;http://plajjan.github.io/validating-data-with-YANG/&#34; target=&#34;_blank&#34;&gt;accomplish&lt;/a&gt; with a YANG model and, in theory, OpenAPI schema can be converted to YANG and &lt;a href=&#34;http://ipengineer.net/2018/10/yang-openapi-swagger-code-generation/&#34; target=&#34;_blank&#34;&gt;vice versa&lt;/a&gt;. However useful, such validation only takes into account a single input and cannot cross-correlate this data with other sources. In our case, the main goal is to protect one tenant&amp;rsquo;s data from being overwritten by request coming from another tenant. In Kubernetes, semantic validation is commonly done using &lt;a href=&#34;https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#validatingadmissionwebhook&#34; target=&#34;_blank&#34;&gt;validating&lt;/a&gt; admission webhooks and one of the most interesting tools in this landscape is &lt;a href=&#34;https://www.openpolicyagent.org/docs/v0.10.7/kubernetes-admission-control/&#34; target=&#34;_blank&#34;&gt;Open Policy Agent&lt;/a&gt; and its policy language called Rego.&lt;/p&gt;
+
+&lt;h4 id=&#34;using-opa-s-policy-language&#34;&gt;Using OPA&amp;rsquo;s policy language&lt;/h4&gt;
+
+&lt;p&gt;Rego is a special-purpose DSL with &amp;ldquo;rich support for traversing nested documents&amp;rdquo;. What this means is that it can iterate over dictionaries and lists without using traditional for loops. When it encounters an iterable data structure, it will automatically expand it to include all of its possible values. I&amp;rsquo;m not going to try to explain how &lt;a href=&#34;https://www.openpolicyagent.org/docs/v0.10.7/how-does-opa-work/&#34; target=&#34;_blank&#34;&gt;opa works&lt;/a&gt; in this post, instead I&amp;rsquo;ll show how to use it to solve our particular problem. Assuming that an incoming request is stored in the &lt;code&gt;input&lt;/code&gt; variable and &lt;code&gt;devices&lt;/code&gt; contain all custom device resources, this is how a Rego policy would look like:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;input.request.kind.kind == &amp;quot;Interface&amp;quot;
+new_tenant := input.request.namespace
+port := input.request.object.spec.services[i].ports[_]
+new_device := input.request.object.spec.services[i].devicename
+existing_device_data := devices[_][lower(new_device)].spec
+other_tenant := existing_device_data[port].annotations.namespace
+not new_tenant == other_tenant
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/webhooks/validate.rego&#34; target=&#34;_blank&#34;&gt;actual policy&lt;/a&gt; contains more than 7 lines but the most important ones are listed above and perform the following sequence of actions:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Verify that the incoming request is of kind &lt;code&gt;Interface&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Extract its namespace and save it in the &lt;code&gt;new_tenant&lt;/code&gt; variable&lt;/li&gt;
+&lt;li&gt;Save all ports in the &lt;code&gt;port&lt;/code&gt; variable&lt;/li&gt;
+&lt;li&gt;Remember which device those ports belong to in the &lt;code&gt;new_device&lt;/code&gt; variables&lt;/li&gt;
+&lt;li&gt;Extract existing port allocation information for each one of the above devices&lt;/li&gt;
+&lt;li&gt;If any of the ports from the incoming request is found in the existing data, record its owner&amp;rsquo;s namespace&lt;/li&gt;
+&lt;li&gt;Deny the request if the requesting port owner (tenant) is different from the current tenant.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;Although Rego may not be that easy to write (or debug), it&amp;rsquo;s very easy to read, compared to an equivalent implemented in, say, Python, which would have taken x3 the number of lines and contain multiple for loops and conditionals. Like any DSL, it strives to strike a balance between readability and flexibility, while abstracting away less important things like web server request parsing and serialising.&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;The same functionality can be implemented in any standard web server (e.g. Python+Flask), so using OPA is not a requirement&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h2 id=&#34;demo&#34;&gt;Demo&lt;/h2&gt;
+
+&lt;p&gt;This is a complete end-to-end demo of Network-as-a-Service platform and encompasses all the demos from the previous posts. The code for this demo is available &lt;a href=&#34;https://github.com/networkop/network-as-a-service/archive/part-3.zip&#34; target=&#34;_blank&#34;&gt;here&lt;/a&gt; and can be run on any Linux OS with Docker.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/naas-p3.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h4 id=&#34;0-prepare-for-oidc-authentication&#34;&gt;0. Prepare for OIDC authentication&lt;/h4&gt;
+
+&lt;p&gt;For this demo, I&amp;rsquo;ll only use a single non-admin user. Before you run the rest of the steps, you need to make sure you&amp;rsquo;ve followed &lt;a href=&#34;https://github.com/gini/dexter&#34; target=&#34;_blank&#34;&gt;dexter&lt;/a&gt; to setup google credentials and update OAuth client and user IDs in &lt;code&gt;kind.yaml&lt;/code&gt;, &lt;code&gt;dexter-auth.sh&lt;/code&gt; and &lt;code&gt;oidc/manifest.yaml&lt;/code&gt; files.&lt;/p&gt;
+
+&lt;h4 id=&#34;1-build-the-test-topology&#34;&gt;1. Build the test topology&lt;/h4&gt;
+
+&lt;p&gt;This step assumes you have &lt;a href=&#34;https://github.com/networkop/docker-topo&#34; target=&#34;_blank&#34;&gt;docker-topo&lt;/a&gt; installed and c(vEOS) image &lt;a href=&#34;https://github.com/networkop/docker-topo/tree/master/topo-extra-files/veos&#34; target=&#34;_blank&#34;&gt;built&lt;/a&gt; and available in local docker registry.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make topo
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This test topology can be any Arista EOS device reachable from the localhost. If using a different test topology, be sure to update the &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/topo/inventory.yaml&#34; target=&#34;_blank&#34;&gt;inventory&lt;/a&gt; file.&lt;/p&gt;
+
+&lt;h4 id=&#34;2-build-the-kubernetes-cluster&#34;&gt;2. Build the Kubernetes cluster&lt;/h4&gt;
+
+&lt;p&gt;The following step will build a docker-based &lt;a href=&#34;https://github.com/kubernetes-sigs/kind&#34; target=&#34;_blank&#34;&gt;kind&lt;/a&gt; cluster with a single control plane and a single worker node.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make kubernetes
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&#34;3-check-that-the-cluster-is-functional&#34;&gt;3. Check that the cluster is functional&lt;/h4&gt;
+
+&lt;p&gt;The following step will build a base docker image and push it to dockerhub. It is assumed that the user has done &lt;code&gt;docker login&lt;/code&gt; and has his username saved in the &lt;code&gt;DOCKERHUB_USER&lt;/code&gt; environment variable.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;export KUBECONFIG=&amp;quot;$(kind get kubeconfig-path --name=&amp;quot;naas&amp;quot;)&amp;quot;
+make warmup
+kubectl get pod test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This is a 100MB image, so it may take a few minutes for test pod to transition from &lt;code&gt;ContainerCreating&lt;/code&gt; to &lt;code&gt;Running&lt;/code&gt;&lt;/p&gt;
+
+&lt;h4 id=&#34;4-build-the-naas-platform&#34;&gt;4. Build the NaaS platform&lt;/h4&gt;
+
+&lt;p&gt;The next command will install and configure both mutating and validating admission webhooks, the watcher and scheduler services and all of the required CRDs and configmaps.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make build
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&#34;5-authenticate-with-google&#34;&gt;5. Authenticate with Google&lt;/h4&gt;
+
+&lt;p&gt;Assuming all files from step 0 have been updated correctly, the following command will open a web browser and prompt you to select a google account to authenticate with.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make oidc-build
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;From now on, you should be able to switch to your google-authenticated user like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl config use-context mk
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;And back to the admin user like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl config use-context kubernetes-admin@naas
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h4 id=&#34;6-test&#34;&gt;6. Test&lt;/h4&gt;
+
+&lt;p&gt;To demonstrate how everything works, I&amp;rsquo;m going to issue three API requests. The &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/crds/03_cr.yaml&#34; target=&#34;_blank&#34;&gt;first&lt;/a&gt; API request will set up a large range of ports on test switches.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl config use-context mk
+kubectl apply -f crds/03_cr.yaml                 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/crds/04_cr.yaml&#34; target=&#34;_blank&#34;&gt;second&lt;/a&gt; API request will try to re-assign some of these ports to a different tenant and will get denied by the validating controller.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl config use-context kubernetes-admin@naas
+kubectl apply -f crds/04_cr.yaml        
+Error from server (Port 11@deviceA is owned by a different tenant: tenant-a (request request-001), Port 12@deviceA is owned by a different tenant: tenant-a (request request-001),
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The &lt;a href=&#34;https://github.com/networkop/network-as-a-service/blob/part-3/crds/05_cr.yaml&#34; target=&#34;_blank&#34;&gt;third&lt;/a&gt; API request will update some of the ports from the original request within the same tenant.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl config use-context mk
+kubectl apply -f crds/05_cr.yaml                 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The following result can be observed on one of the switches:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;devicea#sh run int eth2-3
+interface Ethernet2
+   description request-002
+   shutdown
+   switchport trunk allowed vlan 100
+   switchport mode trunk
+   spanning-tree portfast
+interface Ethernet3
+   description request-001
+   shutdown
+   switchport trunk allowed vlan 10
+   switchport mode trunk
+   spanning-tree portfast
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;outro&#34;&gt;Outro&lt;/h2&gt;
+
+&lt;p&gt;Currently, Network-as-a-Service platform is more of a proof-of-concept of how to expose parts of the device data model for end users to consume in a safe and controllable way. Most of it is built out of standard Kubernetes component and the total amount of Python code is under 1000 lines, while the code itself is pretty linear. I have plans to add more things like an SPA front-end, Git and OpenFaaS integration, however, I don&amp;rsquo;t want to invest too much time until I get some sense of external interest. So if this is something that you like and think you might want to try, ping me via social media and I&amp;rsquo;ll try to help get things off the ground.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Network-as-a-Service Part 2 - Designing a Network API</title>
       <link>https://networkop.co.uk/post/2019-06-naas-p2/</link>
       <pubDate>Thu, 20 Jun 2019 00:00:00 +0000</pubDate>
@@ -3352,134 +3583,6 @@ root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/
 &lt;h1 id=&#34;coming-up&#34;&gt;Coming up&lt;/h1&gt;
 
 &lt;p&gt;Now that the lab is up we can start exploring the new OpenStack SDN features. In the next post I&amp;rsquo;ll have a close look at Neutron&amp;rsquo;s &lt;a href=&#34;abbr: Service Function Chainng&#34; target=&#34;_blank&#34;&gt;SFC&lt;/a&gt; feature, how to configure it and how it&amp;rsquo;s been implemented in OVS forwarding pipeline.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Linux SSH Session Management for Network Engineers</title>
-      <link>https://networkop.co.uk/blog/2017/05/12/linux-ssh/</link>
-      <pubDate>Fri, 12 May 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/05/12/linux-ssh/</guid>
-      <description>
-
-&lt;p&gt;A few weeks ago I bought myself a new Dell XPS-13 and decided for the n-th time to go all-in Linux, that is to have Linux as the main and only laptop OS. Since most of my Linux experience is with Fedora-family distros, I quickly installed Fedora-25 and embarked on a long and painful journey of getting out of my Windows comfort zone and re-establishing it in Linux. One of the most important aspects for me, as a network engineer, is to have a streamlined process of accessing network devices. In Windows I was using MTPutty and it helped define my expectations of an ideal SSH session manager:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;I want a multi-tab terminal with the ability to switch between tabs quickly - default (GNOME) terminal does that out-of-the box with no extra modifications&lt;/li&gt;
-&lt;li&gt;I want to login the device without having to enter a password - Not available by default but is possible with some dirty &lt;code&gt;expect&lt;/code&gt; hacks.&lt;/li&gt;
-&lt;li&gt;I want my SSH sessions to be organised in a hierarchical manner with groups representing various administrative domains - customer A, local VMs, lab.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Although GNOME terminal looked like a very good option, it didn&amp;rsquo;t meet all of my requirements. I briefly looked and PAC Manager and GNOME Connection Manager but quickly dismissed them due to their ugliness and clunkiness. Ideally I wanted to keep using GNOME terminal as the main terminal emulator, without having to configure and rely on other 3rd party apps. I also didn&amp;rsquo;t want to wrap my SSH session in &lt;code&gt;expect&lt;/code&gt; as I didn&amp;rsquo;t want my password to be pasted in my screen every time I &lt;em&gt;cat&lt;/em&gt; a file containing the trigger keyword &lt;em&gt;Password:&lt;/em&gt;. I&amp;rsquo;ve finally managed to make everything work inside the native GNOME terminal and this post is a documentation of my approach.&lt;/p&gt;
-
-&lt;h1 id=&#34;1-install-ssh-copy-net&#34;&gt;1. Install ssh-copy-net&lt;/h1&gt;
-
-&lt;p&gt;I&amp;rsquo;ve written a little &lt;a href=&#34;https://github.com/networkop/ssh-copy-net&#34; target=&#34;_blank&#34;&gt;tool&lt;/a&gt; that uses &lt;a href=&#34;https://github.com/ktbyers/netmiko&#34; target=&#34;_blank&#34;&gt;Netmiko&lt;/a&gt; to install (and remove) public SSH keys onto network devices. Assuming &lt;code&gt;python-pip&lt;/code&gt; is already installed here&amp;rsquo;s what&amp;rsquo;s required to download and install &lt;code&gt;ssh-copy-net&lt;/code&gt;:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ pip install git+https://github.com/networkop/ssh-copy-net.git
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Its functionality mimics the one of &lt;code&gt;ssh-copy-id&lt;/code&gt;, so the next step is always to upload the public key to the device:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ssh-copy-net 10.6.142.1 juniper
-Username: admin
-Password:
-All Done!
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;2-define-ssh-config-for-network-devices&#34;&gt;2. Define SSH config for network devices&lt;/h1&gt;
-
-&lt;p&gt;OpenSSH client &lt;a href=&#34;https://linux.die.net/man/5/ssh_config&#34; target=&#34;_blank&#34;&gt;config file&lt;/a&gt; provides a nice way of managing user&amp;rsquo;s SSH sessions. Configuration file allows you to define per-host SSH settings including username, port forwarding options, key checking flags etc. In my case all what I had to do was define IP addresses of my network devices:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;Host srx
-  HostName 10.6.142.1
-
-Host arista
-  HostName 10.6.142.2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Now I am able to login the device by simply typing its name:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ ssh arista
-Last login: Sun May  7 10:57:30 2017 from 10.1.2.3
-arista-1&amp;gt;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;3-define-zsh-aliases&#34;&gt;3. Define zsh aliases&lt;/h1&gt;
-
-&lt;p&gt;The final step is session organisations. For that I&amp;rsquo;ve decided to use zsh aliases and have device groups encoded in the alias name, separated by dashes. For example, if my SRX device was in the &lt;strong&gt;lab&lt;/strong&gt; and Arista was in &lt;strong&gt;Site-51&lt;/strong&gt; of &lt;strong&gt;Customer-A&lt;/strong&gt; this is how I would write my aliases:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;alias lab-srx=&#39;ssh srx&#39;
-alias customer-a-site-51-arista=&#39;ssh arista&#39;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;4-multi-pane-sessions-with-tmux&#34;&gt;4. Multi-pane sessions with tmux&lt;/h1&gt;
-
-&lt;p&gt;As a network engineer, I often find myself troubleshooting issues spanning multiple devices, which is why I need multiple tabs inside a single terminal window. Simply pressing Ctrl+T in GNOME terminal opens a new tab and I can switch between tabs using Alt+[1-9]. However what would be really nice is to have a couple of tabs opened side by side so that I can see the logs and compare output on a number of devices at the same time. This is where tmux comes in. It can do much more than this, but I simply use it to have multiple panes inside the same terminal tab:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/tmux.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Here&amp;rsquo;s an example of my tmux configuration file:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# Automatically set window title
-set-window-option -g automatic-rename on
-set-option -g set-titles on
-
-# Use Alt-arrow keys without prefix key to switch panes
-bind -n M-Left select-pane -L
-bind -n M-Right select-pane -R
-bind -n M-Up select-pane -U
-bind -n M-Down select-pane -D
-
-# Pane splitting keys
-bind-key v split-window -h
-bind-key s split-window -v
-
-# New key-binding to reset hung SSH sessions
-bind-key k respawn-pane -k
-
-# Easy fix for arrow keys inside ssh
-set -g default-terminal &amp;quot;xterm&amp;quot;
-
-# Enable mouse mode (tmux 2.1 and above)
-set -g mouse on
-
-# Reload tmux config
-bind r source-file ~/.tmux.conf
-
-# No delay for escape key press
-set -sg escape-time 0
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;demo&#34;&gt;Demo&lt;/h1&gt;
-
-&lt;p&gt;Now having all the above defined and with the help of zsh command autocompletion, I can login the device with just a few keypresses (shown in square brackets below):&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ lab  [TAB]
-$ lab-  [TAB]
-lab-srx
-$ lab-  [s][TAB]
-$ lab-srx  [ENTER]
---- JUNOS 12.3X48-D30.7 built 2016-04-28 22:37:34 UTC
-{primary:node0}
-null@srx&amp;gt;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Press Ctrl+B v to split the terminal window vertically:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ customer [TAB]
-$ customer- [TAB]
-customer-a-site-51-arista
-$ customer- [a][TAB]
-$ customer-a-arista [ENTER]
-Last login: Thu May 11 15:28:03 2017 from 10.1.2.3
-arista-1&amp;gt;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;An so on and so forth&amp;hellip;&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/tmux.gif&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
 </description>
     </item>
     

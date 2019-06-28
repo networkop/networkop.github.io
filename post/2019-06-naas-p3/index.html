@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="In the previous two posts, we&rsquo;ve seen how to build a custom network API with Kubernetes CRDs and push the resulting configuration to network devices. In this post, we&rsquo;ll apply the final touches by enabling oAuth2 authentication and enforcing separation between different tenants. All of these things are done while the API server processes incoming requests, so it would make sense to have a closer look at how it does that first.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2019-06-naas-p3/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2019-06-naas-p3/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2019-06-naas-p3/">
+  <meta property="og:title" content="Network-as-a-Service Part 3 - Authentication and Admission control | networkop">
+  <meta property="og:description" content="In the previous two posts, we&rsquo;ve seen how to build a custom network API with Kubernetes CRDs and push the resulting configuration to network devices. In this post, we&rsquo;ll apply the final touches by enabling oAuth2 authentication and enforcing separation between different tenants. All of these things are done while the API server processes incoming requests, so it would make sense to have a closer look at how it does that first.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2019-06-27T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2019-06-27T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/naas-p3.png"/>
+
+<meta name="twitter:title" content="Network-as-a-Service Part 3 - Authentication and Admission control"/>
+<meta name="twitter:description" content="Network-as-a-Service Part 3 - Enabling authentication and admission control to complete tenant separation"/>
+
+
+  <title>Network-as-a-Service Part 3 - Authentication and Admission control | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Network-as-a-Service Part 3 - Authentication and Admission control</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2019-06-27 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      27 Jun 2019
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    9 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2019-06-naas-p3/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Network-as-a-Service%20Part%203%20-%20Authentication%20and%20Admission%20control&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p3%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p3%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p3%2f&amp;title=Network-as-a-Service%20Part%203%20-%20Authentication%20and%20Admission%20control"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Network-as-a-Service%20Part%203%20-%20Authentication%20and%20Admission%20control&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2019-06-naas-p3%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>In the previous two posts, we&rsquo;ve seen how to <a href="/post/2019-06-naas-p2/">build</a> a custom network API with Kubernetes CRDs and <a href="/post/2019-06-naas-p1/">push</a> the resulting configuration to network devices. In this post, we&rsquo;ll apply the final touches by enabling oAuth2 authentication and enforcing separation between different tenants. All of these things are done while the API server processes incoming requests, so it would make sense to have a closer look at how it does that first.</p>
+
+<h2 id="kubernetes-request-admission-pipeline">Kubernetes request admission pipeline</h2>
+
+<p>Every incoming request has to go through several stages before it can get accepted and persisted by the API server. Some of these stages are mandatory (e.g. authentication), while some can be added through webhooks. The following diagram comes from another <a href="https://kubernetes.io/blog/2019/03/21/a-guide-to-kubernetes-admission-controllers/" target="_blank">blogpost</a> that covers each one of these stages in detail:</p>
+
+<p><img src="/img/admission-controller-phases.png" alt="" /></p>
+
+<p>Specifically for NaaS platform, this is how we&rsquo;ll use the above stages:</p>
+
+<ol>
+<li>All users will authenticate with Google and get mapped to individual namespace/tenant based on their google alias.</li>
+<li>Mutating webhook will be used to inject default values into each request and allow users to define ranges as well as individual ports.</li>
+<li>Object schema validation will do the syntactic validation of each request.</li>
+<li>Validating webhook will perform the semantic validation to make sure users cannot change ports assigned to a different tenant.</li>
+</ol>
+
+<p>The following sections will cover these stages individually.</p>
+
+<h2 id="authenticating-with-google">Authenticating with Google</h2>
+
+<p>Typically, external users are authenticated using X.509 certificates, however, lack of CRL or  OCSP support in Kubernetes creates a problem since lost or exposed certs cannot be revoked. One of the alternatives is to use <a href="https://kubernetes.io/docs/reference/access-authn-authz/authentication/#openid-connect-tokens" target="_blank">OpenID Connect</a> which works on top of the OAuth 2.0 protocol and is supported by a few very big identity providers like Google, Microsoft and Salesforce. Although OIDC has its own shortcomings (read <a href="https://blog.gini.net/frictionless-kubernetes-openid-connect-integration-f1c356140937" target="_blank">this blogpost</a> for details), it is still often preferred over X.509.</p>
+
+<p>In order to authenticate users with OIDC, we need to do three things:</p>
+
+<ol>
+<li>Configure the API server to bind different user aliases to their respective tenants.</li>
+<li>Authenticate with the identity provider and get a signed token.</li>
+<li>Update local credentials to use this token.</li>
+</ol>
+
+<p>The first step is pretty straightforward and can be done with a simple RBAC <a href="https://github.com/networkop/network-as-a-service/blob/part-3/oidc/manifest.yaml" target="_blank">manifest</a>. The latter two steps can either be done manually or automatically with the help of <a href="https://github.com/gini/dexter" target="_blank">dexter</a>. NaaS Github repo contains a sample two-liner <a href="https://github.com/networkop/network-as-a-service/blob/part-3/dexter-auth-public.sh" target="_blank">bash script</a> that uses dexter to authenticate with Google and save the token in the local <code>~/.kube/config</code> file.</p>
+
+<blockquote>
+<p>All that&rsquo;s required from a NaaS administrator is to maintain an up-to-date tenant role bindings and users can authenticate and maintain their tokens independently.</p>
+</blockquote>
+
+<h2 id="mutating-incoming-requests">Mutating incoming requests</h2>
+
+<p>Mutating webhooks are commonly used to inject additional information (a sidecar proxy for service meshes) or defaults values (default CPU/memory) into incoming requests. Both mutating and validating webhooks get triggered based on a set of <a href="https://github.com/networkop/network-as-a-service/blob/part-3/webhooks/template-webhook.yaml" target="_blank">rules</a> that match the API group and type of the incoming request. If there&rsquo;s a match, a webhook gets called by the API server with an HTTP POST request containing the full body of the original request. The NaaS mutating <a href="https://github.com/networkop/network-as-a-service/blob/part-3/webhooks/mutate.py" target="_blank">webhook</a> is written in Python/Flask and the first thing it does is extract the payload and its type:</p>
+
+<pre><code class="language-python">request_info = request.json
+modified_spec = copy.deepcopy(request_info)
+workload_type = modified_spec[&quot;request&quot;][&quot;kind&quot;][&quot;kind&quot;]
+</code></pre>
+
+<p>Next, we set the default values and normalize ports:</p>
+
+<pre><code class="language-python">if workload_type == &quot;Interface&quot;:
+    defaults = get_defaults()
+    set_intf_defaults(modified_spec[&quot;request&quot;][&quot;object&quot;][&quot;spec&quot;], defaults)
+    normalize_ports(modified_spec[&quot;request&quot;][&quot;object&quot;][&quot;spec&quot;])
+</code></pre>
+
+<p>The last function expands interface ranges, i.e. translates <code>1-5</code> into <code>1,2,3,4,5</code>.</p>
+
+<pre><code class="language-python">for port in ports:
+    if not &quot;-&quot; in port:
+        result.append(str(port))
+    else:
+        start, end = port.split(&quot;-&quot;)
+        for num in range(int(start), int(end) + 1):
+            result.append(str(num))  
+</code></pre>
+
+<p>Finally, we generate a json patch from the diff between the original and the mutated request, build a response and send it back to the API server.</p>
+
+<pre><code class="language-python">patch = jsonpatch.JsonPatch.from_diff(
+    request_info[&quot;request&quot;][&quot;object&quot;], modified_spec[&quot;request&quot;][&quot;object&quot;]
+)
+admission_response = {
+    &quot;allowed&quot;: True,
+    &quot;uid&quot;: request_info[&quot;request&quot;][&quot;uid&quot;],
+    &quot;patch&quot;: base64.b64encode(str(patch).encode()).decode(),
+    &quot;patchtype&quot;: &quot;JSONPatch&quot;,
+}
+return jsonify(admissionReview = {&quot;response&quot;: admission_response})
+</code></pre>
+
+<blockquote>
+<p>The <a href="https://kubernetes.io/blog/2019/06/19/kubernetes-1-15-release-announcement/" target="_blank">latest</a> (v1.15) release of Kubernetes has added support for default values to be defined inside the OpenAPI validation schema, making the job of writing mutating webhooks a lot easier.</p>
+</blockquote>
+
+<h2 id="validating-incoming-requests">Validating incoming requests</h2>
+
+<p>As we&rsquo;ve seen in the <a href="/post/2019-06-naas-p2/">previous post</a>, it&rsquo;s possible to use OpenAPI schema to perform syntactic validation of incoming requests, i.e. check the structure and the values of payload variables. This function is very similar to what you can <a href="http://plajjan.github.io/validating-data-with-YANG/" target="_blank">accomplish</a> with a YANG model and, in theory, OpenAPI schema can be converted to YANG and <a href="http://ipengineer.net/2018/10/yang-openapi-swagger-code-generation/" target="_blank">vice versa</a>. However useful, such validation only takes into account a single input and cannot cross-correlate this data with other sources. In our case, the main goal is to protect one tenant&rsquo;s data from being overwritten by request coming from another tenant. In Kubernetes, semantic validation is commonly done using <a href="https://kubernetes.io/docs/reference/access-authn-authz/admission-controllers/#validatingadmissionwebhook" target="_blank">validating</a> admission webhooks and one of the most interesting tools in this landscape is <a href="https://www.openpolicyagent.org/docs/v0.10.7/kubernetes-admission-control/" target="_blank">Open Policy Agent</a> and its policy language called Rego.</p>
+
+<h4 id="using-opa-s-policy-language">Using OPA&rsquo;s policy language</h4>
+
+<p>Rego is a special-purpose DSL with &ldquo;rich support for traversing nested documents&rdquo;. What this means is that it can iterate over dictionaries and lists without using traditional for loops. When it encounters an iterable data structure, it will automatically expand it to include all of its possible values. I&rsquo;m not going to try to explain how <a href="https://www.openpolicyagent.org/docs/v0.10.7/how-does-opa-work/" target="_blank">opa works</a> in this post, instead I&rsquo;ll show how to use it to solve our particular problem. Assuming that an incoming request is stored in the <code>input</code> variable and <code>devices</code> contain all custom device resources, this is how a Rego policy would look like:</p>
+
+<pre><code class="language-python">input.request.kind.kind == &quot;Interface&quot;
+new_tenant := input.request.namespace
+port := input.request.object.spec.services[i].ports[_]
+new_device := input.request.object.spec.services[i].devicename
+existing_device_data := devices[_][lower(new_device)].spec
+other_tenant := existing_device_data[port].annotations.namespace
+not new_tenant == other_tenant
+</code></pre>
+
+<p>The <a href="https://github.com/networkop/network-as-a-service/blob/part-3/webhooks/validate.rego" target="_blank">actual policy</a> contains more than 7 lines but the most important ones are listed above and perform the following sequence of actions:</p>
+
+<ol>
+<li>Verify that the incoming request is of kind <code>Interface</code></li>
+<li>Extract its namespace and save it in the <code>new_tenant</code> variable</li>
+<li>Save all ports in the <code>port</code> variable</li>
+<li>Remember which device those ports belong to in the <code>new_device</code> variables</li>
+<li>Extract existing port allocation information for each one of the above devices</li>
+<li>If any of the ports from the incoming request is found in the existing data, record its owner&rsquo;s namespace</li>
+<li>Deny the request if the requesting port owner (tenant) is different from the current tenant.</li>
+</ol>
+
+<p>Although Rego may not be that easy to write (or debug), it&rsquo;s very easy to read, compared to an equivalent implemented in, say, Python, which would have taken x3 the number of lines and contain multiple for loops and conditionals. Like any DSL, it strives to strike a balance between readability and flexibility, while abstracting away less important things like web server request parsing and serialising.</p>
+
+<blockquote>
+<p>The same functionality can be implemented in any standard web server (e.g. Python+Flask), so using OPA is not a requirement</p>
+</blockquote>
+
+<h2 id="demo">Demo</h2>
+
+<p>This is a complete end-to-end demo of Network-as-a-Service platform and encompasses all the demos from the previous posts. The code for this demo is available <a href="https://github.com/networkop/network-as-a-service/archive/part-3.zip" target="_blank">here</a> and can be run on any Linux OS with Docker.</p>
+
+<p><img src="/img/naas-p3.png" alt="" /></p>
+
+<h4 id="0-prepare-for-oidc-authentication">0. Prepare for OIDC authentication</h4>
+
+<p>For this demo, I&rsquo;ll only use a single non-admin user. Before you run the rest of the steps, you need to make sure you&rsquo;ve followed <a href="https://github.com/gini/dexter" target="_blank">dexter</a> to setup google credentials and update OAuth client and user IDs in <code>kind.yaml</code>, <code>dexter-auth.sh</code> and <code>oidc/manifest.yaml</code> files.</p>
+
+<h4 id="1-build-the-test-topology">1. Build the test topology</h4>
+
+<p>This step assumes you have <a href="https://github.com/networkop/docker-topo" target="_blank">docker-topo</a> installed and c(vEOS) image <a href="https://github.com/networkop/docker-topo/tree/master/topo-extra-files/veos" target="_blank">built</a> and available in local docker registry.</p>
+
+<pre><code>make topo
+</code></pre>
+
+<p>This test topology can be any Arista EOS device reachable from the localhost. If using a different test topology, be sure to update the <a href="https://github.com/networkop/network-as-a-service/blob/part-3/topo/inventory.yaml" target="_blank">inventory</a> file.</p>
+
+<h4 id="2-build-the-kubernetes-cluster">2. Build the Kubernetes cluster</h4>
+
+<p>The following step will build a docker-based <a href="https://github.com/kubernetes-sigs/kind" target="_blank">kind</a> cluster with a single control plane and a single worker node.</p>
+
+<pre><code>make kubernetes
+</code></pre>
+
+<h4 id="3-check-that-the-cluster-is-functional">3. Check that the cluster is functional</h4>
+
+<p>The following step will build a base docker image and push it to dockerhub. It is assumed that the user has done <code>docker login</code> and has his username saved in the <code>DOCKERHUB_USER</code> environment variable.</p>
+
+<pre><code>export KUBECONFIG=&quot;$(kind get kubeconfig-path --name=&quot;naas&quot;)&quot;
+make warmup
+kubectl get pod test
+</code></pre>
+
+<p>This is a 100MB image, so it may take a few minutes for test pod to transition from <code>ContainerCreating</code> to <code>Running</code></p>
+
+<h4 id="4-build-the-naas-platform">4. Build the NaaS platform</h4>
+
+<p>The next command will install and configure both mutating and validating admission webhooks, the watcher and scheduler services and all of the required CRDs and configmaps.</p>
+
+<pre><code>make build
+</code></pre>
+
+<h4 id="5-authenticate-with-google">5. Authenticate with Google</h4>
+
+<p>Assuming all files from step 0 have been updated correctly, the following command will open a web browser and prompt you to select a google account to authenticate with.</p>
+
+<pre><code>make oidc-build
+</code></pre>
+
+<p>From now on, you should be able to switch to your google-authenticated user like this:</p>
+
+<pre><code>kubectl config use-context mk
+</code></pre>
+
+<p>And back to the admin user like this:</p>
+
+<pre><code>kubectl config use-context kubernetes-admin@naas
+</code></pre>
+
+<h4 id="6-test">6. Test</h4>
+
+<p>To demonstrate how everything works, I&rsquo;m going to issue three API requests. The <a href="https://github.com/networkop/network-as-a-service/blob/part-3/crds/03_cr.yaml" target="_blank">first</a> API request will set up a large range of ports on test switches.</p>
+
+<pre><code>kubectl config use-context mk
+kubectl apply -f crds/03_cr.yaml                 
+</code></pre>
+
+<p>The <a href="https://github.com/networkop/network-as-a-service/blob/part-3/crds/04_cr.yaml" target="_blank">second</a> API request will try to re-assign some of these ports to a different tenant and will get denied by the validating controller.</p>
+
+<pre><code>kubectl config use-context kubernetes-admin@naas
+kubectl apply -f crds/04_cr.yaml        
+Error from server (Port 11@deviceA is owned by a different tenant: tenant-a (request request-001), Port 12@deviceA is owned by a different tenant: tenant-a (request request-001),
+</code></pre>
+
+<p>The <a href="https://github.com/networkop/network-as-a-service/blob/part-3/crds/05_cr.yaml" target="_blank">third</a> API request will update some of the ports from the original request within the same tenant.</p>
+
+<pre><code>kubectl config use-context mk
+kubectl apply -f crds/05_cr.yaml                 
+</code></pre>
+
+<p>The following result can be observed on one of the switches:</p>
+
+<pre><code>devicea#sh run int eth2-3
+interface Ethernet2
+   description request-002
+   shutdown
+   switchport trunk allowed vlan 100
+   switchport mode trunk
+   spanning-tree portfast
+interface Ethernet3
+   description request-001
+   shutdown
+   switchport trunk allowed vlan 10
+   switchport mode trunk
+   spanning-tree portfast
+</code></pre>
+
+<h2 id="outro">Outro</h2>
+
+<p>Currently, Network-as-a-Service platform is more of a proof-of-concept of how to expose parts of the device data model for end users to consume in a safe and controllable way. Most of it is built out of standard Kubernetes component and the total amount of Python code is under 1000 lines, while the code itself is pretty linear. I have plans to add more things like an SPA front-end, Git and OpenFaaS integration, however, I don&rsquo;t want to invest too much time until I get some sense of external interest. So if this is something that you like and think you might want to try, ping me via social media and I&rsquo;ll try to help get things off the ground.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2019-06-naas-p2/">Network-as-a-Service Part 2 - Designing a Network API</a></li>
+    
+    <li><a href="/post/2019-06-naas-p1/">Network-as-a-Service Part 1 - Frameworkless automation</a></li>
+    
+    <li><a href="/post/2019-04-tf-yang/">Terraform your physical network with YANG</a></li>
+    
+    <li><a href="/post/2019-01-k8s-vrnetlab/">Multi-Vendor Network Simulations at Scale with meshnet-cni and vrnetlab</a></li>
+    
+    <li><a href="/post/2018-11-k8s-topo-p2/">Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
