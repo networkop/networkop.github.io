@@ -11,6 +11,223 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Network Simulations with Network Service Mesh</title>
+      <link>https://networkop.co.uk/post/2020-01-nsm-topo/</link>
+      <pubDate>Fri, 24 Jan 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-01-nsm-topo/</guid>
+      <description>
+
+&lt;p&gt;In September 2019 I had the honour to &lt;a href=&#34;https://onseu19.sched.com/event/SYsb/large-scale-network-simulations-in-kubernetes-michael-kashin-arista-networks&#34; target=&#34;_blank&#34;&gt;present&lt;/a&gt; at Open Networking Summit in Antwerp. My talk was about &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet&lt;/a&gt; CNI plugin, &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; orchestrator and how to use them for large-scale network simulations in Kubernetes. During the same conference, I attended a talk about Network Service Mesh and its new &lt;a href=&#34;https://onseu19.sched.com/event/SYum/kernel-based-forwarding-plane-for-network-service-mesh-radoslav-dimitrov-vmware&#34; target=&#34;_blank&#34;&gt;kernel-based forwarding dataplane&lt;/a&gt; which had a lot of similarities with the work that I&amp;rsquo;ve done for meshnet. Having had a chat with the presenters, we&amp;rsquo;ve decided that it would be interesting to try and implement a meshnet-like functionality with NSM. In this post, I&amp;rsquo;ll try to document some of the findings and results of my research.&lt;/p&gt;
+
+&lt;h1 id=&#34;network-service-mesh-introduction&#34;&gt;Network Service Mesh Introduction&lt;/h1&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://networkservicemesh.io/&#34; target=&#34;_blank&#34;&gt;NSM&lt;/a&gt; is a CNCF project aimed at providing service mesh-like capabilities for L2/L3 traffic. In the context of Kubernetes, NSM&amp;rsquo;s role is to interconnect pods and setup the underlying forwarding, which involves creating new interfaces, allocating IPs and configuring pod&amp;rsquo;s routing table. The main use cases are cloud-native network functions (e.g. 5G), service function chaining and any containerised applications that may need to talk over non-standard protocols. Similar to traditional service meshes, the intended functionality is achieved by injecting sidecar containers that communicate with a distributed control plane of network service managers, deployed as a &lt;a href=&#34;https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/&#34; target=&#34;_blank&#34;&gt;daemonset&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;I&amp;rsquo;ll try to avoid repeating NSM&amp;rsquo;s theory here and instead refer my readers to the official &lt;a href=&#34;https://networkservicemesh.io/docs/concepts/what-is-nsm&#34; target=&#34;_blank&#34;&gt;documentation&lt;/a&gt; and a very good introductory &lt;a href=&#34;https://docs.google.com/presentation/d/1IC2kLnQGDz1hbeO0rD7Y82O_4NwzgIoGgm0oOXyaQ9Y/edit#slide=id.p&#34; target=&#34;_blank&#34;&gt;slide deck&lt;/a&gt;. There are a few concepts, however, that are critical to the understanding of this blogpost, that I&amp;rsquo;ll mention here briefly:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Network Services&lt;/strong&gt; are built around a client-server model - a client receives a service from an endpoint (server).&lt;/li&gt;
+&lt;li&gt;Both client and endpoint are implemented as &lt;strong&gt;containers&lt;/strong&gt; and interact with &lt;strong&gt;local control plane agents&lt;/strong&gt; over a gRPC-based API.&lt;/li&gt;
+&lt;li&gt;Typically, a &lt;strong&gt;client&lt;/strong&gt; would request a service with &lt;code&gt;ns.networkservicemesh.io&lt;/code&gt; &lt;strong&gt;annotation&lt;/strong&gt;, which gets matched by a mutating webhook responsible for injecting an init container.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Endpoints&lt;/strong&gt;, being designed specifically to provide network services, have endpoint container statically defined as a &lt;strong&gt;sidecar&lt;/strong&gt; (unless they natively implement NSM&amp;rsquo;s SDK).&lt;/li&gt;
+&lt;li&gt;One important distinction between client and endpoint sidecars is that the former is an &lt;strong&gt;init&lt;/strong&gt; container (runs to completion at pod create time) and the latter is a normal &lt;strong&gt;sidecar&lt;/strong&gt; which allows service reconfiguration at runtime.&lt;/li&gt;
+&lt;li&gt;All client and endpoint configurations get passed as &lt;strong&gt;environment variables&lt;/strong&gt; to the respective containers either dynamically (client) or statically (endpoint).&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Given all of the above, this is how you&amp;rsquo;d use NSM to create a point-to-point link between any two pods.&lt;/p&gt;
+
+&lt;h1 id=&#34;using-nsm-to-create-links-between-pods&#34;&gt;Using NSM to create links between pods&lt;/h1&gt;
+
+&lt;p&gt;First, we need to decide which side of the link will be a client and which will be an endpoint. This is where we&amp;rsquo;ll abuse NSM&amp;rsquo;s concepts for the first time as it really doesn&amp;rsquo;t matter how this allocation takes place. For a normal network service, it&amp;rsquo;s fairly easy to identify and map client/server roles, however, for topology simulations they can be assigned arbitrarily as both sides of the link are virtually equivalent.&lt;/p&gt;
+
+&lt;p&gt;The next thing we need to do is statically add sidecar containers not only to the endpoint side of the link but to the client as well. This is another abuse of NSM&amp;rsquo;s intended mode of operation, where a client init container gets injected automatically by the webhook. The reason for that is that the init container will block until its network service request gets accepted, which may create a circular dependency if client/endpoint roles are assigned arbitrarily, as discussed above.&lt;/p&gt;
+
+&lt;p&gt;The resulting &amp;ldquo;endpoint&amp;rdquo; side of the link will have the following pod manifest. The NSE sidecar container will read the environment variables and use NSM&amp;rsquo;s &lt;a href=&#34;https://github.com/networkservicemesh/networkservicemesh/tree/master/sdk&#34; target=&#34;_blank&#34;&gt;SDK&lt;/a&gt; to register itself with a &lt;code&gt;p2p&lt;/code&gt; network service with a &lt;code&gt;device=device-2&lt;/code&gt; label.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;apiVersion: v1
+kind: Pod
+metadata:
+  name: device-2
+spec:
+  containers:
+  - image: alpine:latest
+    command: [&amp;quot;tail&amp;quot;, &amp;quot;-f&amp;quot;, &amp;quot;/dev/null&amp;quot;]
+    name: alpine
+  - name: nse-sidecar
+    image: networkservicemesh/topology-sidecar-nse:master
+    env:
+    - name: ENDPOINT_NETWORK_SERVICE
+      value: &amp;quot;p2p&amp;quot;
+    - name: ENDPOINT_LABELS
+      value: &amp;quot;device=device-2&amp;quot;
+    - name: IP_ADDRESS
+      value: &amp;quot;10.60.1.0/24&amp;quot;
+    resources:
+      limits:
+        networkservicemesh.io/socket: &amp;quot;1&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;When a local control plane agent receives the above registration request, it will create a new k8s &lt;code&gt;NetworkServiceEndpoint&lt;/code&gt; resource, effectively letting all the other agents know where to find this particular service endpoint (in this case it&amp;rsquo;s the k8s node called &lt;code&gt;nsm-control-plane&lt;/code&gt;). Note that the below resource is managed by NSM&amp;rsquo;s control plane and should not be created by the user:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;apiVersion: networkservicemesh.io/v1alpha1
+kind: NetworkServiceEndpoint
+metadata:
+  generateName: p2p
+  labels:
+    device: device-2
+    networkservicename: p2p
+  name: p2ppdp2d
+spec:
+  networkservicename: p2p
+  nsmname: nsm-control-plane
+  payload: IP
+status:
+  state: RUNNING
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The next bit is the manifest of the network service itself. Its goal is to establish a relationship between multiple clients and endpoints of a service by matching their network service labels.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;apiVersion: networkservicemesh.io/v1alpha1
+kind: NetworkService
+metadata:
+  name: p2p
+spec:
+  matches:
+  - match: 
+    sourceSelector:
+      link: net-0
+    route:
+    - destination: 
+      destinationSelector:
+        device: device-2
+  payload: IP
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The final bit is the &amp;ldquo;client&amp;rdquo; side of the link which will have the following pod manifest. Note that the format of &lt;code&gt;NS_NETWORKSERVICEMESH_IO&lt;/code&gt; variable is the same as the one used in &lt;a href=&#34;https://github.com/networkservicemesh/networkservicemesh/blob/master/docs/spec/admission.md#what-to-trigger-on&#34; target=&#34;_blank&#34;&gt;annotations&lt;/a&gt; and can be read as &amp;ldquo;client requesting a &lt;code&gt;p2p&lt;/code&gt; service with two labels (&lt;code&gt;link=net-0&lt;/code&gt; and &lt;code&gt;peerif=eth21&lt;/code&gt;) and wants to connect to it over a local interface called &lt;code&gt;eth12&lt;/code&gt;&amp;rdquo;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;apiVersion: v1
+kind: Pod
+metadata:
+  name: device-1
+spec:
+  containers:
+  - image: alpine:latest
+    command: [&amp;quot;tail&amp;quot;, &amp;quot;-f&amp;quot;, &amp;quot;/dev/null&amp;quot;]
+    name: alpine
+  - name: nsc-sidecar
+    image: networkservicemesh/topology-sidecar-nsc:master
+    env:
+    - name: NS_NETWORKSERVICEMESH_IO
+      value: p2p/eth12?link=net-0&amp;amp;peerif=eth21
+    resources:
+      limits:
+        networkservicemesh.io/socket: &amp;quot;1&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The client&amp;rsquo;s sidecar will read the above environment variable and send a connection request to the local control plane agent which will perform the following sequence of steps:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Locate a network service called &lt;code&gt;p2p&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;Find a match based on client-provided labels (&lt;code&gt;link=net-0&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;Try to find a matching network service endpoint (&lt;code&gt;device=device-2&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;Contact the remote agent hosting a matching endpoint (found in NSE CRDs) and relay the connection request.&lt;/li&gt;
+&lt;li&gt;If the request gets accepted by the endpoint, instruct the local forwarding agent to set up pod&amp;rsquo;s networking.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h1 id=&#34;topology-orchestration-with-k8s-topo&#34;&gt;Topology orchestration with k8s-topo&lt;/h1&gt;
+
+&lt;p&gt;Looking at the above manifests, it&amp;rsquo;s clear that writing them manually, even for smaller topologies, can be a serious burden. That&amp;rsquo;s why I&amp;rsquo;ve adapted the &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; tool that I&amp;rsquo;ve written originally for &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet-cni&lt;/a&gt; to produce and instantiate NSM-compliant manifest based on a single light-weight topology YAML file. The only thing that&amp;rsquo;s needed to make it work with NSM is to add a &lt;code&gt;nsm: true&lt;/code&gt; to the top of the file, e.g.:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;nsm: true
+links:
+  - endpoints: [&amp;quot;device-1:eth12&amp;quot;, &amp;quot;device-2:eth21&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Behind the scenes, k8s-topo will create the required network service manifest and configure all pods with correct sidecars and variables. As an added bonus, it will still attempt to inject startup configs and expose ports as described &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;here&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-nsm.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h1 id=&#34;nsm-vs-meshnet-for-network-simulations&#34;&gt;NSM vs Meshnet for network simulations&lt;/h1&gt;
+
+&lt;p&gt;In the context of virtual network simulations, both NSM and meshnet-cni can perform similar functions, however, their implementation and modes of operation are rather different. Here are the main distinctions of a CNI plugin approach:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;All networking is setup BEFORE the pod is started.&lt;/li&gt;
+&lt;li&gt;CNI plugin does all the work so there&amp;rsquo;s no need for sidecar containers.&lt;/li&gt;
+&lt;li&gt;A very thin code base for a very specific use case.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;And here are some of the distinctions of an NSM-based approach:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;All networking is setup AFTER the pod is started.&lt;/li&gt;
+&lt;li&gt;This does come with a requirement for a sidecar container, but potentially allows for runtime reconfiguration.&lt;/li&gt;
+&lt;li&gt;No requirement for a CNI plugin at all.&lt;/li&gt;
+&lt;li&gt;More generic use cases are possible.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;In the end, none of the options limit the currently available featureset of k8s-topo and the choice can be done based on the characteristics of an individual environment, e.g. if it&amp;rsquo;s a managed k8s from GCP (GKE) or Azure (AKS) then most likely you&amp;rsquo;ll be running &lt;a href=&#34;https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/#kubenet&#34; target=&#34;_blank&#34;&gt;kubenet&lt;/a&gt; and won&amp;rsquo;t have an option to install any CNI plugin at all, in which case NSM can be the only available solution.&lt;/p&gt;
+
+&lt;h1 id=&#34;demo&#34;&gt;Demo&lt;/h1&gt;
+
+&lt;p&gt;Now it&amp;rsquo;s demo time and I&amp;rsquo;ll show how to use k8s-topo together with NSM to build a 10-node virtual router topology. We start by spinning up a local &lt;a href=&#34;https://github.com/kubernetes-sigs/kind&#34; target=&#34;_blank&#34;&gt;kind&lt;/a&gt; kubernetes cluster and installing NSM on it:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/networkservicemesh/networkservicemesh
+cd networkservicemesh
+make helm-init
+SPIRE_ENABLED=false INSECURE=true FORWARDING_PLANE=kernel make helm-install-nsm 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next, we install the k8s-topo deployment and connect to the pod running it:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl create -f https://raw.githubusercontent.com/networkop/k8s-topo/master/manifest.yml
+kubectl exec -it deploy/k8s-topo -- sh
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;For demonstration purposes I&amp;rsquo;ll use a random 10-node tree topology generated using a &lt;a href=&#34;https://en.wikipedia.org/wiki/Loop-erased_random_walk&#34; target=&#34;_blank&#34;&gt;loop-erased random walk&lt;/a&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;./examples/builder/builder 10 0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The only thing needed to make it work with NSM is set the &lt;code&gt;nsm&lt;/code&gt; flag to &lt;code&gt;true&lt;/code&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sed -i &#39;$ a\nsm: true&#39; ./examples/builder/random.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now everything&amp;rsquo;s ready for us to instantiate the topology inside k8s:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;k8s-topo --create ./examples/builder/random.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Once all the pods are up, we can issue a ping from one of the routers to every other router in the topology and confirm the connectivity between their loopback IPs:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;for i in `seq 0 9`; do (kubectl exec qrtr-192-0-2-0 -c router -- ping -c 1 192.0.2.$i|grep loss); done
+
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If you want to have a look at your topology, it&amp;rsquo;s possible to make k8s-topo generate a D3 graph of all pods and their connections and view it in the browser:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;k8s-topo --graph ./examples/builder/random.yml
+INFO:__main__:D3 graph created
+INFO:__main__:URL: http://172.17.0.3:30000
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-nsm-topo.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Network-as-a-Service Part 3 - Authentication and Admission control</title>
       <link>https://networkop.co.uk/post/2019-06-naas-p3/</link>
       <pubDate>Thu, 27 Jun 2019 00:00:00 +0000</pubDate>
@@ -745,12 +962,11 @@ kubectl get pod test
 &lt;li&gt;Upload the enforcer and scheduler scripts as configmaps.&lt;/li&gt;
 &lt;li&gt;Create Traefik (HTTP proxy) daemonset to be used as ingress.&lt;/li&gt;
 &lt;li&gt;Upload generic device data model along with its template and label them accordingly.&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Create a deployment, service and ingress resources for the scheduler service.&lt;/p&gt;
+&lt;li&gt;Create a deployment, service and ingress resources for the scheduler service.&lt;/li&gt;
+&lt;/ol&gt;
 
 &lt;pre&gt;&lt;code&gt;make scheduler-build
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-&lt;/ol&gt;
+&lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;If running as non-root, the user may be prompted for a sudo password.&lt;/p&gt;
 
@@ -2384,8 +2600,8 @@ inet 172.20.0.2/16 brd 172.20.255.255 scope global eth4
 &lt;li&gt;Download cirros and CumulusVX images and upload them to Glance&lt;/li&gt;
 &lt;li&gt;Create a virtual network&lt;/li&gt;
 &lt;li&gt;Update security rules to allow inbound ICMP and SSH connections&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Create a pair of VMs - one based on cirros and one based on CumulusVX image&lt;/p&gt;
+&lt;li&gt;Create a pair of VMs - one based on cirros and one based on CumulusVX image&lt;/li&gt;
+&lt;/ol&gt;
 
 &lt;pre&gt;&lt;code&gt;curl -L -o ./cirros http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
 curl -L -o ./cumulusVX http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2
@@ -2401,8 +2617,8 @@ rm ./cumulusVX
 openstack network create --provider-network-type vxlan irb-net
 
 openstack subnet create --subnet-range 10.0.100.160/27 --network irb-net \
-  --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
-  --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
+      --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
+      --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
 
 openstack flavor create --id 1 --ram 256 --disk 1 --vcpus 1 m1.nano
 openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
@@ -2410,14 +2626,13 @@ openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
 ADMIN_PROJECT_ID=$(openstack project show &#39;admin&#39; -f value -c id)
 ADMIN_SEC_GROUP=$(openstack security group list --project ${ADMIN_PROJECT_ID} | awk &#39;/ default / {print $2}&#39;)
 openstack security group rule create --ingress --ethertype IPv4 \
---protocol icmp ${ADMIN_SEC_GROUP}
+    --protocol icmp ${ADMIN_SEC_GROUP}
 openstack security group rule create --ingress --ethertype IPv4 \
---protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
+    --protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
 
 openstack server create --image cirros --flavor m1.nano --net irb-net VM1
 openstack server create --image cumulus --flavor m1.tiny --net irb-net VR1
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-&lt;/ol&gt;
+&lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;The only thing worth noting in the above script is that a default gateway &lt;code&gt;10.0.100.161&lt;/code&gt; gets overridden by a default host route pointing to &lt;code&gt;10.0.100.190&lt;/code&gt;. Normally, to demonstrate DC-GW IRB scenario, I would have setup a gateway-less L2 only subnet, however in that case I wouldn&amp;rsquo;t have been able to demonstrate BGPaaS on the same network, since this feature relies on having a gateway IP setup (which later acts as a BGP session termination endpoint). So instead of setting up two separate networks I&amp;rsquo;ve decided to implement this hack to minimise the required configuration.&lt;/p&gt;
 
@@ -3484,105 +3699,6 @@ ovs-ofctl dump-flows br-int | cut -d &#39;,&#39; -f3-
 &lt;h1 id=&#34;coming-up&#34;&gt;Coming Up&lt;/h1&gt;
 
 &lt;p&gt;SFC is one of the major features in Telco SDN and, like many things, it&amp;rsquo;s not meant to be configured manually. In fact, Telco SDN have their own framework for management and orchestration of VNFs (a.k.a. VMs) and VNF forwarding graphs (a.k.a. SFCs) called ETSI MANO. As it is expected from a Telco standard, it abounds with acronyms and confuses the hell out of anyone who&amp;rsquo;s name is not on the list of authors or contributors. That&amp;rsquo;s why in the next post I will try to provide a brief overview of what Telco SDN is and use Tacker, a software implementation of NFVO and VNFM, to automatically build a firewall VNF and provision a SFC, similar to what has been done in this post manually.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN - Building a Containerized OpenStack Lab</title>
-      <link>https://networkop.co.uk/blog/2017/09/08/os-lab-docker/</link>
-      <pubDate>Fri, 08 Sep 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/09/08/os-lab-docker/</guid>
-      <description>
-
-&lt;p&gt;For quite a long time installation and deployment have been deemed as major barriers for OpenStack adoption. The classic &amp;ldquo;install everything manually&amp;rdquo; approach could only work in small production or lab environments and the ever increasing number of project under the &lt;a href=&#34;https://governance.openstack.org/tc/reference/projects/&#34; target=&#34;_blank&#34;&gt;&amp;ldquo;Big Tent&amp;rdquo;&lt;/a&gt; made service-by-service installation infeasible. This led to the rise of automated installers that over time evolved from a simple collection of scripts to container management systems.&lt;/p&gt;
-
-&lt;h1 id=&#34;evolution-of-automated-openstack-installers&#34;&gt;Evolution of automated OpenStack installers&lt;/h1&gt;
-
-&lt;p&gt;The first generation of automated installers were simple utilities that tied together a collection of Puppet/Chef/Ansible scripts. Some of these tools could do baremetal server provisioning through Cobbler or Ironic (Fuel, Compass) and some relied on server operating system to be pre-installed (Devstack, Packstack). In either case the packages were pulled from the Internet or local repository every time the installer ran.&lt;/p&gt;
-
-&lt;p&gt;The biggest problem with the above approach is the time it takes to re-deploy, upgrade or scale the existing environment. Even for relatively small environments it could be hours before all packages are downloaded, installed and configured. One of the ways to tackle this is to pre-build an operating system with all the necessary packages and only use Puppet/Chef/Ansible to change configuration files and turn services on and off. Redhat&amp;rsquo;s TripleO is one example of this approach. It uses a &amp;ldquo;golden image&amp;rdquo; with pre-installed OpenStack packages, which is dd-written bit-by-bit onto the baremetal server&amp;rsquo;s disk. The undercloud then decides which services to turn on based on the overcloud server&amp;rsquo;s role.&lt;/p&gt;
-
-&lt;p&gt;Another big problem with most of the existing deployment methods was that, despite their microservices architecture, all OpenStack services were deployed as static packages on top of a shared operating system. This made the ongoing operations, troubleshooting and ugprades really difficult. The obvious thing to do would be to have all OpenStack services (e.g. Neutron, Keyston, Nova) deployed as containers and managed by a container management system. The first company to implement that, as far as I know, was Canonical. The deployment process is quite complicated, however the end result is a highly flexible OpenStack cloud deployed using LXC containers, managed and orchestrated by Juju controller.&lt;/p&gt;
-
-&lt;p&gt;Today (September 2017) deploying OpenStack services as containers is becoming mainstream and in this post I&amp;rsquo;ll show how to use Kolla to build container images and Kolla-Ansible to deploy them on a pair of &amp;ldquo;baremetal&amp;rdquo; VMs.&lt;/p&gt;
-
-&lt;h1 id=&#34;lab-overview&#34;&gt;Lab overview&lt;/h1&gt;
-
-&lt;p&gt;My lab consists of a single controller and a single compute VM. The goal was to make them as small as possible so they could run on a laptop with limited resources. Both VMs are connected to three VM bridged networks - provisioning, management and external VM access.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/kolla-lab.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;I&amp;rsquo;ve written some bash and Ansible scripts to automate the deployment of VMs on top of any Fedora derivative (e.g. Centos7). These scripts should be run directly from the hypervisor:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;git clone https://github.com/networkop/kolla-odl-bgpvpn.git &amp;amp;&amp;amp; cd kolla-odl-bgpvpn
-./1-create.sh do
-./2-bootstrap.sh do
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The first bash script downloads the VM OS (Centos7), creates two blank VMs and sets up a local Docker registry. The second script installs all the dependencies, including Docker and Ansible.&lt;/p&gt;
-
-&lt;h1 id=&#34;building-openstack-docker-containers-with-kolla&#34;&gt;Building OpenStack docker containers with Kolla&lt;/h1&gt;
-
-&lt;p&gt;The first step in Kolla deployment workflow is deciding where to get the Docker images. Kolla maintains a &lt;a href=&#34;https://hub.docker.com/u/kolla/&#34; target=&#34;_blank&#34;&gt;Docker Hub registry&lt;/a&gt; with container images built for every major OpenStack release. The easiest way to get them would be to pull the images from Docker hub either directly or via a &lt;a href=&#34;https://docs.docker.com/registry/recipes/mirror/&#34; target=&#34;_blank&#34;&gt;pull-through caching registry&lt;/a&gt;.&lt;/p&gt;
-
-&lt;p&gt;In my case I needed to build the latest version of OpenStack packages, not just the latest major release. I also wanted to build a few additional, non-OpenStack images (Opendaylight and Quagga). Because of that I had to build all Docker images locally and push them into a local docker registry. The procedure to build container images is very well documented in the official &lt;a href=&#34;https://docs.openstack.org/kolla/latest/image-building.html&#34; target=&#34;_blank&#34;&gt;Kolla image building guide&lt;/a&gt;. I&amp;rsquo;ve modified it slightly to include the Quagga Dockerfile and automated it so that the whole process can be run with a single command:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;./3-build.sh do
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This step can take quite a long time (anything from 1 to 4 hours depending on the network and disk I/O speed), however, once it&amp;rsquo;s been done these container images can be used to deploy as many OpenStack instances as necessary.&lt;/p&gt;
-
-&lt;h1 id=&#34;deploying-openstack-with-kolla-ansible&#34;&gt;Deploying OpenStack with Kolla-Ansible&lt;/h1&gt;
-
-&lt;p&gt;The next step in OpenStack deployment workflow is to deploy Docker images on target hosts. &lt;a href=&#34;https://docs.openstack.org/kolla-ansible/latest/quickstart.html&#34; target=&#34;_blank&#34;&gt;Kolla-Ansible&lt;/a&gt; is a highly customizable OpenStack deployment tool that is also extemely easy to use, at least for people familiar with Ansible. There are two main sources of information for Kolla-Ansible:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Global configuration file (/etc/kolla/globals.yaml), which contains some of the most common customization options&lt;/li&gt;
-&lt;li&gt;Ansible inventory file (/usr/share/kolla-ansible/ansible/inventory/*), which maps OpenStack packages to target deployment hosts&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;To get started with Kolla-Ansible all what it takes is a few modifications to the global configuration file to make sure that network settings match the underlying OS interface configuration and an update to the inventory file to point it to the correct deployment hosts. In my case I&amp;rsquo;m making additional changes to enable SFC, Skydive and Tacker and adding files for Quagga container, all of which can be done with the following command:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;./4-deploy.sh do
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The best thing about this method of deployment is that it takes (in my case) under 5 minutes to get the full OpenStack cloud from scratch. That means if I break something or want to redeploy with some major changes (add/remove Opendaylight), all what I have to do is destroy the existing deployment (approx. 1 minute), modify global configuration file and re-deploy OpenStack. This makes Kolla-Ansible an ideal choice for my lab environment.&lt;/p&gt;
-
-&lt;h1 id=&#34;overview-of-containerized-openstack&#34;&gt;Overview of containerized OpenStack&lt;/h1&gt;
-
-&lt;p&gt;Once the deployment has been completed, we should be able to see a number of running Docker containers - one for each OpenStack process.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;root@compute-1# docker ps
-CONTAINER ID        IMAGE                                                                 COMMAND             CREATED             STATUS              PORTS               NAMES
-0bb8a8eeb1a9        172.26.0.1:5000/kolla/centos-source-skydive-agent:5.0.0               &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               skydive_agent
-63b5b643dfae        172.26.0.1:5000/kolla/centos-source-neutron-openvswitch-agent:5.0.0   &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               neutron_openvswitch_agent
-f6f74c5982cb        172.26.0.1:5000/kolla/centos-source-openvswitch-vswitchd:5.0.0        &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               openvswitch_vswitchd
-3078421a3892        172.26.0.1:5000/kolla/centos-source-openvswitch-db-server:5.0.0       &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               openvswitch_db
-9146c16d561b        172.26.0.1:5000/kolla/centos-source-nova-compute:5.0.0                &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               nova_compute
-8079f840627f        172.26.0.1:5000/kolla/centos-source-nova-libvirt:5.0.0                &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               nova_libvirt
-220d617d31a5        172.26.0.1:5000/kolla/centos-source-nova-ssh:5.0.0                    &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               nova_ssh
-743ce602d485        172.26.0.1:5000/kolla/centos-source-cron:5.0.0                        &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               cron
-8b71f08d2781        172.26.0.1:5000/kolla/centos-source-kolla-toolbox:5.0.0               &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               kolla_toolbox
-f76d0a7fcf2a        172.26.0.1:5000/kolla/centos-source-fluentd:5.0.0                     &amp;quot;kolla_start&amp;quot;       3 days ago          Up 3 days                               fluentd
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;All the standard docker tools are available to interact with those containers. For example, this is how we can see what processes are running inside a container:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;root@compute-1# docker exec nova_compute ps -www aux
-USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND
-nova         1  0.0  0.0    188     4 pts/3    Ss+  Sep04   0:00 /usr/local/bin/dumb-init /bin/bash /usr/local/bin/kolla_start
-nova         7  0.7  1.3 2292560 134896 ?      Ssl  Sep04  35:33 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/nova-compute
-root        86  0.0  0.3 179816 32900 ?        S    Sep05   0:00 /var/lib/kolla/venv/bin/python /var/lib/kolla/venv/bin/privsep-helper --config-file /etc/nova/nova.conf --privsep_context vif_plug_ovs.privsep.vif_plug --privsep_sock_path /tmp/tmpFvP0GS/privsep.sock
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Some of you may have noticed that none of the containers expose any ports. So how do they communicate? The answer is very simple - all containers run in a &lt;strong&gt;host&lt;/strong&gt; networking mode, effectively disabling any network isolation and giving all contaners access to TCP/IP stacks of their Docker hosts. This is a simple way to avoid having to deal with Docker networking complexities, while at the same time preserving the immutability and portability of Docker containers.&lt;/p&gt;
-
-&lt;p&gt;All containers are configured to restart in case of a failure, however there&amp;rsquo;s no &lt;a href=&#34;abbr:Container Management System&#34; target=&#34;_blank&#34;&gt;CMS&lt;/a&gt; to provide full lifecycle management and advanced scheduling. If upgrade of scale-in/out is needed, Kolla-Ansible will have to be re-run with updated configuration options. There is sibling project called &lt;a href=&#34;https://github.com/openstack/kolla-kubernetes&#34; target=&#34;_blank&#34;&gt;Kolla-Kubernetes&lt;/a&gt; (still under developement), that&amp;rsquo;s designed to address some of the mentioned shortcomings.&lt;/p&gt;
-
-&lt;h1 id=&#34;coming-up&#34;&gt;Coming up&lt;/h1&gt;
-
-&lt;p&gt;Now that the lab is up we can start exploring the new OpenStack SDN features. In the next post I&amp;rsquo;ll have a close look at Neutron&amp;rsquo;s &lt;a href=&#34;abbr: Service Function Chainng&#34; target=&#34;_blank&#34;&gt;SFC&lt;/a&gt; feature, how to configure it and how it&amp;rsquo;s been implemented in OVS forwarding pipeline.&lt;/p&gt;
 </description>
     </item>
     

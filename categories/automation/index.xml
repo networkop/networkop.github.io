@@ -1,0 +1,290 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Automation on networkop</title>
+    <link>https://networkop.co.uk/categories/automation/</link>
+    <description>Recent content in Automation on networkop</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <copyright>&amp;copy; Michael Kashin 2018</copyright>
+    <lastBuildDate>Fri, 24 Jan 2020 00:00:00 +0000</lastBuildDate>
+    
+	<atom:link href="https://networkop.co.uk/categories/automation/index.xml" rel="self" type="application/rss+xml" />
+    
+    
+    <item>
+      <title>Network Simulations with Network Service Mesh</title>
+      <link>https://networkop.co.uk/post/2020-01-nsm-topo/</link>
+      <pubDate>Fri, 24 Jan 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-01-nsm-topo/</guid>
+      <description>In September 2019 I had the honour to present at Open Networking Summit in Antwerp. My talk was about meshnet CNI plugin, k8s-topo orchestrator and how to use them for large-scale network simulations in Kubernetes. During the same conference, I attended a talk about Network Service Mesh and its new kernel-based forwarding dataplane which had a lot of similarities with the work that I&amp;rsquo;ve done for meshnet. Having had a chat with the presenters, we&amp;rsquo;ve decided that it would be interesting to try and implement a meshnet-like functionality with NSM.</description>
+    </item>
+    
+    <item>
+      <title>Network-as-a-Service Part 3 - Authentication and Admission control</title>
+      <link>https://networkop.co.uk/post/2019-06-naas-p3/</link>
+      <pubDate>Thu, 27 Jun 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-06-naas-p3/</guid>
+      <description>In the previous two posts, we&amp;rsquo;ve seen how to build a custom network API with Kubernetes CRDs and push the resulting configuration to network devices. In this post, we&amp;rsquo;ll apply the final touches by enabling oAuth2 authentication and enforcing separation between different tenants. All of these things are done while the API server processes incoming requests, so it would make sense to have a closer look at how it does that first.</description>
+    </item>
+    
+    <item>
+      <title>Network-as-a-Service Part 2 - Designing a Network API</title>
+      <link>https://networkop.co.uk/post/2019-06-naas-p2/</link>
+      <pubDate>Thu, 20 Jun 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-06-naas-p2/</guid>
+      <description>In the previous post, we&amp;rsquo;ve examined the foundation of the Network-as-a-Service platform. A couple of services were used to build the configuration from data models and templates and push it to network devices using Nornir and Napalm. In this post, we&amp;rsquo;ll focus on the user-facing part of the platform. I&amp;rsquo;ll show how to expose a part of the device data model via a custom API built on top of Kubernetes and how to tie it together with the rest of the platform components.</description>
+    </item>
+    
+    <item>
+      <title>Network-as-a-Service Part 1 - Frameworkless automation</title>
+      <link>https://networkop.co.uk/post/2019-06-naas-p1/</link>
+      <pubDate>Thu, 13 Jun 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-06-naas-p1/</guid>
+      <description>Recently I&amp;rsquo;ve been pondering the idea of cloud-like method of consumption of traditional (physical) networks. My main premise for this was that users of a network don&amp;rsquo;t have to wait hours or days for their services to be provisioned when all that&amp;rsquo;s required is a simple change of an access port. Let me reinforce it by an example. In a typical data center network, the configuration of the core (fabric) is fairly static, while the config at the edge can change constantly as servers get added, moved or reconfigured.</description>
+    </item>
+    
+    <item>
+      <title>Terraform your physical network with YANG</title>
+      <link>https://networkop.co.uk/post/2019-04-tf-yang/</link>
+      <pubDate>Thu, 11 Apr 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-04-tf-yang/</guid>
+      <description>Every time when I get bored from my day job I tend to find some small interesting project that I can do that can give me an instant sense of accomplishment and as the result lift my spirits and improve motivation. So this time I remembered when someone once asked me if they could use Terraform to control their physical network devices and I had to explain how this is the wrong tool for the job.</description>
+    </item>
+    
+    <item>
+      <title>Multi-Vendor Network Simulations at Scale with meshnet-cni and vrnetlab</title>
+      <link>https://networkop.co.uk/post/2019-01-k8s-vrnetlab/</link>
+      <pubDate>Thu, 17 Jan 2019 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2019-01-k8s-vrnetlab/</guid>
+      <description>In the previous post I&amp;rsquo;ve demonstrated how to build virtual network topologies on top of Kubernetes with the help of meshnet-cni plugin. As an example, I&amp;rsquo;ve shown topologies with 50 cEOS instances and 250 Quagga nodes. In both of these examples virtual network devices were running natively inside Docker containers, meaning they were running as (a set of) processes directly attached to the TCP/IP stack of the network namespace provided by the k8s pod.</description>
+    </item>
+    
+    <item>
+      <title>Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</title>
+      <link>https://networkop.co.uk/post/2018-11-k8s-topo-p2/</link>
+      <pubDate>Sat, 01 Dec 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2018-11-k8s-topo-p2/</guid>
+      <description>In the previous post I&amp;rsquo;ve demonstrated a special-purpose CNI plugin for network simulations inside kubernetes called meshnet. I&amp;rsquo;ve shown how relatively easy it is to build a simple 3-node topology spread across multiple kubernetes nodes. However, when it comes to real-life large-scale topology simulations, using meshnet &amp;ldquo;as is&amp;rdquo; becomes problematic due to the following reasons:
+ Uploading topology information into etcd requires a lot of manual effort. Any customisation like startup configuration injection or exposure of internal ports is still a manual process.</description>
+    </item>
+    
+    <item>
+      <title>Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</title>
+      <link>https://networkop.co.uk/post/2018-11-k8s-topo-p1/</link>
+      <pubDate>Fri, 02 Nov 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2018-11-k8s-topo-p1/</guid>
+      <description>Building virtualised network topologies has been one of the best ways to learn new technologies and to test new designs before implementing them on a production network. There are plenty of tools that can help build arbitrary network topologies, some with an interactive GUI (e.g. GNS3 or EVE-NG/Unetlab) and some &amp;ldquo;headless&amp;rdquo;, with text-based configuration files (e.g. vrnetlab or topology-converter). All of these tools work by spinning up multiple instances of virtual devices and interconnecting them according to a user-defined topology.</description>
+    </item>
+    
+    <item>
+      <title>The problem of unpredictable interface order in multi-network Docker containers</title>
+      <link>https://networkop.co.uk/post/2018-03-03-docker-multinet/</link>
+      <pubDate>Sat, 03 Mar 2018 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2018-03-03-docker-multinet/</guid>
+      <description>Whether we like it or not, the era of DevOps is upon us, fellow network engineers, and with it come opportunities to approach and solve common networking problems in new, innovative ways. One such problem is automated network change validation and testing in virtual environments, something I&amp;rsquo;ve already written about a few years ago. The biggest problem with my original approach was that I had to create a custom REST API SDK to work with a network simulation environment (UnetLab) that was never designed to be interacted with in a programmatic way.</description>
+    </item>
+    
+    <item>
+      <title>Network-CI Part 3 - OSPF to BGP Migration in Active/Standby DC</title>
+      <link>https://networkop.co.uk/blog/2016/03/03/network-ci-demo-large/</link>
+      <pubDate>Wed, 23 Mar 2016 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2016/03/03/network-ci-demo-large/</guid>
+      <description>Current network overview Let&amp;rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</description>
+    </item>
+    
+    <item>
+      <title>Network-CI Part 2 - Small Network Demo</title>
+      <link>https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/</link>
+      <pubDate>Thu, 03 Mar 2016 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/</guid>
+      <description>Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
+To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
+Local development environment contains the following files describing the modelled topology:
+ Configuration files for each node under the ./config directory Network topology in .</description>
+    </item>
+    
+    <item>
+      <title>Network-CI Part 1 - Automatically Building a VM With UNetLab and Jenkins</title>
+      <link>https://networkop.co.uk/blog/2016/02/25/network-ci-dev-setup/</link>
+      <pubDate>Thu, 25 Feb 2016 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2016/02/25/network-ci-dev-setup/</guid>
+      <description>Packer intro Packer is a tool that can automatically create virtual machines for different hypervisors and cloud platforms. The goal is to produce identically configured VMs for either VirtualBox, VMWare, Amazon or Google clouds based on a single template file. If you&amp;rsquo;re familiar with Vagrant, then you can also use Packer to create custom Vagrant boxes. In our case, however, we&amp;rsquo;re only concerned about VMWare since it&amp;rsquo;s the only type-2 hypervisor that supports nested hardware virtualisation (e.</description>
+    </item>
+    
+    <item>
+      <title>Network Continuous Integration and Delivery</title>
+      <link>https://networkop.co.uk/blog/2016/02/19/network-ci-intro/</link>
+      <pubDate>Fri, 19 Feb 2016 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2016/02/19/network-ci-intro/</guid>
+      <description>CI/CD vs ITIL How do you implement changes in your network? In today&amp;rsquo;s world there&amp;rsquo;s 95% chance that you have to write up an RFC, submit it at least a week before the planned implementation date, go through at least one CAB meeting and only then, assuming it got approved, can you implement it. But the most important question is &amp;lsquo;how do you test&amp;rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place?</description>
+    </item>
+    
+    <item>
+      <title>REST for Network Engineers Part 3 - Advanced Operations With UnetLab</title>
+      <link>https://networkop.co.uk/blog/2016/01/17/rest-unl-advanced/</link>
+      <pubDate>Sun, 17 Jan 2016 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2016/01/17/rest-unl-advanced/</guid>
+      <description>Extracting Node&amp;rsquo;s UUID In the previous post we have learned how to create a Node. To perform further actions on it we need to know it&amp;rsquo;s UUID. According to HTTP specification 201 - Created response SHOULD return a Location header with resource URI, which would contain resource UUID. However, UNetLab&amp;rsquo;s implementation does not return a Location header so we need to extract that information ourselves. To do that we&amp;rsquo;ll use the previously defined .</description>
+    </item>
+    
+    <item>
+      <title>REST for Network Engineers Part 2 - Basic Operations With UnetLab</title>
+      <link>https://networkop.co.uk/blog/2016/01/06/rest-basic-operations/</link>
+      <pubDate>Wed, 06 Jan 2016 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2016/01/06/rest-basic-operations/</guid>
+      <description>REST SDK Design As it is with networks, design is a very crucial part of programming. I won&amp;rsquo;t pretend to be an expert in that field and merely present the way I&amp;rsquo;ve built REST SDK. Fortunately, a lot of design will mimic the objects and their relationship on the server side. I&amp;rsquo;ll slightly enhance it to improve code re-use and portability. Here are the basic objects:
+ RestServer - implements basic application-agnostic HTTP CRUD logic UnlServer - an extension of a RestServer with specific authentication method (cookie-based) and several additional methods Device - an instance of a network device with specific attributes like type, image name, number of CPUs UnlLab - a lab instance existing inside a UnlServer UnlNode - a node instance existing inside a UnlLab UnlNet - a network instance also existing inside a UnlLab object  All these objects and their relationships are depicted on the following simplified UML diagram.</description>
+    </item>
+    
+    <item>
+      <title>REST for Network Engineers Part 1 - Development Environment Setup</title>
+      <link>https://networkop.co.uk/blog/2016/01/03/dev-env-setup-rest/</link>
+      <pubDate>Sun, 03 Jan 2016 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2016/01/03/dev-env-setup-rest/</guid>
+      <description>UnetLab Installation Since UNL is a separate project with its own evolving documentation I won&amp;rsquo;t try to reproduce it in my blog and I&amp;rsquo;ll simply refer all my readers to UNL download page, UNL installation instructions and UNL first boot configuration.
+At the time of writing UNL is distributed as an image packaged in Open Virtualization Format. I&amp;rsquo;m using VMWare Workstation as a type-2 hypervisor to import and run this image.</description>
+    </item>
+    
+    <item>
+      <title>REST API for Network Engineers</title>
+      <link>https://networkop.co.uk/blog/2016/01/01/rest-for-neteng/</link>
+      <pubDate>Fri, 01 Jan 2016 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2016/01/01/rest-for-neteng/</guid>
+      <description>Management interface evolution Since the early dawn of networking, devices have been configured through VTYs. The transport has evolved from telnet to ssh but the underlying rule still maintained that network is configured manually, device-by-device by a human administrator. It&amp;rsquo;s obvious that this approach does not scale and is prone to human error, however it still remains the most prevalent method of network device configuration.
+The first attempt to tackle these issues has been made in 1988 with the introduction of SNMP.</description>
+    </item>
+    
+    <item>
+      <title>Automating the Build of a FlexVPN Network</title>
+      <link>https://networkop.co.uk/blog/2015/11/13/automating-flexvpn-config/</link>
+      <pubDate>Fri, 13 Nov 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/11/13/automating-flexvpn-config/</guid>
+      <description>In this post I will also introduce two concepts that are frequently used in software development world - DRY and &amp;ldquo;Convention over Configuration&amp;rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on Packetpushers.
+FlexVPN network overview FlexVPN topology will consist of two FlexVPN &amp;ldquo;clouds&amp;rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds.</description>
+    </item>
+    
+    <item>
+      <title>Automating New Network Build - Part 2 (BGP)</title>
+      <link>https://networkop.co.uk/blog/2015/09/03/automating-bgp-config/</link>
+      <pubDate>Thu, 03 Sep 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/09/03/automating-bgp-config/</guid>
+      <description>This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.
+Requirements and assumptions The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link.</description>
+    </item>
+    
+    <item>
+      <title>Automating New Network Build - Part 1</title>
+      <link>https://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/</link>
+      <pubDate>Wed, 26 Aug 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/</guid>
+      <description>Prerequisites It is assumed that by this time all detailed network design information is known including interfaces numbers, VLANs, IP addresses and LAGs. This information will be used as an input to configuration automation scripts.
+The inventory file is updated with a new branch-2 group
+[branch-2] BR2-CORE ansible_ssh_host=10.0.3.1 BR2-WAN1 ansible_ssh_host=10.0.3.2 BR2-WAN2 ansible_ssh_host=10.0.3.3 BR2-AS01 ansible_ssh_host=10.0.3.130 BR2-AS02 ansible_ssh_host=10.0.3.131 BR2-AS03 ansible_ssh_host=10.0.3.132  Creating device bootstrap configuration A lot of times when building a new network it is required to create a bootstrap config that would have some basic AAA configuration along with the layer 2 and layer 3 links configuration.</description>
+    </item>
+    
+    <item>
+      <title>Automating Legacy Network Configuration</title>
+      <link>https://networkop.co.uk/blog/2015/08/14/automating-legacy-networks/</link>
+      <pubDate>Fri, 14 Aug 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/08/14/automating-legacy-networks/</guid>
+      <description>A lot of configuration files referenced throughout this post will be omitted for the sake of brevity, however all of them can be found in my github repository.
+Legacy network overview The network I&amp;rsquo;m using for demonstration is a cut-down version of a typical enterprise network. At this point of time it consists of a branch office network and a central DC network interconnected via redundant WAN links. The branch office consists of a main computer room hosting all core network devices and interconnecting with access switches on each of the office floors.</description>
+    </item>
+    
+    <item>
+      <title>Network Configuration Automation</title>
+      <link>https://networkop.co.uk/blog/2015/08/07/configuration-automation/</link>
+      <pubDate>Fri, 07 Aug 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/08/07/configuration-automation/</guid>
+      <description>Automating Network Configuration Automation and programmability steadily make their way into a networking domain. The idea was born in application development world where makefiles served a role of automated installation scripts. It later spread into application testing and deployment so now hardly anyone does these two things by hand. Next in line were the operating systems largely thanks to the raising popularity of PaaS solutions. Until recently network configuration has been the prerogative of us, network engineers.</description>
+    </item>
+    
+    <item>
+      <title>Network TDD Quickstart Guide</title>
+      <link>https://networkop.co.uk/blog/2015/07/17/tdd-quickstart/</link>
+      <pubDate>Fri, 17 Jul 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/07/17/tdd-quickstart/</guid>
+      <description>Network overview Let&amp;rsquo;s assume you&amp;rsquo;re working in a proverbial Acme Inc. It has a Data Centre hosting all centralised services and a single office branch (Branch #1). Sites are interconnected using active/backup WAN links. The company decides to expand and adds a new office in a city nearby. In additional to standard dual WAN links it&amp;rsquo;s possible to buy a cheap and high throughput backdoor link between the two branches.</description>
+    </item>
+    
+    <item>
+      <title>Verifying TDD Scenarios</title>
+      <link>https://networkop.co.uk/blog/2015/07/10/test-verification/</link>
+      <pubDate>Fri, 10 Jul 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/07/10/test-verification/</guid>
+      <description>Now that Ansible has done all the information gathering for us it&amp;rsquo;s time to finally make use of it. In this post I will show how to use Ansible to run traceroutes from and to the hosts defined in a test scenario and perform verification of the results of those tests. Should any of those tests fail, Ansible will provide a meaningful description of what exactly failed and why. While doing all this I&amp;rsquo;ll introduce a couple of new Ansible features like conditional looping and interactive prompts.</description>
+    </item>
+    
+    <item>
+      <title>Developing Custom Ansible Modules</title>
+      <link>https://networkop.co.uk/blog/2015/07/03/parser-modules/</link>
+      <pubDate>Fri, 03 Jul 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/07/03/parser-modules/</guid>
+      <description>Ansible has a very neat feature called &amp;ldquo;fact gathering&amp;rdquo;, which collects useful information from hosts prior to executing any of the tasks and makes this information available for use within those tasks. Unfortunately, this also relies on Python being available on the remote machine which doesn&amp;rsquo;t work for Cisco IOS. In this post I&amp;rsquo;ll show how to write a simple module which will collect IP address information from remote devices and store it in global variable for future use.</description>
+    </item>
+    
+    <item>
+      <title>Getting Started With Ansible for Cisco IOS</title>
+      <link>https://networkop.co.uk/blog/2015/06/24/ansible-intro/</link>
+      <pubDate>Mon, 22 Jun 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/06/24/ansible-intro/</guid>
+      <description>Ansible is well-known for it&amp;rsquo;s low entry threshold. All what&amp;rsquo;s required to get started is just one inventory file. However Cisco IOS devices require special considerations. Passwordless SSH RSA-based authentication is still a novelty and in most cases users are authenticated based on their passwords. Another problem is the lack of Python execution environment on IOS devices, which seriously limits the choice of Ansible modules that can be used. In this post I will show how to setup Ansible environment to control Cisco IOS devices</description>
+    </item>
+    
+    <item>
+      <title>Windows-Linux File Synchronisation</title>
+      <link>https://networkop.co.uk/blog/2015/06/22/dev-file-sync/</link>
+      <pubDate>Mon, 22 Jun 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/06/22/dev-file-sync/</guid>
+      <description>My development environment usually consists of a host machine running Windows and a development Linux &amp;ldquo;headless&amp;rdquo; virtual machine. I create and edit files in a Notepad++ text editor and then transfer them over to the Linux VM. Until recently I&amp;rsquo;ve been using a hypervisor-enabled &amp;ldquo;shared&amp;rdquo; folder. However, Windows file system emulators in Linux do not support symbolic links and therefore breaks a lot of applications that rely on them. This prompted me to start looking for a new way to sync my files.</description>
+    </item>
+    
+    <item>
+      <title>Development Environment Setup</title>
+      <link>https://networkop.co.uk/blog/2015/06/17/dev-env-setup/</link>
+      <pubDate>Wed, 17 Jun 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/06/17/dev-env-setup/</guid>
+      <description>Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:
+ Network Simulation Environment Ansible Development Environment  To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use UnetLab, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on the website.</description>
+    </item>
+    
+    <item>
+      <title>Building a Simple Network TDD Framework</title>
+      <link>https://networkop.co.uk/blog/2015/06/15/simple-tdd-framework/</link>
+      <pubDate>Mon, 15 Jun 2015 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/blog/2015/06/15/simple-tdd-framework/</guid>
+      <description>Before we begin (optional section) Before we go on, I&amp;rsquo;d like to put a little disclaimer about terms being used in this post. TDD, and its counterpart BDD, are well-known and accepted practices in development world. Both rely on the assumption that tests will be written before the code and will drive code development. This seemingly unnatural approach became extremely popular with the advent of Agile and is still being widely used, specifically in web development.</description>
+    </item>
+    
+  </channel>
+</rss>

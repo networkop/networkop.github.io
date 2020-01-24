@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.46" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="In September 2019 I had the honour to present at Open Networking Summit in Antwerp. My talk was about meshnet CNI plugin, k8s-topo orchestrator and how to use them for large-scale network simulations in Kubernetes. During the same conference, I attended a talk about Network Service Mesh and its new kernel-based forwarding dataplane which had a lot of similarities with the work that I&rsquo;ve done for meshnet. Having had a chat with the presenters, we&rsquo;ve decided that it would be interesting to try and implement a meshnet-like functionality with NSM.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2020-01-nsm-topo/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2020-01-nsm-topo/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2020-01-nsm-topo/">
+  <meta property="og:title" content="Network Simulations with Network Service Mesh | networkop">
+  <meta property="og:description" content="In September 2019 I had the honour to present at Open Networking Summit in Antwerp. My talk was about meshnet CNI plugin, k8s-topo orchestrator and how to use them for large-scale network simulations in Kubernetes. During the same conference, I attended a talk about Network Service Mesh and its new kernel-based forwarding dataplane which had a lot of similarities with the work that I&rsquo;ve done for meshnet. Having had a chat with the presenters, we&rsquo;ve decided that it would be interesting to try and implement a meshnet-like functionality with NSM.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2020-01-24T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2020-01-24T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/k8s-nsm.png"/>
+
+<meta name="twitter:title" content="Network Simulations with Network Service Mesh"/>
+<meta name="twitter:description" content="Using Network Service Mesh as a mechanism for large scale network simulations with k8s-topo"/>
+
+
+  <title>Network Simulations with Network Service Mesh | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Network Simulations with Network Service Mesh</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2020-01-24 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      24 Jan 2020
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    8 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2020-01-nsm-topo/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/automation">automation</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Network%20Simulations%20with%20Network%20Service%20Mesh&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-01-nsm-topo%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-01-nsm-topo%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-01-nsm-topo%2f&amp;title=Network%20Simulations%20with%20Network%20Service%20Mesh"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Network%20Simulations%20with%20Network%20Service%20Mesh&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-01-nsm-topo%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>In September 2019 I had the honour to <a href="https://onseu19.sched.com/event/SYsb/large-scale-network-simulations-in-kubernetes-michael-kashin-arista-networks" target="_blank">present</a> at Open Networking Summit in Antwerp. My talk was about <a href="https://github.com/networkop/meshnet-cni" target="_blank">meshnet</a> CNI plugin, <a href="https://github.com/networkop/k8s-topo" target="_blank">k8s-topo</a> orchestrator and how to use them for large-scale network simulations in Kubernetes. During the same conference, I attended a talk about Network Service Mesh and its new <a href="https://onseu19.sched.com/event/SYum/kernel-based-forwarding-plane-for-network-service-mesh-radoslav-dimitrov-vmware" target="_blank">kernel-based forwarding dataplane</a> which had a lot of similarities with the work that I&rsquo;ve done for meshnet. Having had a chat with the presenters, we&rsquo;ve decided that it would be interesting to try and implement a meshnet-like functionality with NSM. In this post, I&rsquo;ll try to document some of the findings and results of my research.</p>
+
+<h1 id="network-service-mesh-introduction">Network Service Mesh Introduction</h1>
+
+<p><a href="https://networkservicemesh.io/" target="_blank">NSM</a> is a CNCF project aimed at providing service mesh-like capabilities for L2/L3 traffic. In the context of Kubernetes, NSM&rsquo;s role is to interconnect pods and setup the underlying forwarding, which involves creating new interfaces, allocating IPs and configuring pod&rsquo;s routing table. The main use cases are cloud-native network functions (e.g. 5G), service function chaining and any containerised applications that may need to talk over non-standard protocols. Similar to traditional service meshes, the intended functionality is achieved by injecting sidecar containers that communicate with a distributed control plane of network service managers, deployed as a <a href="https://kubernetes.io/docs/concepts/workloads/controllers/daemonset/" target="_blank">daemonset</a>.</p>
+
+<p>I&rsquo;ll try to avoid repeating NSM&rsquo;s theory here and instead refer my readers to the official <a href="https://networkservicemesh.io/docs/concepts/what-is-nsm" target="_blank">documentation</a> and a very good introductory <a href="https://docs.google.com/presentation/d/1IC2kLnQGDz1hbeO0rD7Y82O_4NwzgIoGgm0oOXyaQ9Y/edit#slide=id.p" target="_blank">slide deck</a>. There are a few concepts, however, that are critical to the understanding of this blogpost, that I&rsquo;ll mention here briefly:</p>
+
+<ul>
+<li><strong>Network Services</strong> are built around a client-server model - a client receives a service from an endpoint (server).</li>
+<li>Both client and endpoint are implemented as <strong>containers</strong> and interact with <strong>local control plane agents</strong> over a gRPC-based API.</li>
+<li>Typically, a <strong>client</strong> would request a service with <code>ns.networkservicemesh.io</code> <strong>annotation</strong>, which gets matched by a mutating webhook responsible for injecting an init container.</li>
+<li><strong>Endpoints</strong>, being designed specifically to provide network services, have endpoint container statically defined as a <strong>sidecar</strong> (unless they natively implement NSM&rsquo;s SDK).</li>
+<li>One important distinction between client and endpoint sidecars is that the former is an <strong>init</strong> container (runs to completion at pod create time) and the latter is a normal <strong>sidecar</strong> which allows service reconfiguration at runtime.</li>
+<li>All client and endpoint configurations get passed as <strong>environment variables</strong> to the respective containers either dynamically (client) or statically (endpoint).</li>
+</ul>
+
+<p>Given all of the above, this is how you&rsquo;d use NSM to create a point-to-point link between any two pods.</p>
+
+<h1 id="using-nsm-to-create-links-between-pods">Using NSM to create links between pods</h1>
+
+<p>First, we need to decide which side of the link will be a client and which will be an endpoint. This is where we&rsquo;ll abuse NSM&rsquo;s concepts for the first time as it really doesn&rsquo;t matter how this allocation takes place. For a normal network service, it&rsquo;s fairly easy to identify and map client/server roles, however, for topology simulations they can be assigned arbitrarily as both sides of the link are virtually equivalent.</p>
+
+<p>The next thing we need to do is statically add sidecar containers not only to the endpoint side of the link but to the client as well. This is another abuse of NSM&rsquo;s intended mode of operation, where a client init container gets injected automatically by the webhook. The reason for that is that the init container will block until its network service request gets accepted, which may create a circular dependency if client/endpoint roles are assigned arbitrarily, as discussed above.</p>
+
+<p>The resulting &ldquo;endpoint&rdquo; side of the link will have the following pod manifest. The NSE sidecar container will read the environment variables and use NSM&rsquo;s <a href="https://github.com/networkservicemesh/networkservicemesh/tree/master/sdk" target="_blank">SDK</a> to register itself with a <code>p2p</code> network service with a <code>device=device-2</code> label.</p>
+
+<pre><code class="language-yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: device-2
+spec:
+  containers:
+  - image: alpine:latest
+    command: [&quot;tail&quot;, &quot;-f&quot;, &quot;/dev/null&quot;]
+    name: alpine
+  - name: nse-sidecar
+    image: networkservicemesh/topology-sidecar-nse:master
+    env:
+    - name: ENDPOINT_NETWORK_SERVICE
+      value: &quot;p2p&quot;
+    - name: ENDPOINT_LABELS
+      value: &quot;device=device-2&quot;
+    - name: IP_ADDRESS
+      value: &quot;10.60.1.0/24&quot;
+    resources:
+      limits:
+        networkservicemesh.io/socket: &quot;1&quot;
+</code></pre>
+
+<p>When a local control plane agent receives the above registration request, it will create a new k8s <code>NetworkServiceEndpoint</code> resource, effectively letting all the other agents know where to find this particular service endpoint (in this case it&rsquo;s the k8s node called <code>nsm-control-plane</code>). Note that the below resource is managed by NSM&rsquo;s control plane and should not be created by the user:</p>
+
+<pre><code class="language-yaml">apiVersion: networkservicemesh.io/v1alpha1
+kind: NetworkServiceEndpoint
+metadata:
+  generateName: p2p
+  labels:
+    device: device-2
+    networkservicename: p2p
+  name: p2ppdp2d
+spec:
+  networkservicename: p2p
+  nsmname: nsm-control-plane
+  payload: IP
+status:
+  state: RUNNING
+</code></pre>
+
+<p>The next bit is the manifest of the network service itself. Its goal is to establish a relationship between multiple clients and endpoints of a service by matching their network service labels.</p>
+
+<pre><code class="language-yaml">apiVersion: networkservicemesh.io/v1alpha1
+kind: NetworkService
+metadata:
+  name: p2p
+spec:
+  matches:
+  - match: 
+    sourceSelector:
+      link: net-0
+    route:
+    - destination: 
+      destinationSelector:
+        device: device-2
+  payload: IP
+</code></pre>
+
+<p>The final bit is the &ldquo;client&rdquo; side of the link which will have the following pod manifest. Note that the format of <code>NS_NETWORKSERVICEMESH_IO</code> variable is the same as the one used in <a href="https://github.com/networkservicemesh/networkservicemesh/blob/master/docs/spec/admission.md#what-to-trigger-on" target="_blank">annotations</a> and can be read as &ldquo;client requesting a <code>p2p</code> service with two labels (<code>link=net-0</code> and <code>peerif=eth21</code>) and wants to connect to it over a local interface called <code>eth12</code>&rdquo;.</p>
+
+<pre><code class="language-yaml">apiVersion: v1
+kind: Pod
+metadata:
+  name: device-1
+spec:
+  containers:
+  - image: alpine:latest
+    command: [&quot;tail&quot;, &quot;-f&quot;, &quot;/dev/null&quot;]
+    name: alpine
+  - name: nsc-sidecar
+    image: networkservicemesh/topology-sidecar-nsc:master
+    env:
+    - name: NS_NETWORKSERVICEMESH_IO
+      value: p2p/eth12?link=net-0&amp;peerif=eth21
+    resources:
+      limits:
+        networkservicemesh.io/socket: &quot;1&quot;
+</code></pre>
+
+<p>The client&rsquo;s sidecar will read the above environment variable and send a connection request to the local control plane agent which will perform the following sequence of steps:</p>
+
+<ol>
+<li>Locate a network service called <code>p2p</code>.</li>
+<li>Find a match based on client-provided labels (<code>link=net-0</code>).</li>
+<li>Try to find a matching network service endpoint (<code>device=device-2</code>).</li>
+<li>Contact the remote agent hosting a matching endpoint (found in NSE CRDs) and relay the connection request.</li>
+<li>If the request gets accepted by the endpoint, instruct the local forwarding agent to set up pod&rsquo;s networking.</li>
+</ol>
+
+<h1 id="topology-orchestration-with-k8s-topo">Topology orchestration with k8s-topo</h1>
+
+<p>Looking at the above manifests, it&rsquo;s clear that writing them manually, even for smaller topologies, can be a serious burden. That&rsquo;s why I&rsquo;ve adapted the <a href="https://github.com/networkop/k8s-topo" target="_blank">k8s-topo</a> tool that I&rsquo;ve written originally for <a href="https://github.com/networkop/meshnet-cni" target="_blank">meshnet-cni</a> to produce and instantiate NSM-compliant manifest based on a single light-weight topology YAML file. The only thing that&rsquo;s needed to make it work with NSM is to add a <code>nsm: true</code> to the top of the file, e.g.:</p>
+
+<pre><code class="language-yaml">nsm: true
+links:
+  - endpoints: [&quot;device-1:eth12&quot;, &quot;device-2:eth21&quot;]
+</code></pre>
+
+<p>Behind the scenes, k8s-topo will create the required network service manifest and configure all pods with correct sidecars and variables. As an added bonus, it will still attempt to inject startup configs and expose ports as described <a href="https://github.com/networkop/k8s-topo" target="_blank">here</a>.</p>
+
+<p><img src="/img/k8s-nsm.png" alt="" /></p>
+
+<h1 id="nsm-vs-meshnet-for-network-simulations">NSM vs Meshnet for network simulations</h1>
+
+<p>In the context of virtual network simulations, both NSM and meshnet-cni can perform similar functions, however, their implementation and modes of operation are rather different. Here are the main distinctions of a CNI plugin approach:</p>
+
+<ul>
+<li>All networking is setup BEFORE the pod is started.</li>
+<li>CNI plugin does all the work so there&rsquo;s no need for sidecar containers.</li>
+<li>A very thin code base for a very specific use case.</li>
+</ul>
+
+<p>And here are some of the distinctions of an NSM-based approach:</p>
+
+<ul>
+<li>All networking is setup AFTER the pod is started.</li>
+<li>This does come with a requirement for a sidecar container, but potentially allows for runtime reconfiguration.</li>
+<li>No requirement for a CNI plugin at all.</li>
+<li>More generic use cases are possible.</li>
+</ul>
+
+<p>In the end, none of the options limit the currently available featureset of k8s-topo and the choice can be done based on the characteristics of an individual environment, e.g. if it&rsquo;s a managed k8s from GCP (GKE) or Azure (AKS) then most likely you&rsquo;ll be running <a href="https://kubernetes.io/docs/concepts/extend-kubernetes/compute-storage-net/network-plugins/#kubenet" target="_blank">kubenet</a> and won&rsquo;t have an option to install any CNI plugin at all, in which case NSM can be the only available solution.</p>
+
+<h1 id="demo">Demo</h1>
+
+<p>Now it&rsquo;s demo time and I&rsquo;ll show how to use k8s-topo together with NSM to build a 10-node virtual router topology. We start by spinning up a local <a href="https://github.com/kubernetes-sigs/kind" target="_blank">kind</a> kubernetes cluster and installing NSM on it:</p>
+
+<pre><code>git clone https://github.com/networkservicemesh/networkservicemesh
+cd networkservicemesh
+make helm-init
+SPIRE_ENABLED=false INSECURE=true FORWARDING_PLANE=kernel make helm-install-nsm 
+</code></pre>
+
+<p>Next, we install the k8s-topo deployment and connect to the pod running it:</p>
+
+<pre><code>kubectl create -f https://raw.githubusercontent.com/networkop/k8s-topo/master/manifest.yml
+kubectl exec -it deploy/k8s-topo -- sh
+</code></pre>
+
+<p>For demonstration purposes I&rsquo;ll use a random 10-node tree topology generated using a <a href="https://en.wikipedia.org/wiki/Loop-erased_random_walk" target="_blank">loop-erased random walk</a>:</p>
+
+<pre><code>./examples/builder/builder 10 0
+</code></pre>
+
+<p>The only thing needed to make it work with NSM is set the <code>nsm</code> flag to <code>true</code>:</p>
+
+<pre><code>sed -i '$ a\nsm: true' ./examples/builder/random.yml
+</code></pre>
+
+<p>Now everything&rsquo;s ready for us to instantiate the topology inside k8s:</p>
+
+<pre><code>k8s-topo --create ./examples/builder/random.yml
+</code></pre>
+
+<p>Once all the pods are up, we can issue a ping from one of the routers to every other router in the topology and confirm the connectivity between their loopback IPs:</p>
+
+<pre><code>for i in `seq 0 9`; do (kubectl exec qrtr-192-0-2-0 -c router -- ping -c 1 192.0.2.$i|grep loss); done
+
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+1 packets transmitted, 1 packets received, 0% packet loss
+</code></pre>
+
+<p>If you want to have a look at your topology, it&rsquo;s possible to make k8s-topo generate a D3 graph of all pods and their connections and view it in the browser:</p>
+
+<pre><code>k8s-topo --graph ./examples/builder/random.yml
+INFO:__main__:D3 graph created
+INFO:__main__:URL: http://172.17.0.3:30000
+</code></pre>
+
+<p><img src="/img/k8s-nsm-topo.png" alt="" /></p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/k8s">k8s</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2019-06-naas-p3/">Network-as-a-Service Part 3 - Authentication and Admission control</a></li>
+    
+    <li><a href="/post/2019-06-naas-p2/">Network-as-a-Service Part 2 - Designing a Network API</a></li>
+    
+    <li><a href="/post/2019-06-naas-p1/">Network-as-a-Service Part 1 - Frameworkless automation</a></li>
+    
+    <li><a href="/post/2019-04-tf-yang/">Terraform your physical network with YANG</a></li>
+    
+    <li><a href="/post/2019-01-k8s-vrnetlab/">Multi-Vendor Network Simulations at Scale with meshnet-cni and vrnetlab</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+

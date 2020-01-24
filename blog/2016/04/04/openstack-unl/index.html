@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="theme" content="hugo-academic">
-  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="generator" content="Hugo 0.46" />
   <meta name="author" content="Michael Kashin">
 
   
@@ -341,21 +341,25 @@
 'mikrotik'              =&gt;      'MikroTik RouterOS',
 </code></pre></li>
 
-<li><p>Create a new OpenStack node template based on existing linux node template.</p>
-
-<pre><code>$ cp /opt/unetlab/html/templates/linux.php /opt/unetlab/html/templates/OpenStack.php
-</code></pre></li>
-
-<li><p>Edit the template file replacing all occurences of &lsquo;Linux&rsquo; with &lsquo;OpenStack&rsquo;</p>
-
-<pre><code>$ sed -i 's/Linux/OpenStack/g; s/linux/OpenStack/g' /opt/unetlab/html/templates/OpenStack.php
-</code></pre></li>
-
-<li><p>Edit the template file to double the RAM and CPU and pass all host&rsquo;s CPU instructions to OpenStack nodes</p>
-
-<pre><code>$ sed -i 's/2048/4096/; s/\(cpu.*\) = 1/\1 = 2/; s/\(order=\)dc/\1cd -cpu host/' /opt/unetlab/html/templates/OpenStack.php
-</code></pre></li>
+<li><p>Create a new OpenStack node template based on existing linux node template.</p></li>
 </ol>
+
+<pre><code>   $ cp /opt/unetlab/html/templates/linux.php /opt/unetlab/html/templates/OpenStack.php
+</code></pre>
+
+<ol>
+<li>Edit the template file replacing all occurences of &lsquo;Linux&rsquo; with &lsquo;OpenStack&rsquo;</li>
+</ol>
+
+<pre><code>   $ sed -i 's/Linux/OpenStack/g; s/linux/OpenStack/g' /opt/unetlab/html/templates/OpenStack.php
+</code></pre>
+
+<ol>
+<li>Edit the template file to double the RAM and CPU and pass all host&rsquo;s CPU instructions to OpenStack nodes</li>
+</ol>
+
+<pre><code>   $ sed -i 's/2048/4096/; s/\(cpu.*\) = 1/\1 = 2/; s/\(order=\)dc/\1cd -cpu host/' /opt/unetlab/html/templates/OpenStack.php
+</code></pre>
 
 <p>At this point you should be able to navigate to UNL&rsquo;s web interface and find a new node of type OpenStack. However you won&rsquo;t be able to create it until you have at least one image, which is what we&rsquo;re going to build next.</p>
 
@@ -370,16 +374,18 @@ The other option is to build CentOS inside UNL from scratch. This is how you can
 <pre><code>$ mkdir -p /opt/unetlab/addons/qemu/OpenStack-1
 </code></pre></li>
 
-<li><p>Create a link to CentOS ISO boot image from our new directory</p>
-
-<pre><code>$ ln -s ~/CentOS-7-x86_64-Minimal-1511.iso /opt/unetlab/addons/qemu/OpenStack-1/cdrom.iso
-</code></pre></li>
-
-<li><p>Create a blank 6Gb disk image</p>
-
-<pre><code>$ /opt/qemu/bin/qemu-img create -f qcow2 -o preallocation=metadata /opt/unetlab/addons/qemu/OpenStack-1/virtioa.qcow2 6G
-</code></pre></li>
+<li><p>Create a link to CentOS ISO boot image from our new directory</p></li>
 </ol>
+
+<pre><code>   $ ln -s ~/CentOS-7-x86_64-Minimal-1511.iso /opt/unetlab/addons/qemu/OpenStack-1/cdrom.iso
+</code></pre>
+
+<ol>
+<li>Create a blank 6Gb disk image</li>
+</ol>
+
+<pre><code>   $ /opt/qemu/bin/qemu-img create -f qcow2 -o preallocation=metadata /opt/unetlab/addons/qemu/OpenStack-1/virtioa.qcow2 6G
+</code></pre>
 
 <p>If you want to create <strong>snapshots</strong> at any stage of the process you&rsquo;d need to use a copy of this file under /opt/unetlab/tmp/pod_id/lab_uuid/node_id/ directory</p>
 
@@ -391,20 +397,22 @@ The other option is to build CentOS inside UNL from scratch. This is how you can
 So instead of mucking around with <strong>Ultra</strong> I decided to give me old pal <strong>Tight</strong>VNC a go. The setup process is very similar to the <a href="http://www.unetlab.com/2015/03/url-telnet-ssh-vnc-integration-on-windows/" target="_blank">official VNC integration guide</a> with the following exceptions:</p>
 
 <ol>
-<li><p>The wrapper file simply strips the leading &lsquo;vnc://&rsquo; and trailing &lsquo;/&rsquo; off the passed argument</p>
-
-<pre><code>SET arg=%1
-SET arg=%arg:~6%
-SET arg=%arg:~0,-1%
-start &quot;&quot; &quot;c:\Program Files\TightVNC\tvnviewer.exe&quot; %arg%
-</code></pre></li>
-
-<li><p>The registry entry now points to the TightVNC wrapper</p>
-
-<pre><code>[HKEY_CLASSES_ROOT\vnc\shell\open\command]
-@=&quot;\\&quot;c:\\Program Files\\TightVNC\\wrapper.bat\\&quot; %1&quot;
-</code></pre></li>
+<li>The wrapper file simply strips the leading &lsquo;vnc://&rsquo; and trailing &lsquo;/&rsquo; off the passed argument</li>
 </ol>
+
+<pre><code>   SET arg=%1
+   SET arg=%arg:~6%
+   SET arg=%arg:~0,-1%
+   start &quot;&quot; &quot;c:\Program Files\TightVNC\tvnviewer.exe&quot; %arg%
+</code></pre>
+
+<ol>
+<li>The registry entry now points to the TightVNC wrapper</li>
+</ol>
+
+<pre><code>   [HKEY_CLASSES_ROOT\vnc\shell\open\command]
+   @=&quot;\\&quot;c:\\Program Files\\TightVNC\\wrapper.bat\\&quot; %1&quot;
+</code></pre>
 
 <h1 id="installing-centos-and-openstack">Installing CentOS and OpenStack</h1>
 

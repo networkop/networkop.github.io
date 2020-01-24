@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="theme" content="hugo-academic">
-  <meta name="generator" content="Hugo 0.37.1" />
+  <meta name="generator" content="Hugo 0.46" />
   <meta name="author" content="Michael Kashin">
 
   
@@ -479,33 +479,35 @@
 <p>In its forwarding entries OVS uses internal port numbers a lot, therefore it would make sense to collect all port number information before we start. This is how it can be done:</p>
 
 <ul>
-<li><p>Use <code>ovs-vsctl show</code> command to collect information about existing port names and their attributes (e.g. dot1q tag, VXLAN tunnel IPs, etc). This is the output collected on compute host #1:</p>
+<li>Use <code>ovs-vsctl show</code> command to collect information about existing port names and their attributes (e.g. dot1q tag, VXLAN tunnel IPs, etc). This is the output collected on compute host #1:</li>
+</ul>
 
 <pre><code>$ ovs-vsctl show | grep -E &quot;Bridge|Port|tag|options&quot;
-Bridge br-tun
-    Port br-tun
-    Port patch-int
-            options: {peer=patch-tun}
-    Port &quot;vxlan-0a00020a&quot;
-            options: {df_default=&quot;true&quot;, in_key=flow, local_ip=&quot;10.0.1.10&quot;, out_key=flow, remote_ip=&quot;10.0.2.10&quot;}
-    Port &quot;vxlan-0a00030a&quot;
-            options: {df_default=&quot;true&quot;, in_key=flow, local_ip=&quot;10.0.1.10&quot;, out_key=flow, remote_ip=&quot;10.0.3.10&quot;}
-Bridge br-int
-    Port br-int
-    Port &quot;tap258336bc-4f&quot;
-        tag: 5
-    Port patch-tun
-            options: {peer=patch-int}
-</code></pre></li>
+    Bridge br-tun
+        Port br-tun
+        Port patch-int
+                options: {peer=patch-tun}
+        Port &quot;vxlan-0a00020a&quot;
+                options: {df_default=&quot;true&quot;, in_key=flow, local_ip=&quot;10.0.1.10&quot;, out_key=flow, remote_ip=&quot;10.0.2.10&quot;}
+        Port &quot;vxlan-0a00030a&quot;
+                options: {df_default=&quot;true&quot;, in_key=flow, local_ip=&quot;10.0.1.10&quot;, out_key=flow, remote_ip=&quot;10.0.3.10&quot;}
+    Bridge br-int
+        Port br-int
+        Port &quot;tap258336bc-4f&quot;
+            tag: 5
+        Port patch-tun
+                options: {peer=patch-int}
+</code></pre>
 
-<li><p>Use <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> command to correlate port names and numbers. Example below is for integration bridge of compute host #1:</p>
+<ul>
+<li>Use <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> command to correlate port names and numbers. Example below is for integration bridge of compute host #1:</li>
+</ul>
 
 <pre><code>$ ovs-ofctl dump-ports-desc br-int | grep addr
-2(patch-tun): addr:5a:c5:44:fc:ac:72
-7(tap258336bc-4f): addr:fe:16:3e:19:e4:91
-LOCAL(br-int): addr:46:fe:10:de:1b:4f
-</code></pre></li>
-</ul>
+ 2(patch-tun): addr:5a:c5:44:fc:ac:72
+ 7(tap258336bc-4f): addr:fe:16:3e:19:e4:91
+ LOCAL(br-int): addr:46:fe:10:de:1b:4f
+</code></pre>
 
 <p>I&rsquo;ve put together a diagram showing all the relevant integration bridge (<strong>br-int</strong>) and tunnel bridge (<strong>br-tun</strong>) ports on all 3 hosts.</p>
 
