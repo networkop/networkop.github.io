@@ -6,6 +6,8 @@ tags = ["network-ci", "devops"]
 summary = "Exploring the problem of and solution to the random interface attachment order inside multi-network Docker containers"
 +++
 
+> **UPDATE**: It appears that the issue described in this post has been fixed or at least it doesn't manifest itself the same way it did back in 2018. Therefore, please treat this article purely as a historical record.
+
 Whether we like it or not, the era of DevOps is upon us, fellow network engineers, and with it come opportunities to approach and solve common networking problems 
 in new, innovative ways. One such problem is automated network change validation and testing in virtual environments, something I've already [written about][network-ci] a few years ago. The biggest problem with my original approach was that I had to create a custom [REST API SDK][unl-rest] to work with a network simulation environment (UnetLab) that was never designed to be interacted with in a programmatic way. On the other hand, technologies like Docker have been very interesting since they were built around the idea of non-interactive lifecycle management and came with all [API batteries][docker-py] already included. However, Docker was never intended to be used for network simulations and its support for multiple network interfaces is... somewhat problematic.
 

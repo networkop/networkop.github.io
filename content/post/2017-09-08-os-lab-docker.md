@@ -107,6 +107,6 @@ Now that the lab is up we can start exploring the new OpenStack SDN features. In
 [kolla-dockerhub]: https://hub.docker.com/u/kolla/
 [kolla-ansible]: https://docs.openstack.org/kolla-ansible/latest/quickstart.html
 [kolla-pullthrough]: https://docs.docker.com/registry/recipes/mirror/
-[kolla-build]: https://docs.openstack.org/kolla/latest/image-building.html
+[kolla-build]: https://docs.openstack.org/kolla/latest/admin/image-building.html
 [kolla-kubernetes]: https://github.com/openstack/kolla-kubernetes
 [openflow-groups]: https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups
