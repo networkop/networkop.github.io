@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="theme" content="hugo-academic">
-  <meta name="generator" content="Hugo 0.46" />
+  <meta name="generator" content="Hugo 0.55.6" />
   <meta name="author" content="Michael Kashin">
 
   
@@ -17,8 +17,7 @@
       
     
   
-  <meta name="description" content="In the previous post I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard IETF model. In this post I&rsquo;ll show how to use Cisco&rsquo;s native YANG model to modify static IP routes. To make things even more interesting I&rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.
-RESTCONF primer RESTCONF is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON.">
+  <meta name="description" content="The sheer size of some of the YANG models can scare away even the bravest of network engineers. However, as it is with any programming language, the complexity is built out of a finite set of simple concepts. In this post we&rsquo;ll learn some of these concepts by building our own YANG model to program static IP routes on Cisco IOS XE">
 
   
   <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2017/02/15/restconf-yang/">
@@ -91,8 +90,7 @@ RESTCONF primer RESTCONF is a very close functional equivalent of NETCONF. Inste
   <meta property="og:site_name" content="networkop">
   <meta property="og:url" content="https://networkop.co.uk/blog/2017/02/15/restconf-yang/">
   <meta property="og:title" content="Introduction to YANG Programming and RESTCONF on Cisco IOS XE | networkop">
-  <meta property="og:description" content="In the previous post I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard IETF model. In this post I&rsquo;ll show how to use Cisco&rsquo;s native YANG model to modify static IP routes. To make things even more interesting I&rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.
-RESTCONF primer RESTCONF is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON.">
+  <meta property="og:description" content="The sheer size of some of the YANG models can scare away even the bravest of network engineers. However, as it is with any programming language, the complexity is built out of a finite set of simple concepts. In this post we&rsquo;ll learn some of these concepts by building our own YANG model to program static IP routes on Cisco IOS XE">
   <meta property="og:locale" content="en-us">
   
   <meta property="article:published_time" content="2017-02-15T00:00:00&#43;00:00">
@@ -102,8 +100,7 @@ RESTCONF primer RESTCONF is a very close functional equivalent of NETCONF. Inste
 
   <meta name="twitter:card" content="summary"/>
 <meta name="twitter:title" content="Introduction to YANG Programming and RESTCONF on Cisco IOS XE"/>
-<meta name="twitter:description" content="In the previous post I have demonstrated how to make changes to interface configuration of Cisco IOS XE device using the standard IETF model. In this post I&rsquo;ll show how to use Cisco&rsquo;s native YANG model to modify static IP routes. To make things even more interesting I&rsquo;ll use RESTCONF, an HTTP-based sibling of NETCONF.
-RESTCONF primer RESTCONF is a very close functional equivalent of NETCONF. Instead of SSH, RESTCONF relies on HTTP to interact with configuration data and operational state of the network device and encodes all exchanged data in either XML or JSON."/>
+<meta name="twitter:description" content="The sheer size of some of the YANG models can scare away even the bravest of network engineers. However, as it is with any programming language, the complexity is built out of a finite set of simple concepts. In this post we&rsquo;ll learn some of these concepts by building our own YANG model to program static IP routes on Cisco IOS XE"/>
 
 
   <title>Introduction to YANG Programming and RESTCONF on Cisco IOS XE | networkop</title>
@@ -646,7 +643,7 @@ ip route 2.2.2.2 255.255.255.255 12.12.12.2
   
 <section id="comments">
   <div id="disqus_thread"></div>
-<script>
+<script type="application/javascript">
     var disqus_config = function () {
     
     

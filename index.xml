@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>networkop on networkop</title>
@@ -7,8 +6,219 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Michael Kashin 2018</copyright>
-    <lastBuildDate>Sun, 15 Oct 2017 00:00:00 +0000</lastBuildDate>
+    <lastBuildDate>Sun, 03 May 2020 00:00:00 +0000</lastBuildDate>
     <atom:link href="/" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Getting Started with Cluster API using Docker</title>
+      <link>https://networkop.co.uk/post/2020-05-cluster-api-intro/</link>
+      <pubDate>Sun, 03 May 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-05-cluster-api-intro/</guid>
+      <description>
+
+&lt;p&gt;Cluster API (CAPI) is a relatively new project aimed at deploying Kubernetes clusters using a declarative API (think YAML). The official documentation (a.k.a. the Cluster API book), does a very good job explaining the main &lt;a href=&#34;https://cluster-api.sigs.k8s.io/user/concepts.html&#34; target=&#34;_blank&#34;&gt;concepts&lt;/a&gt; and &lt;a href=&#34;https://cluster-api.sigs.k8s.io/introduction.html&#34; target=&#34;_blank&#34;&gt;goals&lt;/a&gt; of the project. I always find that one of the best ways to explore new technology is to see how it works locally, on my laptop, and Cluster API has a special &amp;ldquo;Docker&amp;rdquo; infrastructure provider (CAPD) specifically for that. However, the official documentation for how to setup a docker managed cluster is very poor and fractured. In this post, I&amp;rsquo;ll try to demonstrate the complete journey to deploy a single CAPI-managed k8s cluster and provide some explanation of what happens behind the scene so that its easier to troubleshoot when things go wrong.&lt;/p&gt;
+
+&lt;h2 id=&#34;prerequisites&#34;&gt;Prerequisites&lt;/h2&gt;
+
+&lt;p&gt;Two things must be pre-installed before we can start building our test clusters:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href=&#34;https://kind.sigs.k8s.io/docs/user/quick-start/&#34; target=&#34;_blank&#34;&gt;kind&lt;/a&gt;&lt;/strong&gt; - a tool to setup k8s clusters in docker containers, it will be used as a management (a.k.a. bootstrap) cluster.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a href=&#34;https://cluster-api.sigs.k8s.io/user/quick-start.html#install-clusterctl&#34; target=&#34;_blank&#34;&gt;clusterctl&lt;/a&gt;&lt;/strong&gt; - a command line tool to interact with the management cluster.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;We&amp;rsquo;re gonna need run a few scripts from the Cluster API Github repo, so let&amp;rsquo;s get a copy of it locally:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone --depth=1 git@github.com:kubernetes-sigs/cluster-api.git &amp;amp;&amp;amp; cd cluster-api
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;When building a management cluster with kind, it&amp;rsquo;s a good idea to mount the &lt;code&gt;docker.sock&lt;/code&gt; file from your host OS into the kind cluster, as it is mentioned in &lt;a href=&#34;book-docker&#34; target=&#34;_blank&#34;&gt;the book&lt;/a&gt;. This will allow you to see the CAPD-managed nodes directly in your hostOS as regular docker containers.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;cat &amp;gt; kind-cluster-with-extramounts.yaml &amp;lt;&amp;lt;EOF
+kind: Cluster
+apiVersion: kind.sigs.k8s.io/v1alpha3
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
+EOF
+kind create cluster --config ./kind-cluster-with-extramounts.yaml --name clusterapi
+kubectl cluster-info --context kind-clusterapi
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At this stage you should have your kubectl pointed at the new kind cluster, which can be verified like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl get nodes -o wide
+NAME                       STATUS   ROLES    AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE       KERNEL-VERSION          CONTAINER-RUNTIME
+clusterapi-control-plane   Ready    master   66s   v1.17.0   172.17.0.2    &amp;lt;none&amp;gt;        Ubuntu 19.10   5.6.6-200.fc31.x86_64   containerd://1.3.2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;preparing-a-capd-controller&#34;&gt;Preparing a CAPD controller&lt;/h2&gt;
+
+&lt;p&gt;The docker image for the CAPD controller is not available in the public registry, so we need to build it locally. The following two commands will build the image and update the installation manifests to use that image.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make -C test/infrastructure/docker docker-build REGISTRY=gcr.io/k8s-staging-capi-docker
+make -C test/infrastructure/docker generate-manifests REGISTRY=gcr.io/k8s-staging-capi-docker
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next, we need side-load this image into a kind cluster to make it available to the future CAPD deployment&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kind load docker-image --name clusterapi gcr.io/k8s-staging-capi-docker/capd-manager-amd64:dev
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;setting-up-a-docker-provider&#34;&gt;Setting up a Docker provider&lt;/h2&gt;
+
+&lt;p&gt;Once again, following &lt;a href=&#34;book-docker&#34; target=&#34;_blank&#34;&gt;the book&lt;/a&gt;, we need to run a local override script to generate a set of manifests for Docker provider:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;cat &amp;gt; clusterctl-settings.json &amp;lt;&amp;lt;EOF
+{
+  &amp;quot;providers&amp;quot;: [&amp;quot;cluster-api&amp;quot;,&amp;quot;bootstrap-kubeadm&amp;quot;,&amp;quot;control-plane-kubeadm&amp;quot;, &amp;quot;infrastructure-docker&amp;quot;]
+}
+EOF
+cmd/clusterctl/hack/local-overrides.py
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You should be able to see the generated manifests at &lt;code&gt;~/..cluster-api/overrides/infrastructure-docker/latest/infrastructure-components.yaml&lt;/code&gt;, the only last thing we need to do is let clusterctl know where to find them:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;cat &amp;gt; ~/.cluster-api/clusterctl.yaml &amp;lt;&amp;lt;EOF
+providers:
+  - name: docker
+    url: $HOME/.cluster-api/overrides/infrastructure-docker/latest/infrastructure-components.yaml
+    type: InfrastructureProvider
+EOF
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, we can use the  &lt;code&gt;clusterctl init&lt;/code&gt; command printed by the &lt;code&gt;local-verrides.py&lt;/code&gt; script to create all CAPI and CAPD components inside our kind cluster:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;clusterctl init --core cluster-api:v0.3.0 --bootstrap kubeadm:v0.3.0 --control-plane kubeadm:v0.3.0 --infrastructure docker:v0.3.0
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At this stage, we should see the following deployments created and ready (1/1).&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;k get deploy -A | grep cap
+capd-system                         capd-controller-manager                         1/1
+capi-kubeadm-bootstrap-system       capi-kubeadm-bootstrap-controller-manager       1/1
+capi-kubeadm-control-plane-system   capi-kubeadm-control-plane-controller-manager   1/1
+capi-system                         capi-controller-manager                         1/1
+capi-webhook-system                 capi-controller-manager                         1/1 
+capi-webhook-system                 capi-kubeadm-bootstrap-controller-manager       1/1
+capi-webhook-system                 capi-kubeadm-control-plane-controller-manager   1/1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If &lt;code&gt;capd-system&lt;/code&gt; deployment is not READY and stuck trying to pull the image, make sure that the &lt;code&gt;capd-controller-manager&lt;/code&gt; deployment is using the image that was generated in the previous section.&lt;/p&gt;
+
+&lt;h2 id=&#34;generating-a-capd-managed-cluster-manifest&#34;&gt;Generating a CAPD-managed cluster manifest&lt;/h2&gt;
+
+&lt;p&gt;All the instructions provided so far can also be found in the official documentation. However, at this stage, the book started having big gaps that were not trivial to figure out. TLDR: you can just run the below command to generate a sample capd cluster manifest and move on to the next section. However if you ever need to modify this command, check out my notes below it.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;DOCKER_POD_CIDRS=&amp;quot;192.168.0.0/16&amp;quot; \
+DOCKER_SERVICE_CIDRS=&amp;quot;10.128.0.0/12&amp;quot; \
+DOCKER_SERVICE_DOMAIN=&amp;quot;cluster.local&amp;quot; \
+clusterctl config cluster capd --kubernetes-version v1.17.5 \
+--from ./test/e2e/data/infrastructure-docker/cluster-template.yaml \
+--target-namespace default \
+--control-plane-machine-count=1 \
+--worker-machine-count=1 \
+&amp;gt; capd.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At the time of writing, CAPD used &lt;code&gt;kindest/node&lt;/code&gt; docker images (see &lt;code&gt;defaultImageName&lt;/code&gt; in test/infrastructure/docker/docker/machines.go) and combined it with a tag provided in the &lt;code&gt;--kubernetes-version&lt;/code&gt; argument. Be sure to always check if there&amp;rsquo;s a matching tag on &lt;a href=&#34;https://hub.docker.com/r/kindest/node/tags&#34; target=&#34;_blank&#34;&gt;dockerhub&lt;/a&gt;. If it is missing (e.g. v1.17.3), Machine controller will fail to create a docker container for your kubernetes cluster and you&amp;rsquo;ll only see the load-balancer container being created.&lt;/p&gt;
+
+&lt;p&gt;Another issue is the clusterctl may not find the &lt;code&gt;cluster-template.yaml&lt;/code&gt; where it expects, so it would have to be provided with the &lt;code&gt;--from&lt;/code&gt; argument. This template would require additional variables (all that start with &lt;code&gt;DOCKER_&lt;/code&gt;) that have to be provided for it to be rendered. These can be modified as long as you understand what they do.&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;Note: never set the POD CIDR equal to the Service CIDR unless you want to spend your time troubleshooting networking and DNS issues.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;Finally, you should also make sure that the target namespace is specified explicitly, otherwise the generated manifest will contain an incorrect combination of namespaces and will get rejected by the validating webhook.&lt;/p&gt;
+
+&lt;h2 id=&#34;creating-a-capd-managed-cluster&#34;&gt;Creating a CAPD-managed cluster&lt;/h2&gt;
+
+&lt;p&gt;The final step is to apply the generated manifest and let the k8s controllers do their job.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl apply -f capd.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;It&amp;rsquo;s worth spending a bit of time understanding what&amp;rsquo;s some of these controllers do. The &lt;code&gt;DockerCluster&lt;/code&gt; controller is responsible for the creation of a load-balancing container (capd-lb). A load-balancer is needed to provide a single API endpoint in front of multiple controller nodes. It&amp;rsquo;s built on top of the HAProxy image (kindest/haproxy:2.1.1-alpine), and does the healthchecking and load-balancing across all cluster controller nodes. It&amp;rsquo;s worth noting that the &lt;code&gt;DockerCluster&lt;/code&gt; resource is marked as &lt;code&gt;READY&lt;/code&gt; as soon as the controller can read the IP assigned to the &lt;code&gt;capd-lb&lt;/code&gt; container, which doesn&amp;rsquo;t necessarily reflect that the cluster itself is built.&lt;/p&gt;
+
+&lt;p&gt;Typically, all nodes in a CAPI-managed clusters are bootstrapped with cloud-init that is generated by the bootstrap controller. However Docker doesn&amp;rsquo;t have a cloud-init equivalent, so the &lt;code&gt;DockerMachine&lt;/code&gt; controller simply executes each line of the bootstrap script using the &lt;code&gt;docker exec&lt;/code&gt; commands. It&amp;rsquo;s also worth noting that containers themselves are also managed using docker CLI and not API.&lt;/p&gt;
+
+&lt;h2 id=&#34;installing-cni-and-metallb&#34;&gt;Installing CNI and MetalLB&lt;/h2&gt;
+
+&lt;p&gt;As a bonus, I&amp;rsquo;ll show how to install CNI and MetalLB to build a completely functional k8s cluster. First, we need to extract the kubeconfig file and save it locally:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl get secret/capd-kubeconfig -o jsonpath={.data.value} \
+  | base64 --decode  &amp;gt; ./capd.kubeconfig
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we can apply the CNI config, as suggested in the book.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;KUBECONFIG=./capd.kubeconfig kubectl \
+  apply -f https://docs.projectcalico.org/v3.12/manifests/calico.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;A minute later, both nodes should transition to &lt;code&gt;Ready&lt;/code&gt; state:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;KUBECONFIG=./capd.kubeconfig kubectl get nodes
+NAME                              STATUS   ROLES    AGE   VERSION
+capd-capd-control-plane-hn724     Ready    master   30m   v1.17.5
+capd-capd-md-0-84df67c74b-lzm6z   Ready    &amp;lt;none&amp;gt;   29m   v1.17.5
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;In order to be able to create load-balancer type services, we can install MetalLB in L2 mode. Thanks to the &lt;code&gt;docker.sock&lt;/code&gt; mounting we&amp;rsquo;ve done above, our test cluster is now attached to the same docker bridge as the rest of the containers in host OS. We can easily determine what subnet is being used by it:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;DOCKER_BRIDGE_SUBNET=$(docker network inspect bridge | jq -r &#39;.[0].IPAM.Config[0].Subnet&#39;)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Next, using the &lt;a href=&#34;http://jodies.de/ipcalc-archive/ipcalc-0.41/ipcalc&#34; target=&#34;_blank&#34;&gt;ipcalc&lt;/a&gt; tool, we can pick a small range from the high end of that subnet:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;DOCKER_HIGHEND_RANGE=$(ipcalc -s 6 ${DOCKER_BRIDGE_SUBNET}  | grep 29 | tail -n 1)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we can create the configuration for MetalLB:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;cat &amp;gt; metallb_cm.yaml &amp;lt;&amp;lt;EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: my-ip-space
+      protocol: layer2
+      addresses:
+      - $DOCKER_HIGHEND_RANGE   
+EOF
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, all we have to do is install it:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;KUBECONFIG=./capd.kubeconfig kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
+KUBECONFIG=./capd.kubeconfig kubectl apply -f metallb_cm.yaml
+KUBECONFIG=./capd.kubeconfig kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
+KUBECONFIG=./capd.kubeconfig kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey=&amp;quot;$(openssl rand -base64 128)&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;To test it, we can deploy a test application and expose it with a service of type LoadBalancer:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;KUBECONFIG=./capd.kubeconfig kubectl create deployment test --image=nginx
+KUBECONFIG=./capd.kubeconfig kubectl expose deployment test --name=lb --port=80 --target-port=80 --type=LoadBalancer
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we should be able to access the application running inside the cluster by hitting the external load-balancer IP:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;MetalLB_IP=$(KUBECONFIG=./capd.kubeconfig kubectl get svc lb -o jsonpath=&#39;{.status.loadBalancer.ingress[0].ip}&#39;)
+curl -s $MetalLB_IP | grep &amp;quot;Thank you&amp;quot;
+&amp;lt;p&amp;gt;&amp;lt;em&amp;gt;Thank you for using nginx.&amp;lt;/em&amp;gt;&amp;lt;/p&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/capd.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+</description>
+    </item>
     
     <item>
       <title>Network Simulations with Network Service Mesh</title>
@@ -962,11 +1172,12 @@ kubectl get pod test
 &lt;li&gt;Upload the enforcer and scheduler scripts as configmaps.&lt;/li&gt;
 &lt;li&gt;Create Traefik (HTTP proxy) daemonset to be used as ingress.&lt;/li&gt;
 &lt;li&gt;Upload generic device data model along with its template and label them accordingly.&lt;/li&gt;
-&lt;li&gt;Create a deployment, service and ingress resources for the scheduler service.&lt;/li&gt;
-&lt;/ol&gt;
+
+&lt;li&gt;&lt;p&gt;Create a deployment, service and ingress resources for the scheduler service.&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;make scheduler-build
-&lt;/code&gt;&lt;/pre&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ol&gt;
 
 &lt;p&gt;If running as non-root, the user may be prompted for a sudo password.&lt;/p&gt;
 
@@ -2604,8 +2815,8 @@ inet 172.20.0.2/16 brd 172.20.255.255 scope global eth4
 &lt;li&gt;Download cirros and CumulusVX images and upload them to Glance&lt;/li&gt;
 &lt;li&gt;Create a virtual network&lt;/li&gt;
 &lt;li&gt;Update security rules to allow inbound ICMP and SSH connections&lt;/li&gt;
-&lt;li&gt;Create a pair of VMs - one based on cirros and one based on CumulusVX image&lt;/li&gt;
-&lt;/ol&gt;
+
+&lt;li&gt;&lt;p&gt;Create a pair of VMs - one based on cirros and one based on CumulusVX image&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;curl -L -o ./cirros http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
 curl -L -o ./cumulusVX http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2
@@ -2621,8 +2832,8 @@ rm ./cumulusVX
 openstack network create --provider-network-type vxlan irb-net
 
 openstack subnet create --subnet-range 10.0.100.160/27 --network irb-net \
-      --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
-      --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
+  --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
+  --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
 
 openstack flavor create --id 1 --ram 256 --disk 1 --vcpus 1 m1.nano
 openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
@@ -2630,13 +2841,14 @@ openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
 ADMIN_PROJECT_ID=$(openstack project show &#39;admin&#39; -f value -c id)
 ADMIN_SEC_GROUP=$(openstack security group list --project ${ADMIN_PROJECT_ID} | awk &#39;/ default / {print $2}&#39;)
 openstack security group rule create --ingress --ethertype IPv4 \
-    --protocol icmp ${ADMIN_SEC_GROUP}
+--protocol icmp ${ADMIN_SEC_GROUP}
 openstack security group rule create --ingress --ethertype IPv4 \
-    --protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
+--protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
 
 openstack server create --image cirros --flavor m1.nano --net irb-net VM1
 openstack server create --image cumulus --flavor m1.tiny --net irb-net VR1
-&lt;/code&gt;&lt;/pre&gt;
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ol&gt;
 
 &lt;p&gt;The only thing worth noting in the above script is that a default gateway &lt;code&gt;10.0.100.161&lt;/code&gt; gets overridden by a default host route pointing to &lt;code&gt;10.0.100.190&lt;/code&gt;. Normally, to demonstrate DC-GW IRB scenario, I would have setup a gateway-less L2 only subnet, however in that case I wouldn&amp;rsquo;t have been able to demonstrate BGPaaS on the same network, since this feature relies on having a gateway IP setup (which later acts as a BGP session termination endpoint). So instead of setting up two separate networks I&amp;rsquo;ve decided to implement this hack to minimise the required configuration.&lt;/p&gt;
 
@@ -3482,227 +3694,6 @@ vIDS_ID=$(tacker ns-show NS-vIDS-1 -f value -c vnf_ids | sed &amp;quot;s/&#39;/\
 &lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
 
 &lt;p&gt;Tacker is one of &lt;a href=&#34;https://thenewstack.io/opensource-nfv-part-4-opensource-mano/&#34; target=&#34;_blank&#34;&gt;many&lt;/a&gt; NFV orchestration platforms in a very competitive environment. Other &lt;a href=&#34;https://www.mirantis.com/blog/which-nfv-orchestration-platform-best-review-osm-open-o-cord-cloudify/&#34; target=&#34;_blank&#34;&gt;open-source initiatives&lt;/a&gt; have been created in response to the shortcomings of the original ETSI Release 1 reference architecture. The fact the some of the biggest Telcos have finally realised that the only way to achieve the goal of NFV orchestration is to get involved with open-source and do it themselves, may be a good sign for the industry and maybe not so good for the ETSI NFV MANO working group. Whether ONAP with its broader scope becomes a new de-facto standard for NFV orchestration, still remains to be seen, until then ETSI MANO remains the only viable standard for NFV lifecycle management and orchestration.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN - Skydiving Into Service Function Chaining</title>
-      <link>https://networkop.co.uk/blog/2017/09/15/os-sfc-skydive/</link>
-      <pubDate>Fri, 15 Sep 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/09/15/os-sfc-skydive/</guid>
-      <description>
-
-&lt;p&gt;&lt;a href=&#34;abbr:Service Function Chaining&#34; target=&#34;_blank&#34;&gt;SFC&lt;/a&gt; is another SDN feature that for a long time only used to be available in proprietary SDN solutions and that has recently become available in vanilla OpenStack. It serves as another proof that proprietary SDN solutions are losing the competitive edge, especially for Telco SDN/NFV use cases. Hopefully, by the end of this series of posts I&amp;rsquo;ll manage do demonstrate how to build a complete open-source solution that has feature parity (in terms of major networking features) with all the major proprietary data centre SDN platforms. But for now, let&amp;rsquo;s just focus on SFC.&lt;/p&gt;
-
-&lt;h1 id=&#34;sfc-high-level-overview&#34;&gt;SFC High-level overview&lt;/h1&gt;
-
-&lt;p&gt;In most general terms, SFC refers to packet forwarding technique that uses more than just destination IP address to decide how to forward packets. In more specific terms, SFC refers to &amp;ldquo;steering&amp;rdquo; of traffic through a specific set of endpoints (a.k.a Service Functions), overriding the default destination-based forwarding. For those coming from a traditional networking background, think of SFC as a set of policy-based routing instances orchestrated from a central element (SDN controller). Typical use cases for SFC would be things like firewalling, IDS/IPS, proxying, NAT&amp;rsquo;ing, monitoring.&lt;/p&gt;
-
-&lt;p&gt;SFC is usually modelled as a directed (acyclic) graph, where the first and the last elements are the source and destination respectively and each vertex inside the graph represents a SF to be chained. IETF RFC7665 defines the reference architecture for SFC implementations and establishes some of the basic terminology. A simplified SFC architecture consists of the following main components:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Classifier - a network element that matches and redirects traffic flows to a chain&lt;/li&gt;
-&lt;li&gt;Service Function - an element responsible for packet processing&lt;/li&gt;
-&lt;li&gt;Service Function Forwarder - a network element that forwards traffic to and from a directly connected SF&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sfc-overview.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;One important property of a SF is elasticity. More instances of the same type can be added to a pool of SF and SFF will load-balance the traffic between them. This is the reason why, as we&amp;rsquo;ll see in the next section, SFF treats connections to a SF as a group of ports rather than just a single port.&lt;/p&gt;
-
-&lt;h1 id=&#34;insertion-modes-and-implementation-models&#34;&gt;Insertion modes and implementation models&lt;/h1&gt;
-
-&lt;p&gt;In legacy, pre-SDN environments SFs had no idea if they were a part of a service chain and network devices (routers and switches) had to &amp;ldquo;insert&amp;rdquo; the interesting traffic into the service function using one of the following two modes:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;L2 mode&lt;/strong&gt; is when SF is physically inserted between the source and destination inside a single broadcast domain, so traffic flows through a SF without any intervention from a switch. Example of this mode could be a firewall in transparent mode, physically connected between a switch and a default gateway router. All packets entering a SF have their original source and destination MAC addresses, which requires SF to be in promiscuous mode.&lt;/p&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;&lt;strong&gt;L3 mode&lt;/strong&gt; is when a router overrides its default destination-based forwarding and redirects the interesting traffic to a SF. In legacy networks this could have been achieved with PBR or WCCP. In this case SF needs to be L2-attached to a router and all redirected packets have their destination MAC updated to that of a SF&amp;rsquo;s ingress interface.&lt;/p&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Modern SDN networks make it really easy to modify forwarding behaviour of network elements, both physical and virtual. There is no need for policy-based routing or bump-in-the-wire designs anymore. When flow needs to be redirected to a SF on a virtual switch, all what&amp;rsquo;s required is a matching OpenFlow entry with a high enough priority. However redirecting traffic to a SF is just one part of the problem. Another part is how to make SFs smarter, to provide greater visibility of end-to-end service function path.&lt;/p&gt;
-
-&lt;p&gt;So far SFs have only been able to extract metadata from the packet itself. This limited the flexibility of SF logic and became computationally expensive in case many SFs need to access some L7 header information. Ideal way would be to have an additional header which can be used to read and write arbitrary information and pass it along the service function chain. RFC7665 defines requirements for &amp;ldquo;SFC Encapsulation&amp;rdquo; header which can be used to uniquely identify an instance of a chain as well as share metadata between all its elements. Neutron API refers to SFC encapsulation as &lt;em&gt;correlation&lt;/em&gt; since its primary function is to identify a particular service function path. There are two implementations of SFC encapsulation in use today:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;MPLS&lt;/strong&gt; - used by current OVS agent driver (as of Pike). This method does not provide any means to share metadata and serves only for SFP identification. It is intended as an interim solution until NSH becomes available upstream in OVS.&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;NSH&lt;/strong&gt; - complete implementation of SFC encapsulation defined in RFC7665. This method is currently implemented in Opendaylight where NSH is used as a shim between VXLAN-GPE and the encapsulated packet&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;It should be noted that the new approach with SFC encapsulation still allows for legacy, non-SFC-aware SFs to be chained. In this case SFC encapsulation is stripped off the packet by an &amp;ldquo;SFC proxy&amp;rdquo; before the packet is sent to the ingress port of a service function. All logical elements forming an SFC forwarding pipeline, including SFC proxy, Classifier and Forwarder, are implemented inside the same OVS bridges (br-int and br-tun) used by vanilla OVS-agent driver.&lt;/p&gt;
-
-&lt;h1 id=&#34;configuring-neutron-sfc&#34;&gt;Configuring Neutron SFC&lt;/h1&gt;
-
-&lt;p&gt;We&amp;rsquo;ll pick up where we left off in the &lt;a href=&#34;https://networkop.co.uk/blog/2017/09/08/os-lab-docker/&#34;&gt;previous post&lt;/a&gt;. All Neutron and ML2 configuration files have already been updated thanks to the &lt;code&gt;enable_sfc=&amp;quot;yes&amp;quot;&lt;/code&gt; setting in the global Kolla-Ansible configuration file. If not, you can change it in &lt;code&gt;/etc/kolla/globals.yaml&lt;/code&gt; and re-run kolla-ansible deployment script.&lt;/p&gt;
-
-&lt;p&gt;First, let&amp;rsquo;s generate OpenStack credentials using a post-deployment script. We later can use a default bootstrap script to downloads the cirros image and set up some basic networking and security rules.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;kolla-ansible post-deploy
-source /etc/kolla/admin-openrc.sh
-/usr/share/kolla-ansible/init-runonce
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The goal for this post is to create a simple uni-directional SFC to steer the ICMP requests from VM1 to its default gateway through another VM that will be playing the role of a firewall.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sfc-example.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;The network was already created by the bootstrap script so all what we have to do is create a test VM. I&amp;rsquo;m creating a port in a separate step simply so that I can refer to it by name instead of UUID.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;openstack port create --network demo-net P0
-openstack server create --image cirros --flavor m1.tiny --port P0 VM1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;I&amp;rsquo;ll go over all the necessary steps to setup SFC, but will only provide a brief explanation. Refer to the official OpenStack &lt;a href=&#34;https://docs.openstack.org/newton/networking-guide/config-sfc.html&#34; target=&#34;_blank&#34;&gt;Networking Guide&lt;/a&gt; for a complete SFC configuration guide.&lt;/p&gt;
-
-&lt;p&gt;First, let&amp;rsquo;s create a FW VM with two ports - P1 and P2.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;openstack port create --network demo-net P1
-openstack port create --network demo-net P2
-openstack server create --image cirros --flavor m1.tiny --port P1 --port P2 FW
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Next, we need create an ingress/egress port pair and assign it to a port pair group. The default setting for &lt;strong&gt;correlation&lt;/strong&gt; in a port pair (not shown) is &lt;code&gt;none&lt;/code&gt;. That means that SFC encapsulation header (MPLS) will get stripped before the packet is sent to P1.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;openstack sfc port pair create --ingress P1 --egress P2 PPAIR
-openstack sfc port pair group create --port-pair PPAIR PPGROUP
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Port pair group also allows to specify the L2-L4 headers which to use for load-balancing in OpenFlow groups, overriding the default behaviour described in the next section.&lt;/p&gt;
-
-&lt;p&gt;Another required element is a flow classifier. We will be redirecting ICMP traffic coming from VM1&amp;rsquo;s port P0&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;openstack sfc flow classifier create --protocol icmp --logical-source-port P0 FLOW-ICMP
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Finally, we can tie together flow classifier with a previously created port pair group. The default setting for &lt;strong&gt;correlation&lt;/strong&gt; (not shown again) in this case is &lt;code&gt;mpls&lt;/code&gt;. That means that each chain will have its own unique MPLS label to be used as an SFC encapsulation.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;openstack sfc port chain create --port-pair-group PPGROUP --flow-classifier FLOW-ICMP PCHAIN
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;That&amp;rsquo;s all the configuration needed to setup SFC. However if you login VM1&amp;rsquo;s console and try pinging default gateway, it will fail. Next, I&amp;rsquo;m going to give a quick demo of how to use a real-time network analyzer tool called Skydive to troubleshoot this issue.&lt;/p&gt;
-
-&lt;h1 id=&#34;using-skydive-to-troubleshoot-sfc&#34;&gt;Using Skydive to troubleshoot SFC&lt;/h1&gt;
-
-&lt;p&gt;&lt;a href=&#34;https://skydive-project.github.io/skydive/&#34; target=&#34;_blank&#34;&gt;Skydive&lt;/a&gt; is a new open-source distributed network probing and traffic analyzing tool. It consists of a set of agents running on compute nodes, collecting topology and flow information and forwarding it to a central element for analysis.&lt;/p&gt;
-
-&lt;p&gt;The idea of using Skydive to analyze and track SFC is not new. In fact, for anyone interested in this topic I highly recommend the &lt;a href=&#34;http://blog.cafarelli.fr/2017/02/tracking-service-function-chaining-with-skydive/&#34; target=&#34;_blank&#34;&gt;following blogpost&lt;/a&gt;. In my case I&amp;rsquo;ll show how to use Skydive from a more practical perspective - troubleshooting multiple SFC issues.&lt;/p&gt;
-
-&lt;p&gt;Skydive CLI client is available inside the &lt;code&gt;skydive_analyzer&lt;/code&gt; container. We need to start an interactive bash session inside this container and set some environment variables:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;docker exec -it skydive_analyzer bash
-export SKYDIVE_ANALYZERS=192.168.133.100:8085
-export SKYDIVE_USERNAME=admin
-export SKYDIVE_PASSWORD=admin
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The first thing we can do to troubleshoot is see if ICMP traffic is entering the &lt;code&gt;ingress&lt;/code&gt; port of the FW VM. Based on the output of &lt;code&gt;openstack port list&lt;/code&gt; command I know that P1 has got an IP of &lt;code&gt;10.0.0.8&lt;/code&gt;. Let&amp;rsquo;s if we can identify a tap port corresponding to P1:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;skydive client topology query --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;).Values(&#39;Neutron&#39;)&amp;quot;
-{
-  &amp;quot;IPs&amp;quot;: &amp;quot;10.0.0.8&amp;quot;,
-  &amp;quot;NetworkID&amp;quot;: &amp;quot;8eabb451-b026-417c-b54b-8e79ee6e71c3&amp;quot;,
-  &amp;quot;NetworkName&amp;quot;: &amp;quot;demo-net&amp;quot;,
-  &amp;quot;PortID&amp;quot;: &amp;quot;e6334df9-a5c4-4e86-a5f3-671760c2bbbe&amp;quot;,
-  &amp;quot;TenantID&amp;quot;: &amp;quot;bd5829e0cb5b40b68ab4f8e7dc68b14d&amp;quot;
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The output above proves that skydive agent has successfully read the configuration of the port and we can start a capture on that object to see any packets arriving on P1.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;skydive client capture create --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;)&amp;quot;
-skydive client topology query --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.8&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&amp;quot;
-[
-  7
-]
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;If you &lt;code&gt;watch&lt;/code&gt; the last command for several seconds you should see that the number in brackets is increasing. That means that packets are hitting the ingress port of the FW VM. Now let&amp;rsquo;s repeat the same test on &lt;code&gt;egress&lt;/code&gt; port P2.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;skydive client capture create --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;)&amp;quot;
-skydive client topology query --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows()&amp;quot;
-[]
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The output above tells us that there are no packets coming out of the FW VM. This is expected since we haven&amp;rsquo;t done any changes to the blank cirros image to make it forward the packets between the two interfaces. If we examine the IP configuration of the FW VM, we would see that it doesn&amp;rsquo;t have an IP address configured on the second interface. We would also need to create a source-based routing policy to force all traffic from VM1 (&lt;code&gt;10.0.0.6&lt;/code&gt;) to egress via interface &lt;code&gt;eth2&lt;/code&gt; and make sure IP forwarding is turned on. The following commands would need to be executed on FW VM:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;sudo cirros-dhcpc up eth1
-sudo ip rule add from 10.0.0.6 table default
-sudo ip route add default via 10.0.0.1 dev eth1 table default
-sudo sysctl -w net.ipv4.ip_forward=1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Having done that, we should see some packets coming out of &lt;code&gt;egress&lt;/code&gt; port P2.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;skydive client topology query --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;tun&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&amp;quot;
-[
-  7
-]
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;However form the VM1&amp;rsquo;s perspective the ping is still failing. Next step would be to see if the packets are hitting the integration bridge that port P2 is attached to:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;skydive client capture create --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;)&amp;quot;
-skydive client topology query --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;).Flows()&amp;quot;
-[]
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;No packets means they are getting dropped somewhere between the P2 and the integration bridge. This can only be done by security groups. In fact, source MAC/IP anti-spoofing is enabled by default which would only allow packets matching the source MAC/IP addresses assigned to P2 and would drop any packets coming from VM1&amp;rsquo;s IP address. The easiest fix would be to disable security groups for P2 completely:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;openstack port set --no-security-group --disable-port-security P2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;After this step the counters should start incrementing and the ping from VM1 to its default gateway is resumed.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;skydive client topology query --gremlin &amp;quot;G.V().Has(&#39;Neutron.IPs&#39;, &#39;10.0.0.4&#39;, &#39;Type&#39;, &#39;veth&#39;).Flows().Has(&#39;Application&#39;,&#39;ICMPv4&#39;).Values(&#39;Metric.ABPackets&#39;)&amp;quot;
-[
-  79
-]
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;sfc-implementation-in-ovs-forwarding-pipeline&#34;&gt;SFC implementation in OVS forwarding pipeline&lt;/h1&gt;
-
-&lt;p&gt;The only element being affected in our case (both VM1 and FW are on the same compute node) is the integration bridge. Refer to my &lt;a href=&#34;http://networkop.co.uk/blog/2016/04/22/neutron-native/&#34; target=&#34;_blank&#34;&gt;older post&lt;/a&gt; about vanilla OpenStack networking for a refresher of the vanilla OVS-agent architecture.&lt;/p&gt;
-
-&lt;p&gt;Normally, I would start by collecting all port and flow details from the integration bridge with the following commands:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ovs-ofctl dump-ports-desc br-int  | grep addr
-ovs-ofctl dump-flows br-int | cut -d &#39;,&#39; -f3-
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;However, for the sake of brevity, I will omit the actual outputs and only show graphical representation of forwarding tables and packet flows. The tables below have two columns - first showing what is being matched and second showing the resulting action. Let&amp;rsquo;s start with the OpenFlow rules in an integration bridge before SFC is configured:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sfc-before-tables.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;As we can see, the table structure is quite simple, since integration bridge mostly relies on data-plane MAC learning. A couple of MAC and ARP anti-spoofing tables will check the validity of a packet and send it to table 60 where &lt;code&gt;NORMAL&lt;/code&gt; action will trigger the &amp;ldquo;flood-and-learn&amp;rdquo; behaviour. Therefore, an ICMP packet coming from VM1 will take the following path:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sfc-before-packet.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;After we&amp;rsquo;ve configured SFC, the forwarding pipeline is changed and now looks like this:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sfc-after-tables.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;First, we can see that table 0 acts as a classifier, by redirecting the &amp;ldquo;interesting&amp;rdquo; packets towards &lt;code&gt;group 1&lt;/code&gt;. This groups is an &lt;a href=&#34;https://floodlight.atlassian.net/wiki/spaces/floodlightcontroller/pages/7995427/How+to+Work+with+Fast-Failover+OpenFlow+Groups&#34; target=&#34;_blank&#34;&gt;OpenFlow Group&lt;/a&gt; of type &lt;code&gt;select&lt;/code&gt;, which load-balances traffic between multiple destinations. By default OVS will use a combination of L2-L4 header as described &lt;a href=&#34;http://docs.openvswitch.org/en/latest/faq/openflow/&#34; target=&#34;_blank&#34;&gt;here&lt;/a&gt; to calculate a hash which determines the output bucket, similar to how per-flow load-balancing works in traditional routers and switches. This behaviour can be overridden with a specific set of headers in &lt;code&gt;lb_fields&lt;/code&gt; setting of a port pair group.&lt;/p&gt;
-
-&lt;p&gt;In our case we&amp;rsquo;ve only got a single SF, so the packet gets its destination MAC updated to that of SF&amp;rsquo;s ingress port and is forwarded to a new table 5. Table 5 is where all packets destined for a SF are aggregated with a single MPLS label which uniquely identifies the service function path. The packet is then forwarded to table 10, which I&amp;rsquo;ve called &lt;code&gt;SFC Ingress&lt;/code&gt;. This is where the packets are distributed to SF&amp;rsquo;s ingress ports based on the assigned MPLS label.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sfc-after-packet.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;After being processed by a SF, the packet leaves the &lt;code&gt;egress&lt;/code&gt; port and re-enters the integration bridge. This time table 0 knows that the packet has already been processed by a SF and, since the anti-spoofing rules have been disabled, simply floods the packet out of all ports in the same VLAN. The packet gets flooded to the tunnel bridge where it gets replicated and delivered to the &lt;code&gt;qrouter&lt;/code&gt; sitting on the controller node as per the &lt;a href=&#34;http://networkop.co.uk/blog/2016/04/22/neutron-native/&#34; target=&#34;_blank&#34;&gt;default behaviour&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h1 id=&#34;upcoming-enhancements&#34;&gt;Upcoming enhancements&lt;/h1&gt;
-
-&lt;p&gt;SFC is a pretty vast topic and is still under active development. Some of the upcoming enhancement to the current implementation of SFC will include:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;NSH&lt;/strong&gt; header for SFC correlation&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;TAP&lt;/strong&gt; functionality which can replace the separate Tap-as-a-service OpenStack project&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;Service graphs&lt;/strong&gt; allowing multiple chains to be interconnected to create more complex service chain scenarios&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h1 id=&#34;coming-up&#34;&gt;Coming Up&lt;/h1&gt;
-
-&lt;p&gt;SFC is one of the major features in Telco SDN and, like many things, it&amp;rsquo;s not meant to be configured manually. In fact, Telco SDN have their own framework for management and orchestration of VNFs (a.k.a. VMs) and VNF forwarding graphs (a.k.a. SFCs) called ETSI MANO. As it is expected from a Telco standard, it abounds with acronyms and confuses the hell out of anyone who&amp;rsquo;s name is not on the list of authors or contributors. That&amp;rsquo;s why in the next post I will try to provide a brief overview of what Telco SDN is and use Tacker, a software implementation of NFVO and VNFM, to automatically build a firewall VNF and provision a SFC, similar to what has been done in this post manually.&lt;/p&gt;
 </description>
     </item>
     

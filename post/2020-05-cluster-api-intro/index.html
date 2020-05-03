@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.55.6" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Using Cluster API with Docker Infrastructure Provider">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2020-05-cluster-api-intro/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2020-05-cluster-api-intro/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2020-05-cluster-api-intro/">
+  <meta property="og:title" content="Getting Started with Cluster API using Docker | networkop">
+  <meta property="og:description" content="Using Cluster API with Docker Infrastructure Provider">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2020-05-03T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2020-05-03T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/capd.png"/>
+
+<meta name="twitter:title" content="Getting Started with Cluster API using Docker"/>
+<meta name="twitter:description" content="A guide on how to install a local Cluster API Docker cluster"/>
+
+
+  <title>Getting Started with Cluster API using Docker | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Getting Started with Cluster API using Docker</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2020-05-03 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      3 May 2020
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    7 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2020-05-cluster-api-intro/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/howto">howto</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Getting%20Started%20with%20Cluster%20API%20using%20Docker&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-05-cluster-api-intro%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-05-cluster-api-intro%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-05-cluster-api-intro%2f&amp;title=Getting%20Started%20with%20Cluster%20API%20using%20Docker"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Getting%20Started%20with%20Cluster%20API%20using%20Docker&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-05-cluster-api-intro%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>Cluster API (CAPI) is a relatively new project aimed at deploying Kubernetes clusters using a declarative API (think YAML). The official documentation (a.k.a. the Cluster API book), does a very good job explaining the main <a href="https://cluster-api.sigs.k8s.io/user/concepts.html" target="_blank">concepts</a> and <a href="https://cluster-api.sigs.k8s.io/introduction.html" target="_blank">goals</a> of the project. I always find that one of the best ways to explore new technology is to see how it works locally, on my laptop, and Cluster API has a special &ldquo;Docker&rdquo; infrastructure provider (CAPD) specifically for that. However, the official documentation for how to setup a docker managed cluster is very poor and fractured. In this post, I&rsquo;ll try to demonstrate the complete journey to deploy a single CAPI-managed k8s cluster and provide some explanation of what happens behind the scene so that its easier to troubleshoot when things go wrong.</p>
+
+<h2 id="prerequisites">Prerequisites</h2>
+
+<p>Two things must be pre-installed before we can start building our test clusters:</p>
+
+<ul>
+<li><strong><a href="https://kind.sigs.k8s.io/docs/user/quick-start/" target="_blank">kind</a></strong> - a tool to setup k8s clusters in docker containers, it will be used as a management (a.k.a. bootstrap) cluster.</li>
+<li><strong><a href="https://cluster-api.sigs.k8s.io/user/quick-start.html#install-clusterctl" target="_blank">clusterctl</a></strong> - a command line tool to interact with the management cluster.</li>
+</ul>
+
+<p>We&rsquo;re gonna need run a few scripts from the Cluster API Github repo, so let&rsquo;s get a copy of it locally:</p>
+
+<pre><code>git clone --depth=1 git@github.com:kubernetes-sigs/cluster-api.git &amp;&amp; cd cluster-api
+</code></pre>
+
+<p>When building a management cluster with kind, it&rsquo;s a good idea to mount the <code>docker.sock</code> file from your host OS into the kind cluster, as it is mentioned in <a href="book-docker" target="_blank">the book</a>. This will allow you to see the CAPD-managed nodes directly in your hostOS as regular docker containers.</p>
+
+<pre><code>cat &gt; kind-cluster-with-extramounts.yaml &lt;&lt;EOF
+kind: Cluster
+apiVersion: kind.sigs.k8s.io/v1alpha3
+nodes:
+  - role: control-plane
+    extraMounts:
+      - hostPath: /var/run/docker.sock
+        containerPath: /var/run/docker.sock
+EOF
+kind create cluster --config ./kind-cluster-with-extramounts.yaml --name clusterapi
+kubectl cluster-info --context kind-clusterapi
+</code></pre>
+
+<p>At this stage you should have your kubectl pointed at the new kind cluster, which can be verified like this:</p>
+
+<pre><code>kubectl get nodes -o wide
+NAME                       STATUS   ROLES    AGE   VERSION   INTERNAL-IP   EXTERNAL-IP   OS-IMAGE       KERNEL-VERSION          CONTAINER-RUNTIME
+clusterapi-control-plane   Ready    master   66s   v1.17.0   172.17.0.2    &lt;none&gt;        Ubuntu 19.10   5.6.6-200.fc31.x86_64   containerd://1.3.2
+</code></pre>
+
+<h2 id="preparing-a-capd-controller">Preparing a CAPD controller</h2>
+
+<p>The docker image for the CAPD controller is not available in the public registry, so we need to build it locally. The following two commands will build the image and update the installation manifests to use that image.</p>
+
+<pre><code>make -C test/infrastructure/docker docker-build REGISTRY=gcr.io/k8s-staging-capi-docker
+make -C test/infrastructure/docker generate-manifests REGISTRY=gcr.io/k8s-staging-capi-docker
+</code></pre>
+
+<p>Next, we need side-load this image into a kind cluster to make it available to the future CAPD deployment</p>
+
+<pre><code>kind load docker-image --name clusterapi gcr.io/k8s-staging-capi-docker/capd-manager-amd64:dev
+</code></pre>
+
+<h2 id="setting-up-a-docker-provider">Setting up a Docker provider</h2>
+
+<p>Once again, following <a href="book-docker" target="_blank">the book</a>, we need to run a local override script to generate a set of manifests for Docker provider:</p>
+
+<pre><code>cat &gt; clusterctl-settings.json &lt;&lt;EOF
+{
+  &quot;providers&quot;: [&quot;cluster-api&quot;,&quot;bootstrap-kubeadm&quot;,&quot;control-plane-kubeadm&quot;, &quot;infrastructure-docker&quot;]
+}
+EOF
+cmd/clusterctl/hack/local-overrides.py
+</code></pre>
+
+<p>You should be able to see the generated manifests at <code>~/..cluster-api/overrides/infrastructure-docker/latest/infrastructure-components.yaml</code>, the only last thing we need to do is let clusterctl know where to find them:</p>
+
+<pre><code>cat &gt; ~/.cluster-api/clusterctl.yaml &lt;&lt;EOF
+providers:
+  - name: docker
+    url: $HOME/.cluster-api/overrides/infrastructure-docker/latest/infrastructure-components.yaml
+    type: InfrastructureProvider
+EOF
+</code></pre>
+
+<p>Finally, we can use the  <code>clusterctl init</code> command printed by the <code>local-verrides.py</code> script to create all CAPI and CAPD components inside our kind cluster:</p>
+
+<pre><code>clusterctl init --core cluster-api:v0.3.0 --bootstrap kubeadm:v0.3.0 --control-plane kubeadm:v0.3.0 --infrastructure docker:v0.3.0
+</code></pre>
+
+<p>At this stage, we should see the following deployments created and ready (1/1).</p>
+
+<pre><code>k get deploy -A | grep cap
+capd-system                         capd-controller-manager                         1/1
+capi-kubeadm-bootstrap-system       capi-kubeadm-bootstrap-controller-manager       1/1
+capi-kubeadm-control-plane-system   capi-kubeadm-control-plane-controller-manager   1/1
+capi-system                         capi-controller-manager                         1/1
+capi-webhook-system                 capi-controller-manager                         1/1 
+capi-webhook-system                 capi-kubeadm-bootstrap-controller-manager       1/1
+capi-webhook-system                 capi-kubeadm-control-plane-controller-manager   1/1
+</code></pre>
+
+<p>If <code>capd-system</code> deployment is not READY and stuck trying to pull the image, make sure that the <code>capd-controller-manager</code> deployment is using the image that was generated in the previous section.</p>
+
+<h2 id="generating-a-capd-managed-cluster-manifest">Generating a CAPD-managed cluster manifest</h2>
+
+<p>All the instructions provided so far can also be found in the official documentation. However, at this stage, the book started having big gaps that were not trivial to figure out. TLDR: you can just run the below command to generate a sample capd cluster manifest and move on to the next section. However if you ever need to modify this command, check out my notes below it.</p>
+
+<pre><code>DOCKER_POD_CIDRS=&quot;192.168.0.0/16&quot; \
+DOCKER_SERVICE_CIDRS=&quot;10.128.0.0/12&quot; \
+DOCKER_SERVICE_DOMAIN=&quot;cluster.local&quot; \
+clusterctl config cluster capd --kubernetes-version v1.17.5 \
+--from ./test/e2e/data/infrastructure-docker/cluster-template.yaml \
+--target-namespace default \
+--control-plane-machine-count=1 \
+--worker-machine-count=1 \
+&gt; capd.yaml
+</code></pre>
+
+<p>At the time of writing, CAPD used <code>kindest/node</code> docker images (see <code>defaultImageName</code> in test/infrastructure/docker/docker/machines.go) and combined it with a tag provided in the <code>--kubernetes-version</code> argument. Be sure to always check if there&rsquo;s a matching tag on <a href="https://hub.docker.com/r/kindest/node/tags" target="_blank">dockerhub</a>. If it is missing (e.g. v1.17.3), Machine controller will fail to create a docker container for your kubernetes cluster and you&rsquo;ll only see the load-balancer container being created.</p>
+
+<p>Another issue is the clusterctl may not find the <code>cluster-template.yaml</code> where it expects, so it would have to be provided with the <code>--from</code> argument. This template would require additional variables (all that start with <code>DOCKER_</code>) that have to be provided for it to be rendered. These can be modified as long as you understand what they do.</p>
+
+<blockquote>
+<p>Note: never set the POD CIDR equal to the Service CIDR unless you want to spend your time troubleshooting networking and DNS issues.</p>
+</blockquote>
+
+<p>Finally, you should also make sure that the target namespace is specified explicitly, otherwise the generated manifest will contain an incorrect combination of namespaces and will get rejected by the validating webhook.</p>
+
+<h2 id="creating-a-capd-managed-cluster">Creating a CAPD-managed cluster</h2>
+
+<p>The final step is to apply the generated manifest and let the k8s controllers do their job.</p>
+
+<pre><code>kubectl apply -f capd.yaml
+</code></pre>
+
+<p>It&rsquo;s worth spending a bit of time understanding what&rsquo;s some of these controllers do. The <code>DockerCluster</code> controller is responsible for the creation of a load-balancing container (capd-lb). A load-balancer is needed to provide a single API endpoint in front of multiple controller nodes. It&rsquo;s built on top of the HAProxy image (kindest/haproxy:2.1.1-alpine), and does the healthchecking and load-balancing across all cluster controller nodes. It&rsquo;s worth noting that the <code>DockerCluster</code> resource is marked as <code>READY</code> as soon as the controller can read the IP assigned to the <code>capd-lb</code> container, which doesn&rsquo;t necessarily reflect that the cluster itself is built.</p>
+
+<p>Typically, all nodes in a CAPI-managed clusters are bootstrapped with cloud-init that is generated by the bootstrap controller. However Docker doesn&rsquo;t have a cloud-init equivalent, so the <code>DockerMachine</code> controller simply executes each line of the bootstrap script using the <code>docker exec</code> commands. It&rsquo;s also worth noting that containers themselves are also managed using docker CLI and not API.</p>
+
+<h2 id="installing-cni-and-metallb">Installing CNI and MetalLB</h2>
+
+<p>As a bonus, I&rsquo;ll show how to install CNI and MetalLB to build a completely functional k8s cluster. First, we need to extract the kubeconfig file and save it locally:</p>
+
+<pre><code>kubectl get secret/capd-kubeconfig -o jsonpath={.data.value} \
+  | base64 --decode  &gt; ./capd.kubeconfig
+</code></pre>
+
+<p>Now we can apply the CNI config, as suggested in the book.</p>
+
+<pre><code>KUBECONFIG=./capd.kubeconfig kubectl \
+  apply -f https://docs.projectcalico.org/v3.12/manifests/calico.yaml
+</code></pre>
+
+<p>A minute later, both nodes should transition to <code>Ready</code> state:</p>
+
+<pre><code>KUBECONFIG=./capd.kubeconfig kubectl get nodes
+NAME                              STATUS   ROLES    AGE   VERSION
+capd-capd-control-plane-hn724     Ready    master   30m   v1.17.5
+capd-capd-md-0-84df67c74b-lzm6z   Ready    &lt;none&gt;   29m   v1.17.5
+</code></pre>
+
+<p>In order to be able to create load-balancer type services, we can install MetalLB in L2 mode. Thanks to the <code>docker.sock</code> mounting we&rsquo;ve done above, our test cluster is now attached to the same docker bridge as the rest of the containers in host OS. We can easily determine what subnet is being used by it:</p>
+
+<pre><code>DOCKER_BRIDGE_SUBNET=$(docker network inspect bridge | jq -r '.[0].IPAM.Config[0].Subnet')
+</code></pre>
+
+<p>Next, using the <a href="http://jodies.de/ipcalc-archive/ipcalc-0.41/ipcalc" target="_blank">ipcalc</a> tool, we can pick a small range from the high end of that subnet:</p>
+
+<pre><code>DOCKER_HIGHEND_RANGE=$(ipcalc -s 6 ${DOCKER_BRIDGE_SUBNET}  | grep 29 | tail -n 1)
+</code></pre>
+
+<p>Now we can create the configuration for MetalLB:</p>
+
+<pre><code>cat &gt; metallb_cm.yaml &lt;&lt;EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: my-ip-space
+      protocol: layer2
+      addresses:
+      - $DOCKER_HIGHEND_RANGE   
+EOF
+</code></pre>
+
+<p>Finally, all we have to do is install it:</p>
+
+<pre><code>KUBECONFIG=./capd.kubeconfig kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/namespace.yaml
+KUBECONFIG=./capd.kubeconfig kubectl apply -f metallb_cm.yaml
+KUBECONFIG=./capd.kubeconfig kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.9.3/manifests/metallb.yaml
+KUBECONFIG=./capd.kubeconfig kubectl create secret generic -n metallb-system memberlist --from-literal=secretkey=&quot;$(openssl rand -base64 128)&quot;
+</code></pre>
+
+<p>To test it, we can deploy a test application and expose it with a service of type LoadBalancer:</p>
+
+<pre><code>KUBECONFIG=./capd.kubeconfig kubectl create deployment test --image=nginx
+KUBECONFIG=./capd.kubeconfig kubectl expose deployment test --name=lb --port=80 --target-port=80 --type=LoadBalancer
+</code></pre>
+
+<p>Now we should be able to access the application running inside the cluster by hitting the external load-balancer IP:</p>
+
+<pre><code>MetalLB_IP=$(KUBECONFIG=./capd.kubeconfig kubectl get svc lb -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+curl -s $MetalLB_IP | grep &quot;Thank you&quot;
+&lt;p&gt;&lt;em&gt;Thank you for using nginx.&lt;/em&gt;&lt;/p&gt;
+</code></pre>
+
+<p><img src="/img/capd.png" alt="" /></p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/k8s">k8s</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2020-01-nsm-topo/">Network Simulations with Network Service Mesh</a></li>
+    
+    <li><a href="/post/2019-06-naas-p3/">Network-as-a-Service Part 3 - Authentication and Admission control</a></li>
+    
+    <li><a href="/post/2019-06-naas-p2/">Network-as-a-Service Part 2 - Designing a Network API</a></li>
+    
+    <li><a href="/post/2019-06-naas-p1/">Network-as-a-Service Part 1 - Frameworkless automation</a></li>
+    
+    <li><a href="/post/2019-04-tf-yang/">Terraform your physical network with YANG</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script type="application/javascript">
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+

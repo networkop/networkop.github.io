@@ -18,7 +18,7 @@
       <pubDate>Thu, 23 Nov 2017 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2017/11/23/os-nfv-mano/</guid>
-      <description>In the ongoing hysteria surrounding all things SDN, one important thing gets often overlooked. You don&amp;rsquo;t build SDN for its own sake. SDN is just a little cog in a big machine called &amp;ldquo;cloud&amp;rdquo;. To take it even further, I would argue that the best SDN solution is the one that you don&amp;rsquo;t know even exists. Despite what the big vendors tell you, operators are not supposed to interact with SDN interface, be it GUI or CLI.</description>
+      <description>In this post I&amp;rsquo;ll have a brief look at the NFV MANO framework developed by ETSI and create a simple vIDS network service using Tacker</description>
     </item>
     
     <item>
@@ -27,7 +27,7 @@
       <pubDate>Fri, 15 Sep 2017 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2017/09/15/os-sfc-skydive/</guid>
-      <description>SFC is another SDN feature that for a long time only used to be available in proprietary SDN solutions and that has recently become available in vanilla OpenStack. It serves as another proof that proprietary SDN solutions are losing the competitive edge, especially for Telco SDN/NFV use cases. Hopefully, by the end of this series of posts I&amp;rsquo;ll manage do demonstrate how to build a complete open-source solution that has feature parity (in terms of major networking features) with all the major proprietary data centre SDN platforms.</description>
+      <description>In this post I’ll show how to configure Neutron’s service function chaining, troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeline</description>
     </item>
     
     <item>
@@ -36,7 +36,7 @@
       <pubDate>Thu, 13 Oct 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/10/13/os-dvr/</guid>
-      <description>Table of Contents  Virtual topology overview Virtual topology setup non-DVR traffic flow Enabling DVR DVR East-West traffic flow External connectivity  Case 1 - Overload NAT (VM2 with no FIP) Case 2 - Static NAT (VM1 with FIP)  DVR Pros and Cons   To be honest I was a little hesitant to write this post because the topic of Neutron&amp;rsquo;s DVR has already been exhaustively covered by many, including Assaf Muller, Eran Gampel and in the official OpenStack networking guide.</description>
+      <description>In this post we&amp;rsquo;ll explore how DVR is implemented in OpenStack Neutron and what are some of its benefits and shortcomings</description>
     </item>
     
     <item>
@@ -45,8 +45,7 @@
       <pubDate>Sat, 21 May 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/05/21/neutron-l2gw/</guid>
-      <description>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&amp;rsquo;ve used Cisco and Arista switches to build a 4-leaf 2-spine CLOS fabric. For this task I&amp;rsquo;ve decided to use a Cumulus VX switch which I&amp;rsquo;ve downloaded and imported into my lab.
-To simulate the baremetal server (10.</description>
+      <description>One of the basic function of any data centre network is the ability to communicate with baremetal servers. In this post we&amp;rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</description>
     </item>
     
     <item>
@@ -55,8 +54,7 @@ To simulate the baremetal server (10.</description>
       <pubDate>Wed, 11 May 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/05/11/neutron-routed-extnet/</guid>
-      <description>Provider vs Tenant networks Before we start, let&amp;rsquo;s recap the difference between the two major Neutron network types:
- Tenant networks are:  provisioned by tenants used for inter-VM (east-west) communication use Neutron virtual router as their default gateway  Provider networks are:  provisioned by OpenStack administrator(for use by tenants) match existing physical networks can be either flat (untagged VLAN) or VLAN-based (multiple VLANs) need to be L2 adjacent to network and/or compute nodes   These two network types are not mutually exclusive.</description>
+      <description>In the this post we&amp;rsquo;ll tackle yet another Neutron scalability problem identified in my earlier post- a requirement to have a direct L2 adjacency between the external provider network and the network node</description>
     </item>
     
     <item>
@@ -65,7 +63,7 @@ To simulate the baremetal server (10.</description>
       <pubDate>Fri, 06 May 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/05/06/neutron-l2pop/</guid>
-      <description>MAC learning in a controller-less VXLAN overlay VXLAN standard does not specify any control plane protocol to exchange MAC-IP bindings between VTEPs. Instead it relies on data plane flood-and-learn behaviour, just like a normal switch. To force this behaviour in an underlay, the standard stipulates that each VXLAN network should be mapped to its own multicast address and each VTEP participating in a network should join the corresponding multicast group.</description>
+      <description>In the previous post we&amp;rsquo;ve had a look at how native OpenStack SDN works and what are some of its limitations. In this post we&amp;rsquo;ll tackle the first one of them - overhead created by multicast source replication</description>
     </item>
     
     <item>
@@ -74,7 +72,7 @@ To simulate the baremetal server (10.</description>
       <pubDate>Fri, 22 Apr 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/04/22/neutron-native/</guid>
-      <description>Table of Contents  Intro High Level Overview Unicast frame between VM1 and VM2 Unicast frame between VM1 and External host BUM frame from VM1 for MAC address of VM2 OpenvSwitch quick intro Detailed packet flow analysis Enumerating OVS ports Unicast frame between VM1 and VM2 Unicast frame to external host (192.168.247.1) BUM frame from VM1 for MAC address of VM2 Native OpenStack SDN advantages and limitation Things to explore next C2O References   Intro This is going to be quite a lengthy blogpost so I&amp;rsquo;ll try to explain its structure first.</description>
+      <description>Now that we have our 3-node OpenStack lab [up and running][openstack-post-2] we can start exploring how virtual networks are implemented under the hood</description>
     </item>
     
   </channel>

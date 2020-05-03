@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="theme" content="hugo-academic">
-  <meta name="generator" content="Hugo 0.46" />
+  <meta name="generator" content="Hugo 0.55.6" />
   <meta name="author" content="Michael Kashin">
 
   
@@ -17,7 +17,7 @@
       
     
   
-  <meta name="description" content="Table of Contents  Intro High Level Overview Unicast frame between VM1 and VM2 Unicast frame between VM1 and External host BUM frame from VM1 for MAC address of VM2 OpenvSwitch quick intro Detailed packet flow analysis Enumerating OVS ports Unicast frame between VM1 and VM2 Unicast frame to external host (192.168.247.1) BUM frame from VM1 for MAC address of VM2 Native OpenStack SDN advantages and limitation Things to explore next C2O References   Intro This is going to be quite a lengthy blogpost so I&rsquo;ll try to explain its structure first.">
+  <meta name="description" content="Now that we have our 3-node OpenStack lab [up and running][openstack-post-2] we can start exploring how virtual networks are implemented under the hood">
 
   
   <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/04/22/neutron-native/">
@@ -90,7 +90,7 @@
   <meta property="og:site_name" content="networkop">
   <meta property="og:url" content="https://networkop.co.uk/blog/2016/04/22/neutron-native/">
   <meta property="og:title" content="Network Engineering Analysis of OpenStack SDN | networkop">
-  <meta property="og:description" content="Table of Contents  Intro High Level Overview Unicast frame between VM1 and VM2 Unicast frame between VM1 and External host BUM frame from VM1 for MAC address of VM2 OpenvSwitch quick intro Detailed packet flow analysis Enumerating OVS ports Unicast frame between VM1 and VM2 Unicast frame to external host (192.168.247.1) BUM frame from VM1 for MAC address of VM2 Native OpenStack SDN advantages and limitation Things to explore next C2O References   Intro This is going to be quite a lengthy blogpost so I&rsquo;ll try to explain its structure first.">
+  <meta property="og:description" content="Now that we have our 3-node OpenStack lab [up and running][openstack-post-2] we can start exploring how virtual networks are implemented under the hood">
   <meta property="og:locale" content="en-us">
   
   <meta property="article:published_time" content="2016-04-22T00:00:00&#43;00:00">
@@ -100,7 +100,7 @@
 
   <meta name="twitter:card" content="summary"/>
 <meta name="twitter:title" content="Network Engineering Analysis of OpenStack SDN"/>
-<meta name="twitter:description" content="Table of Contents  Intro High Level Overview Unicast frame between VM1 and VM2 Unicast frame between VM1 and External host BUM frame from VM1 for MAC address of VM2 OpenvSwitch quick intro Detailed packet flow analysis Enumerating OVS ports Unicast frame between VM1 and VM2 Unicast frame to external host (192.168.247.1) BUM frame from VM1 for MAC address of VM2 Native OpenStack SDN advantages and limitation Things to explore next C2O References   Intro This is going to be quite a lengthy blogpost so I&rsquo;ll try to explain its structure first."/>
+<meta name="twitter:description" content="Now that we have our 3-node OpenStack lab [up and running][openstack-post-2] we can start exploring how virtual networks are implemented under the hood"/>
 
 
   <title>Network Engineering Analysis of OpenStack SDN | networkop</title>
@@ -311,7 +311,7 @@
       <div class="article-style" itemprop="articleBody">
         
 
-<h2>Table of Contents</h2>
+<p><h2>Table of Contents</h2>
 <nav id="TableOfContents">
 <ul>
 <li><a href="#intro">Intro</a></li>
@@ -330,8 +330,7 @@
 <li><a href="#c-sub-2-sub-o">C<sub>2</sub>O</a></li>
 <li><a href="#references">References</a></li>
 </ul>
-</nav>
-
+</nav></p>
 
 <h1 id="intro">Intro</h1>
 
@@ -479,35 +478,33 @@
 <p>In its forwarding entries OVS uses internal port numbers a lot, therefore it would make sense to collect all port number information before we start. This is how it can be done:</p>
 
 <ul>
-<li>Use <code>ovs-vsctl show</code> command to collect information about existing port names and their attributes (e.g. dot1q tag, VXLAN tunnel IPs, etc). This is the output collected on compute host #1:</li>
-</ul>
+<li><p>Use <code>ovs-vsctl show</code> command to collect information about existing port names and their attributes (e.g. dot1q tag, VXLAN tunnel IPs, etc). This is the output collected on compute host #1:</p>
 
 <pre><code>$ ovs-vsctl show | grep -E &quot;Bridge|Port|tag|options&quot;
-    Bridge br-tun
-        Port br-tun
-        Port patch-int
-                options: {peer=patch-tun}
-        Port &quot;vxlan-0a00020a&quot;
-                options: {df_default=&quot;true&quot;, in_key=flow, local_ip=&quot;10.0.1.10&quot;, out_key=flow, remote_ip=&quot;10.0.2.10&quot;}
-        Port &quot;vxlan-0a00030a&quot;
-                options: {df_default=&quot;true&quot;, in_key=flow, local_ip=&quot;10.0.1.10&quot;, out_key=flow, remote_ip=&quot;10.0.3.10&quot;}
-    Bridge br-int
-        Port br-int
-        Port &quot;tap258336bc-4f&quot;
-            tag: 5
-        Port patch-tun
-                options: {peer=patch-int}
-</code></pre>
+Bridge br-tun
+    Port br-tun
+    Port patch-int
+            options: {peer=patch-tun}
+    Port &quot;vxlan-0a00020a&quot;
+            options: {df_default=&quot;true&quot;, in_key=flow, local_ip=&quot;10.0.1.10&quot;, out_key=flow, remote_ip=&quot;10.0.2.10&quot;}
+    Port &quot;vxlan-0a00030a&quot;
+            options: {df_default=&quot;true&quot;, in_key=flow, local_ip=&quot;10.0.1.10&quot;, out_key=flow, remote_ip=&quot;10.0.3.10&quot;}
+Bridge br-int
+    Port br-int
+    Port &quot;tap258336bc-4f&quot;
+        tag: 5
+    Port patch-tun
+            options: {peer=patch-int}
+</code></pre></li>
 
-<ul>
-<li>Use <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> command to correlate port names and numbers. Example below is for integration bridge of compute host #1:</li>
-</ul>
+<li><p>Use <code>ovs-ofctl dump-ports-desc &lt;bridge_ID&gt;</code> command to correlate port names and numbers. Example below is for integration bridge of compute host #1:</p>
 
 <pre><code>$ ovs-ofctl dump-ports-desc br-int | grep addr
- 2(patch-tun): addr:5a:c5:44:fc:ac:72
- 7(tap258336bc-4f): addr:fe:16:3e:19:e4:91
- LOCAL(br-int): addr:46:fe:10:de:1b:4f
-</code></pre>
+2(patch-tun): addr:5a:c5:44:fc:ac:72
+7(tap258336bc-4f): addr:fe:16:3e:19:e4:91
+LOCAL(br-int): addr:46:fe:10:de:1b:4f
+</code></pre></li>
+</ul>
 
 <p>I&rsquo;ve put together a diagram showing all the relevant integration bridge (<strong>br-int</strong>) and tunnel bridge (<strong>br-tun</strong>) ports on all 3 hosts.</p>
 
@@ -780,7 +777,7 @@ table=22, dl_vlan=5 actions=strip_vlan,set_tunnel:0x54,output:3,output:2
   
 <section id="comments">
   <div id="disqus_thread"></div>
-<script>
+<script type="application/javascript">
     var disqus_config = function () {
     
     

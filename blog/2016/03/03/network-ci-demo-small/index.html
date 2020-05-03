@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="theme" content="hugo-academic">
-  <meta name="generator" content="Hugo 0.46" />
+  <meta name="generator" content="Hugo 0.55.6" />
   <meta name="author" content="Michael Kashin">
 
   
@@ -17,10 +17,7 @@
       
     
   
-  <meta name="description" content="Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
-To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
-Local development environment contains the following files describing the modelled topology:
- Configuration files for each node under the ./config directory Network topology in .">
+  <meta name="description" content="In this post I&rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network topology">
 
   
   <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/">
@@ -93,10 +90,7 @@ Local development environment contains the following files describing the modell
   <meta property="og:site_name" content="networkop">
   <meta property="og:url" content="https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/">
   <meta property="og:title" content="Network-CI Part 2 - Small Network Demo | networkop">
-  <meta property="og:description" content="Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
-To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
-Local development environment contains the following files describing the modelled topology:
- Configuration files for each node under the ./config directory Network topology in .">
+  <meta property="og:description" content="In this post I&rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network topology">
   <meta property="og:locale" content="en-us">
   
   <meta property="article:published_time" content="2016-03-03T00:00:00&#43;00:00">
@@ -106,10 +100,7 @@ Local development environment contains the following files describing the modell
 
   <meta name="twitter:card" content="summary"/>
 <meta name="twitter:title" content="Network-CI Part 2 - Small Network Demo"/>
-<meta name="twitter:description" content="Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
-To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
-Local development environment contains the following files describing the modelled topology:
- Configuration files for each node under the ./config directory Network topology in ."/>
+<meta name="twitter:description" content="In this post I&rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network topology"/>
 
 
   <title>Network-CI Part 2 - Small Network Demo | networkop</title>
@@ -394,15 +385,15 @@ chmod +x 3_destroy_topo.py
 ./0_built_topo.py
 ./2_test.py
 ./3_destroy_topo.py
-</code></pre>
+</code></pre></li>
+</ol>
 
-<p>The first two env variables setup the UNL&rsquo;s IP address of and disable IO buffering so that we can see the output produced by our scripts in real time. The remaining steps simply execute the build, test and destroy scripts in order.</p></li>
+<p>The first two env variables setup the UNL&rsquo;s IP address of and disable IO buffering so that we can see the output produced by our scripts in real time. The remaining steps simply execute the build, test and destroy scripts in order.</p>
 
-<li><p>Save the job and click on the <strong>Build Now</strong> to trigger the build manually.</p></li>
-
-<li><p>In the <strong>Build History</strong> pane click on the latest build number (should be #1) and go to <em>Console Output</em>.</p></li>
-
-<li><p>Observe how Jenkins builds, tests and destroys our demo topology</p></li>
+<ol>
+<li>Save the job and click on the <strong>Build Now</strong> to trigger the build manually.</li>
+<li>In the <strong>Build History</strong> pane click on the latest build number (should be #1) and go to <em>Console Output</em>.</li>
+<li>Observe how Jenkins builds, tests and destroys our demo topology</li>
 </ol>
 
 <h1 id="network-upgrade-workflow">Network upgrade workflow</h1>
@@ -466,7 +457,7 @@ chmod +x 3_destroy_topo.py
   
 <section id="comments">
   <div id="disqus_thread"></div>
-<script>
+<script type="application/javascript">
     var disqus_config = function () {
     
     

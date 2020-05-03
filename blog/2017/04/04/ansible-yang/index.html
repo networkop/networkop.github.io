@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="theme" content="hugo-academic">
-  <meta name="generator" content="Hugo 0.46" />
+  <meta name="generator" content="Hugo 0.55.6" />
   <meta name="author" content="Michael Kashin">
 
   
@@ -17,8 +17,7 @@
       
     
   
-  <meta name="description" content="The idea of using Ansible for configuration changes and state verification is not new. However the approach I&rsquo;m going to demonstrate in this post, using YANG and NETCONF, will have a few notable differences:
- I will not use any templates and absolutely no XML/JSON for device config generation All changes will be pushed through a single, vendor and model-independent Ansible module State verification will be done with no pattern-matching or screen-scraping All configuration and operational state will be based on a couple of YAML files To demonstrate the model-agnostic behaviour I will use a mixture of vendor&rsquo;s native, IETF and OpenConfig YANG models  I hope this promise is exciting enough so without further ado, let&rsquo;s get cracking.">
+  <meta name="description" content="In this post I will show how to use IETF, OpenConfig and vendor-specific YANG models in Ansible to configure BGP peering and verify state of physical interfaces between IOS-XE and JUNOS devices.">
 
   
   <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2017/04/04/ansible-yang/">
@@ -91,8 +90,7 @@
   <meta property="og:site_name" content="networkop">
   <meta property="og:url" content="https://networkop.co.uk/blog/2017/04/04/ansible-yang/">
   <meta property="og:title" content="Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices | networkop">
-  <meta property="og:description" content="The idea of using Ansible for configuration changes and state verification is not new. However the approach I&rsquo;m going to demonstrate in this post, using YANG and NETCONF, will have a few notable differences:
- I will not use any templates and absolutely no XML/JSON for device config generation All changes will be pushed through a single, vendor and model-independent Ansible module State verification will be done with no pattern-matching or screen-scraping All configuration and operational state will be based on a couple of YAML files To demonstrate the model-agnostic behaviour I will use a mixture of vendor&rsquo;s native, IETF and OpenConfig YANG models  I hope this promise is exciting enough so without further ado, let&rsquo;s get cracking.">
+  <meta property="og:description" content="In this post I will show how to use IETF, OpenConfig and vendor-specific YANG models in Ansible to configure BGP peering and verify state of physical interfaces between IOS-XE and JUNOS devices.">
   <meta property="og:locale" content="en-us">
   
   <meta property="article:published_time" content="2017-04-04T00:00:00&#43;00:00">
@@ -102,8 +100,7 @@
 
   <meta name="twitter:card" content="summary"/>
 <meta name="twitter:title" content="Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices"/>
-<meta name="twitter:description" content="The idea of using Ansible for configuration changes and state verification is not new. However the approach I&rsquo;m going to demonstrate in this post, using YANG and NETCONF, will have a few notable differences:
- I will not use any templates and absolutely no XML/JSON for device config generation All changes will be pushed through a single, vendor and model-independent Ansible module State verification will be done with no pattern-matching or screen-scraping All configuration and operational state will be based on a couple of YAML files To demonstrate the model-agnostic behaviour I will use a mixture of vendor&rsquo;s native, IETF and OpenConfig YANG models  I hope this promise is exciting enough so without further ado, let&rsquo;s get cracking."/>
+<meta name="twitter:description" content="In this post I will show how to use IETF, OpenConfig and vendor-specific YANG models in Ansible to configure BGP peering and verify state of physical interfaces between IOS-XE and JUNOS devices."/>
 
 
   <title>Using YANG Models in Ansible to Configure and Verify State of IOS-XE and JUNOS Devices | networkop</title>
@@ -560,7 +557,7 @@ verify:
   
 <section id="comments">
   <div id="disqus_thread"></div>
-<script>
+<script type="application/javascript">
     var disqus_config = function () {
     
     
