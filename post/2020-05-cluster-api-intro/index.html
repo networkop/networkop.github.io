@@ -329,7 +329,7 @@
 <pre><code>git clone --depth=1 git@github.com:kubernetes-sigs/cluster-api.git &amp;&amp; cd cluster-api
 </code></pre>
 
-<p>When building a management cluster with kind, it&rsquo;s a good idea to mount the <code>docker.sock</code> file from your host OS into the kind cluster, as it is mentioned in <a href="book-docker" target="_blank">the book</a>. This will allow you to see the CAPD-managed nodes directly in your hostOS as regular docker containers.</p>
+<p>When building a management cluster with kind, it&rsquo;s a good idea to mount the <code>docker.sock</code> file from your host OS into the kind cluster, as it is mentioned in <a href="https://cluster-api.sigs.k8s.io/clusterctl/developers.html#additional-steps-in-order-to-use-the-docker-provider" target="_blank">the book</a>. This will allow you to see the CAPD-managed nodes directly in your hostOS as regular docker containers.</p>
 
 <pre><code>cat &gt; kind-cluster-with-extramounts.yaml &lt;&lt;EOF
 kind: Cluster
@@ -366,7 +366,7 @@ make -C test/infrastructure/docker generate-manifests REGISTRY=gcr.io/k8s-stagin
 
 <h2 id="setting-up-a-docker-provider">Setting up a Docker provider</h2>
 
-<p>Once again, following <a href="book-docker" target="_blank">the book</a>, we need to run a local override script to generate a set of manifests for Docker provider:</p>
+<p>Once again, following <a href="https://cluster-api.sigs.k8s.io/clusterctl/developers.html#additional-steps-in-order-to-use-the-docker-provider" target="_blank">the book</a>, we need to run a local override script to generate a set of manifests for Docker provider:</p>
 
 <pre><code>cat &gt; clusterctl-settings.json &lt;&lt;EOF
 {
