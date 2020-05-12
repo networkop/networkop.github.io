@@ -23,7 +23,7 @@ We're gonna need run a few scripts from the Cluster API Github repo, so let's ge
 git clone --depth=1 git@github.com:kubernetes-sigs/cluster-api.git && cd cluster-api
 ```
 
-When building a management cluster with kind, it's a good idea to mount the `docker.sock` file from your host OS into the kind cluster, as it is mentioned in [the book](book-docker). This will allow you to see the CAPD-managed nodes directly in your hostOS as regular docker containers.
+When building a management cluster with kind, it's a good idea to mount the `docker.sock` file from your host OS into the kind cluster, as it is mentioned in [the book][book-docker]. This will allow you to see the CAPD-managed nodes directly in your hostOS as regular docker containers.
 
 ```
 cat > kind-cluster-with-extramounts.yaml <<EOF
@@ -65,7 +65,7 @@ kind load docker-image --name clusterapi gcr.io/k8s-staging-capi-docker/capd-man
 
 ## Setting up a Docker provider
 
-Once again, following [the book](book-docker), we need to run a local override script to generate a set of manifests for Docker provider:
+Once again, following [the book][book-docker], we need to run a local override script to generate a set of manifests for Docker provider:
 
 ```
 cat > clusterctl-settings.json <<EOF
