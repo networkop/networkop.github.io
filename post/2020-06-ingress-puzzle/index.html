@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Last week I posted a tweet about a Kubernetes networking puzzle. In this post, we&rsquo;ll go over the details of this puzzle and uncover the true cause and motive of the misbehaving ingress.
+Puzzle recap Imagine you have a Kubernetes cluster with three namespaces, each with its own namespace-scoped ingress controller. You&rsquo;ve created an ingress in each namespace that exposes a simple web application. You&rsquo;ve checked one of them, made sure it works and moved on to other things.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2020-06-ingress-puzzle/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2020-06-ingress-puzzle/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2020-06-ingress-puzzle/">
+  <meta property="og:title" content="Solving the Ingress Mystery Puzzle | networkop">
+  <meta property="og:description" content="Last week I posted a tweet about a Kubernetes networking puzzle. In this post, we&rsquo;ll go over the details of this puzzle and uncover the true cause and motive of the misbehaving ingress.
+Puzzle recap Imagine you have a Kubernetes cluster with three namespaces, each with its own namespace-scoped ingress controller. You&rsquo;ve created an ingress in each namespace that exposes a simple web application. You&rsquo;ve checked one of them, made sure it works and moved on to other things.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2020-06-13T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2020-06-13T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/ingress-puzzle.png"/>
+
+<meta name="twitter:title" content="Solving the Ingress Mystery Puzzle"/>
+<meta name="twitter:description" content="Solving the Mystery of Misbehaving Ingress"/>
+
+
+  <title>Solving the Ingress Mystery Puzzle | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Solving the Ingress Mystery Puzzle</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2020-06-13 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      13 Jun 2020
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    8 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2020-06-ingress-puzzle/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/troubleshooting">troubleshooting</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Solving%20the%20Ingress%20Mystery%20Puzzle&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-06-ingress-puzzle%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-06-ingress-puzzle%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-06-ingress-puzzle%2f&amp;title=Solving%20the%20Ingress%20Mystery%20Puzzle"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Solving%20the%20Ingress%20Mystery%20Puzzle&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-06-ingress-puzzle%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>Last week I posted a <a href="https://twitter.com/networkop1/status/1269651463690760193" target="_blank">tweet</a> about a Kubernetes networking puzzle. In this post, we&rsquo;ll go over the details of this puzzle and uncover the true cause and motive of the misbehaving ingress.</p>
+
+<h2 id="puzzle-recap">Puzzle recap</h2>
+
+<p>Imagine you have a Kubernetes cluster with three namespaces, each with its own namespace-scoped ingress controller. You&rsquo;ve created an ingress in each namespace that exposes a simple web application. You&rsquo;ve checked one of them, made sure it works and moved on to other things. However some time later, you get reports that the web app is unavailable. You go to check it again and indeed, the page is not responding, although nothing has changed in the cluster. In fact, you realise that the problem is intermittent - one minute you can access the page, and on the next refresh it&rsquo;s gone. To make things worse, you realise that similar issues affect the other two ingresses.</p>
+
+<p><img src="/img/ingress-puzzle.png" alt="" /></p>
+
+<p>If you feel like you&rsquo;re capable of solving it on your own, feel free to follow the steps in the <a href="https://github.com/networkop/ingress-puzzle" target="_blank">walkthrough</a>, otherwise, continue on reading. In either case, make sure you&rsquo;ve setup a local test environment so that it&rsquo;s easier to follow along:</p>
+
+<ol>
+<li><p>Clone the ingress-puzzle repo:</p>
+
+<pre><code>git clone https://github.com/networkop/ingress-puzzle &amp;&amp; cd ingress-puzzle
+</code></pre></li>
+
+<li><p>Build a local test cluster:</p>
+
+<pre><code>make cluster
+</code></pre></li>
+
+<li><p>Create three namespaces:</p>
+
+<pre><code>make namespaces
+</code></pre></li>
+
+<li><p>Create an in-cluster load-balancer (MetalLB) that will allocate IPs from a <code>100.64.0.0/16</code> range:</p>
+
+<pre><code>make load-balancer
+</code></pre></li>
+
+<li><p>In each namespace, install a namespace-scoped ingress controller:</p>
+
+<pre><code>make controllers
+</code></pre></li>
+
+<li><p>Create three test deployments and expose them via ingresses:</p>
+
+<pre><code>make ingresses
+</code></pre></li>
+</ol>
+
+<h2 id="ingress-controller-expected-behaviour">Ingress controller expected behaviour</h2>
+
+<p>In order to solve this puzzle we need to understand how ingress controllers perform their duties, so let&rsquo;s see how a typical ingress controller does that:</p>
+
+<ol>
+<li>An ingress controller consists of <strong>two components</strong> - control plane and data plane, which can be run separately or be a part of the same pod/deployment.</li>
+<li><strong>Control plane</strong> is a k8s controller that uses its pod&rsquo;s service account to talk to the API server and establishes &ldquo;watches&rdquo; on <code>Ingress</code>-type resources.</li>
+<li><strong>Data plane</strong> is a reverse proxy (e.g. nginx, envoy) that receives traffic from end users and forwards it upstream to one of the backend k8s services.</li>
+<li>In order to steer the traffic to the data plane, an external <strong>load-balancer</strong> service is required, whose address (IP or hostname) is reflected in ingress&rsquo;s status field.</li>
+<li>As <code>Ingress</code> resources get created/deleted, controller updates configuration of its data plane to match the desired state described in those resources.</li>
+</ol>
+
+<p>This sounds simple enough, but as always, the devil is in the details, so let&rsquo;s start by focusing on one of the namespaces and observe the behaviour of its ingress.</p>
+
+<h2 id="exhibit-1-namespace-one">Exhibit #1 - namespace one</h2>
+
+<p>Let&rsquo;s looks at the ingress in namespace <code>one</code>. It seems like a healthy-looking output, the address is set to the <code>100.64.0.0</code> which is part of the MetalLB range.</p>
+
+<pre><code>$ kubens one
+$ kubectl get ingress
+NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+test   &lt;none&gt;   *       100.64.0.0   80      141m
+</code></pre>
+
+<p>If you want to test connectivity to the backend deployment, you can add the MetalLB public IP range to the docker bridge like this:</p>
+
+<pre><code>ip=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[0].address}')
+device=$(ip -j route get $ip | jq '.[0].dev')
+sudo ip addr add 100.64.0.100/16 dev $device
+</code></pre>
+
+<p>Now you should be able to hit the test nginx deployment:</p>
+
+<pre><code>curl -s 100.64.0.0 | grep Welcome
+&lt;title&gt;Welcome to nginx!&lt;/title&gt;
+&lt;h1&gt;Welcome to nginx!&lt;/h1&gt;
+</code></pre>
+
+<p>Nothing unusual so far, and nothing to indicate intermittent connectivity either. Let&rsquo;s move on.</p>
+
+<h2 id="exhibit-2-namespaces-two-three">Exhibit #2 - namespaces two &amp; three</h2>
+
+<p>This output looks a bit weird, the IP in the address field is definitely not a part of the MetalLB range:</p>
+
+<pre><code>$ kubens two
+$ kubectl get ingress
+NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+test   &lt;none&gt;   *       172.18.0.2   80      155m
+</code></pre>
+
+<p>A similar situation can be observed in the other namespace:</p>
+
+<pre><code>$ kubens three
+$ kubectl get ingress
+NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+test   &lt;none&gt;   *       172.18.0.2   80      155m
+</code></pre>
+
+<p>At this point, these outputs don&rsquo;t make a lot of sense. How can two different ingresses, controlled by two distinct controllers have the same address? And why do they get allocated with a private IP, which is not managed by MetalLB? If we check services across all existing namespaces, there won&rsquo;t be a single service with IPs from <code>172.16.0.0/12</code> range.</p>
+
+<pre><code>kubectl get svc -A | grep 172
+</code></pre>
+
+<h2 id="exhibit-4-flapping-addresses">Exhibit #4 - flapping addresses</h2>
+
+<p>Another one of the reported issues was the intermittent connectivity to some of the ingresses. If we keep watching the ingress in namespace <code>one</code>, we should see something interesting:</p>
+
+<pre><code>kubens one
+kubectl get ingress --watch
+NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+test   &lt;none&gt;   *       100.64.0.0   80      141m
+test   &lt;none&gt;   *       172.18.0.2   80      141m
+test   &lt;none&gt;   *       100.64.0.0   80      142m
+test   &lt;none&gt;   *       172.18.0.2   80      142m
+test   &lt;none&gt;   *       100.64.0.0   80      143m
+test   &lt;none&gt;   *       172.18.0.2   80      143m
+test   &lt;none&gt;   *       100.64.0.0   80      144m
+test   &lt;none&gt;   *       172.18.0.2   80      144m
+</code></pre>
+
+<p>It looks like the ingress address is flapping between our &ldquo;good&rdquo; MetalLB IP and the same exact IP that the other two ingresses have. Now let&rsquo;s zoom out a bit and have a look at all three ingresses at the same time:</p>
+
+<pre><code>kubectl get ingress --watch -A
+NAMESPACE   NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+one         test   &lt;none&gt;   *       172.18.0.2   80      150m
+three       test   &lt;none&gt;   *       172.18.0.2   80      150m
+two         test   &lt;none&gt;   *       172.18.0.2   80      150m
+one         test   &lt;none&gt;   *       100.64.0.0   80      150m
+three       test   &lt;none&gt;   *       100.64.0.2   80      151m
+three       test   &lt;none&gt;   *       172.18.0.2   80      151m
+one         test   &lt;none&gt;   *       172.18.0.2   80      151m
+one         test   &lt;none&gt;   *       100.64.0.0   80      151m
+three       test   &lt;none&gt;   *       100.64.0.2   80      152m
+one         test   &lt;none&gt;   *       172.18.0.2   80      152m
+three       test   &lt;none&gt;   *       172.18.0.2   80      152m
+one         test   &lt;none&gt;   *       100.64.0.0   80      152m
+
+</code></pre>
+
+<p>This looks even more puzzling - it seems that all ingresses have addresses that flap continuously. This would definitely explain the intermittent connectivity, however the most important question now is &ldquo;why&rdquo;.</p>
+
+<h2 id="exhibit-5-controller-logs">Exhibit #5 - controller logs</h2>
+
+<p>The most obvious suspect at this stage is the ingress controller, since it&rsquo;s the one that updates the status of its managed ingress resources. Let stay in the same namespace and look at its logs:</p>
+
+<pre><code>kubectl logs deploy/ingress-ingress-nginx-controller -f
+
+event.go:278] Event(v1.ObjectReference{Kind:&quot;Ingress&quot;, Namespace:&quot;one&quot;, Name:&quot;test&quot;, UID:&quot;7d1e4069-d285-4cf8-ba28-437d0a8fd04d&quot;, APIVersion:&quot;networking.k8s.io/v1beta1&quot;, ResourceVersion:&quot;55860&quot;, FieldPath:&quot;&quot;}): type: 'Normal' reason: 'UPDATE' Ingress one/test
+
+status.go:275] updating Ingress one/test status from [{172.18.0.2 }] to [{100.64.0.0 }]
+
+event.go:278] Event(v1.ObjectReference{Kind:&quot;Ingress&quot;, Namespace:&quot;one&quot;, Name:&quot;test&quot;, UID:&quot;7d1e4069-d285-4cf8-ba28-437d0a8fd04d&quot;, APIVersion:&quot;networking.k8s.io/v1beta1&quot;, ResourceVersion:&quot;55870&quot;, FieldPath:&quot;&quot;}): type: 'Normal' reason: 'UPDATE' Ingress one/test
+</code></pre>
+
+<p>This doesn&rsquo;t make a lot of sense - the ingress controller clearly updates the status with the right IP, but why does it get overwritten? and by whom?</p>
+
+<h2 id="exhibit-5-cluster-wide-logs">Exhibit #5 - cluster-wide logs</h2>
+
+<p>At this point, we can allow ourselves a little bit of cheating. Since it&rsquo;s a test cluster and we&rsquo;ve only got a few ingresses configured, we can tail logs from all ingress controllers and watch all ingresses at the same time. Don&rsquo;t forget to install <a href="https://github.com/wercker/stern" target="_blank">stern</a>.</p>
+
+<pre><code>kubectl get ingress -A -w &amp;
+stern --all-namespaces -l app.kubernetes.io/name=ingress-nginx &amp;
+three ingress-ingress-nginx-controller-58b79c576b-94v8d controller status.go:275] updating Ingress three/test status from [{172.18.0.2 }] to [{100.64.0.2 }]
+
+three       test   &lt;none&gt;   *       100.64.0.2   80      174m
+
+twothree  ingress-ingress-nginx-controller-5db5984d7d-vljth ingress-ingress-nginx-controller-58b79c576b-94v8d controller event.go:278] Event(v1.ObjectReference{Kind:&quot;Ingress&quot;, Namespace:&quot;three&quot;, Name:&quot;test&quot;, UID:&quot;176f0f8e-d3d5-4476-9b51-2d02c7eb47e2&quot;, APIVersion:&quot;networking.k8s.io/v1beta1&quot;, ResourceVersion:&quot;57195&quot;, FieldPath:&quot;&quot;}): type: 'Normal' reason: 'UPDATE' Ingress three/test
+event.go:278] Event(v1.ObjectReference{Kind:&quot;Ingress&quot;, Namespace:&quot;three&quot;, Name:&quot;test&quot;, UID:&quot;176f0f8e-d3d5-4476-9b51-2d02c7eb47e2&quot;, APIVersion:&quot;networking.k8s.io/v1beta1&quot;, ResourceVersion:&quot;57195&quot;, FieldPath:&quot;&quot;}): type: 'Normal' reason: 'UPDATE' Ingress three/test
+
+two ingress-ingress-nginx-controller-5db5984d7d-vljth controller status.go:275] updating Ingress one/test status from [{100.64.0.0 }] to [{172.18.0.2 }]
+two ingress-ingress-nginx-controller-5db5984d7d-vljth controller status.go:275] updating Ingress three/test status from [{100.64.0.2 }] to [{172.18.0.2 }]
+
+three       test   &lt;none&gt;   *       172.18.0.2   80      174m
+</code></pre>
+
+<h2 id="whodunit">Whodunit</h2>
+
+<p>So, it looks like the culprit is the ingress controller in namespace <code>two</code> and it tries to change status fields of all three ingresses. Now it&rsquo;s safe to look at exactly how it was installed, and this is the helm values file:</p>
+
+<pre><code class="language-yaml">controller:
+  publishService:
+    enabled: false
+    pathOverride: &quot;two/svc&quot;
+  scope:
+    enabled: false
+  admissionWebhooks:
+    enabled: false
+</code></pre>
+
+<p>It looks like the scope variable is set incorrectly so the ingress controller defaults to trying to manage ingresses across all namespaces. This should be an easy fix - just change the scope to <code>true</code> and upgrade the chart.</p>
+
+<p>However, this still doesn&rsquo;t explain the private IP address or its origin. Let&rsquo;s try the following command:</p>
+
+<pre><code>kubectl get nodes -o wide
+NAME                           STATUS   ROLES    AGE    VERSION   INTERNAL-IP
+ingress-puzzle-control-plane   Ready    master   5h3m   v1.18.2   172.18.0.2 
+</code></pre>
+
+<p>So this is where it comes from - it&rsquo;s the IP of the k8s node we&rsquo;ve been running our tests on. But why would it get allocated to an ingress? To understand that we need to have a look at
+ the nginx-ingress controller source code, specifically this function from <a href="https://github.com/kubernetes/ingress-nginx/blob/master/internal/ingress/status/status.go#L174" target="_blank">status.go</a>:</p>
+
+<pre><code class="language-go">func (s *statusSync) runningAddresses() ([]string, error) {
+	if s.PublishStatusAddress != &quot;&quot; {
+		return []string{s.PublishStatusAddress}, nil
+	}
+
+	if s.PublishService != &quot;&quot; {
+		return statusAddressFromService(s.PublishService, s.Client)
+	}
+
+	// get information about all the pods running the ingress controller
+	pods, err := s.Client.CoreV1().Pods(s.pod.Namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(s.pod.Labels).String(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	addrs := make([]string, 0)
+	for _, pod := range pods.Items {
+		// only Running pods are valid
+		if pod.Status.Phase != apiv1.PodRunning {
+			continue
+		}
+
+		name := k8s.GetNodeIPOrName(s.Client, pod.Spec.NodeName, s.UseNodeInternalIP)
+		if !sliceutils.StringInSlice(name, addrs) {
+			addrs = append(addrs, name)
+		}
+	}
+
+	return addrs, nil
+}
+</code></pre>
+
+<p>This is how the nginx-ingress controller determines the address to report in the ingress status:</p>
+
+<ol>
+<li>Check if the address is statically set with the <code>--publish-status-address</code> flag.</li>
+<li>Try to collect addresses from a published service (load-balancer).</li>
+<li>If both of the above have failed, get the list of pods and return the IPs of the nodes they are running on.</li>
+</ol>
+
+<p>This last bit is why we had that private IP in the status field. If you look at the above values YAML again, you&rsquo;ll see that the <code>publishService</code> value is overridden with a static service called <code>svc</code>. However, because this service doesn&rsquo;t exist and was never created, the ingress controller will fail to collect the right IP and will fall through to step 3.</p>
+
+<p><img src="/img/ingress-puzzle-solved.png" alt="" /></p>
+
+<p>The logic described above is quite common and is also implemented by <a href="https://github.com/Kong/kubernetes-ingress-controller/blob/master/internal/ingress/status/status.go" target="_blank">Kong</a> ingress controller. The idea is that if your k8s nodes are running in a cluster with public IPs, this should still make the ingress accessible, even without a load-balancer.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/k8s">k8s</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2020-05-cluster-api-intro/">Getting Started with Cluster API using Docker</a></li>
+    
+    <li><a href="/post/2020-01-nsm-topo/">Network Simulations with Network Service Mesh</a></li>
+    
+    <li><a href="/post/2019-06-naas-p3/">Network-as-a-Service Part 3 - Authentication and Admission control</a></li>
+    
+    <li><a href="/post/2019-06-naas-p2/">Network-as-a-Service Part 2 - Designing a Network API</a></li>
+    
+    <li><a href="/post/2019-06-naas-p1/">Network-as-a-Service Part 1 - Frameworkless automation</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+

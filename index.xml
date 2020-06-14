@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>networkop on networkop</title>
@@ -6,8 +7,269 @@
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
     <copyright>&amp;copy; Michael Kashin 2018</copyright>
-    <lastBuildDate>Sun, 03 May 2020 00:00:00 +0000</lastBuildDate>
+    <lastBuildDate>Sun, 15 Oct 2017 00:00:00 +0000</lastBuildDate>
     <atom:link href="/" rel="self" type="application/rss+xml" />
+    
+    <item>
+      <title>Solving the Ingress Mystery Puzzle</title>
+      <link>https://networkop.co.uk/post/2020-06-ingress-puzzle/</link>
+      <pubDate>Sat, 13 Jun 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-06-ingress-puzzle/</guid>
+      <description>
+
+&lt;p&gt;Last week I posted a &lt;a href=&#34;https://twitter.com/networkop1/status/1269651463690760193&#34; target=&#34;_blank&#34;&gt;tweet&lt;/a&gt; about a Kubernetes networking puzzle. In this post, we&amp;rsquo;ll go over the details of this puzzle and uncover the true cause and motive of the misbehaving ingress.&lt;/p&gt;
+
+&lt;h2 id=&#34;puzzle-recap&#34;&gt;Puzzle recap&lt;/h2&gt;
+
+&lt;p&gt;Imagine you have a Kubernetes cluster with three namespaces, each with its own namespace-scoped ingress controller. You&amp;rsquo;ve created an ingress in each namespace that exposes a simple web application. You&amp;rsquo;ve checked one of them, made sure it works and moved on to other things. However some time later, you get reports that the web app is unavailable. You go to check it again and indeed, the page is not responding, although nothing has changed in the cluster. In fact, you realise that the problem is intermittent - one minute you can access the page, and on the next refresh it&amp;rsquo;s gone. To make things worse, you realise that similar issues affect the other two ingresses.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ingress-puzzle.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;If you feel like you&amp;rsquo;re capable of solving it on your own, feel free to follow the steps in the &lt;a href=&#34;https://github.com/networkop/ingress-puzzle&#34; target=&#34;_blank&#34;&gt;walkthrough&lt;/a&gt;, otherwise, continue on reading. In either case, make sure you&amp;rsquo;ve setup a local test environment so that it&amp;rsquo;s easier to follow along:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;&lt;p&gt;Clone the ingress-puzzle repo:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;git clone https://github.com/networkop/ingress-puzzle &amp;amp;&amp;amp; cd ingress-puzzle
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Build a local test cluster:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make cluster
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Create three namespaces:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make namespaces
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Create an in-cluster load-balancer (MetalLB) that will allocate IPs from a &lt;code&gt;100.64.0.0/16&lt;/code&gt; range:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make load-balancer
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;In each namespace, install a namespace-scoped ingress controller:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make controllers
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;Create three test deployments and expose them via ingresses:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;make ingresses
+&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id=&#34;ingress-controller-expected-behaviour&#34;&gt;Ingress controller expected behaviour&lt;/h2&gt;
+
+&lt;p&gt;In order to solve this puzzle we need to understand how ingress controllers perform their duties, so let&amp;rsquo;s see how a typical ingress controller does that:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;An ingress controller consists of &lt;strong&gt;two components&lt;/strong&gt; - control plane and data plane, which can be run separately or be a part of the same pod/deployment.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Control plane&lt;/strong&gt; is a k8s controller that uses its pod&amp;rsquo;s service account to talk to the API server and establishes &amp;ldquo;watches&amp;rdquo; on &lt;code&gt;Ingress&lt;/code&gt;-type resources.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Data plane&lt;/strong&gt; is a reverse proxy (e.g. nginx, envoy) that receives traffic from end users and forwards it upstream to one of the backend k8s services.&lt;/li&gt;
+&lt;li&gt;In order to steer the traffic to the data plane, an external &lt;strong&gt;load-balancer&lt;/strong&gt; service is required, whose address (IP or hostname) is reflected in ingress&amp;rsquo;s status field.&lt;/li&gt;
+&lt;li&gt;As &lt;code&gt;Ingress&lt;/code&gt; resources get created/deleted, controller updates configuration of its data plane to match the desired state described in those resources.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;This sounds simple enough, but as always, the devil is in the details, so let&amp;rsquo;s start by focusing on one of the namespaces and observe the behaviour of its ingress.&lt;/p&gt;
+
+&lt;h2 id=&#34;exhibit-1-namespace-one&#34;&gt;Exhibit #1 - namespace one&lt;/h2&gt;
+
+&lt;p&gt;Let&amp;rsquo;s looks at the ingress in namespace &lt;code&gt;one&lt;/code&gt;. It seems like a healthy-looking output, the address is set to the &lt;code&gt;100.64.0.0&lt;/code&gt; which is part of the MetalLB range.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubens one
+$ kubectl get ingress
+NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+test   &amp;lt;none&amp;gt;   *       100.64.0.0   80      141m
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If you want to test connectivity to the backend deployment, you can add the MetalLB public IP range to the docker bridge like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;ip=$(kubectl get nodes -o jsonpath=&#39;{.items[0].status.addresses[0].address}&#39;)
+device=$(ip -j route get $ip | jq &#39;.[0].dev&#39;)
+sudo ip addr add 100.64.0.100/16 dev $device
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now you should be able to hit the test nginx deployment:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;curl -s 100.64.0.0 | grep Welcome
+&amp;lt;title&amp;gt;Welcome to nginx!&amp;lt;/title&amp;gt;
+&amp;lt;h1&amp;gt;Welcome to nginx!&amp;lt;/h1&amp;gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Nothing unusual so far, and nothing to indicate intermittent connectivity either. Let&amp;rsquo;s move on.&lt;/p&gt;
+
+&lt;h2 id=&#34;exhibit-2-namespaces-two-three&#34;&gt;Exhibit #2 - namespaces two &amp;amp; three&lt;/h2&gt;
+
+&lt;p&gt;This output looks a bit weird, the IP in the address field is definitely not a part of the MetalLB range:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubens two
+$ kubectl get ingress
+NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      155m
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;A similar situation can be observed in the other namespace:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubens three
+$ kubectl get ingress
+NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      155m
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At this point, these outputs don&amp;rsquo;t make a lot of sense. How can two different ingresses, controlled by two distinct controllers have the same address? And why do they get allocated with a private IP, which is not managed by MetalLB? If we check services across all existing namespaces, there won&amp;rsquo;t be a single service with IPs from &lt;code&gt;172.16.0.0/12&lt;/code&gt; range.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl get svc -A | grep 172
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;exhibit-4-flapping-addresses&#34;&gt;Exhibit #4 - flapping addresses&lt;/h2&gt;
+
+&lt;p&gt;Another one of the reported issues was the intermittent connectivity to some of the ingresses. If we keep watching the ingress in namespace &lt;code&gt;one&lt;/code&gt;, we should see something interesting:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubens one
+kubectl get ingress --watch
+NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+test   &amp;lt;none&amp;gt;   *       100.64.0.0   80      141m
+test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      141m
+test   &amp;lt;none&amp;gt;   *       100.64.0.0   80      142m
+test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      142m
+test   &amp;lt;none&amp;gt;   *       100.64.0.0   80      143m
+test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      143m
+test   &amp;lt;none&amp;gt;   *       100.64.0.0   80      144m
+test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      144m
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;It looks like the ingress address is flapping between our &amp;ldquo;good&amp;rdquo; MetalLB IP and the same exact IP that the other two ingresses have. Now let&amp;rsquo;s zoom out a bit and have a look at all three ingresses at the same time:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl get ingress --watch -A
+NAMESPACE   NAME   CLASS    HOSTS   ADDRESS      PORTS   AGE
+one         test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      150m
+three       test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      150m
+two         test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      150m
+one         test   &amp;lt;none&amp;gt;   *       100.64.0.0   80      150m
+three       test   &amp;lt;none&amp;gt;   *       100.64.0.2   80      151m
+three       test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      151m
+one         test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      151m
+one         test   &amp;lt;none&amp;gt;   *       100.64.0.0   80      151m
+three       test   &amp;lt;none&amp;gt;   *       100.64.0.2   80      152m
+one         test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      152m
+three       test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      152m
+one         test   &amp;lt;none&amp;gt;   *       100.64.0.0   80      152m
+
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This looks even more puzzling - it seems that all ingresses have addresses that flap continuously. This would definitely explain the intermittent connectivity, however the most important question now is &amp;ldquo;why&amp;rdquo;.&lt;/p&gt;
+
+&lt;h2 id=&#34;exhibit-5-controller-logs&#34;&gt;Exhibit #5 - controller logs&lt;/h2&gt;
+
+&lt;p&gt;The most obvious suspect at this stage is the ingress controller, since it&amp;rsquo;s the one that updates the status of its managed ingress resources. Let stay in the same namespace and look at its logs:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl logs deploy/ingress-ingress-nginx-controller -f
+
+event.go:278] Event(v1.ObjectReference{Kind:&amp;quot;Ingress&amp;quot;, Namespace:&amp;quot;one&amp;quot;, Name:&amp;quot;test&amp;quot;, UID:&amp;quot;7d1e4069-d285-4cf8-ba28-437d0a8fd04d&amp;quot;, APIVersion:&amp;quot;networking.k8s.io/v1beta1&amp;quot;, ResourceVersion:&amp;quot;55860&amp;quot;, FieldPath:&amp;quot;&amp;quot;}): type: &#39;Normal&#39; reason: &#39;UPDATE&#39; Ingress one/test
+
+status.go:275] updating Ingress one/test status from [{172.18.0.2 }] to [{100.64.0.0 }]
+
+event.go:278] Event(v1.ObjectReference{Kind:&amp;quot;Ingress&amp;quot;, Namespace:&amp;quot;one&amp;quot;, Name:&amp;quot;test&amp;quot;, UID:&amp;quot;7d1e4069-d285-4cf8-ba28-437d0a8fd04d&amp;quot;, APIVersion:&amp;quot;networking.k8s.io/v1beta1&amp;quot;, ResourceVersion:&amp;quot;55870&amp;quot;, FieldPath:&amp;quot;&amp;quot;}): type: &#39;Normal&#39; reason: &#39;UPDATE&#39; Ingress one/test
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This doesn&amp;rsquo;t make a lot of sense - the ingress controller clearly updates the status with the right IP, but why does it get overwritten? and by whom?&lt;/p&gt;
+
+&lt;h2 id=&#34;exhibit-5-cluster-wide-logs&#34;&gt;Exhibit #5 - cluster-wide logs&lt;/h2&gt;
+
+&lt;p&gt;At this point, we can allow ourselves a little bit of cheating. Since it&amp;rsquo;s a test cluster and we&amp;rsquo;ve only got a few ingresses configured, we can tail logs from all ingress controllers and watch all ingresses at the same time. Don&amp;rsquo;t forget to install &lt;a href=&#34;https://github.com/wercker/stern&#34; target=&#34;_blank&#34;&gt;stern&lt;/a&gt;.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl get ingress -A -w &amp;amp;
+stern --all-namespaces -l app.kubernetes.io/name=ingress-nginx &amp;amp;
+three ingress-ingress-nginx-controller-58b79c576b-94v8d controller status.go:275] updating Ingress three/test status from [{172.18.0.2 }] to [{100.64.0.2 }]
+
+three       test   &amp;lt;none&amp;gt;   *       100.64.0.2   80      174m
+
+twothree  ingress-ingress-nginx-controller-5db5984d7d-vljth ingress-ingress-nginx-controller-58b79c576b-94v8d controller event.go:278] Event(v1.ObjectReference{Kind:&amp;quot;Ingress&amp;quot;, Namespace:&amp;quot;three&amp;quot;, Name:&amp;quot;test&amp;quot;, UID:&amp;quot;176f0f8e-d3d5-4476-9b51-2d02c7eb47e2&amp;quot;, APIVersion:&amp;quot;networking.k8s.io/v1beta1&amp;quot;, ResourceVersion:&amp;quot;57195&amp;quot;, FieldPath:&amp;quot;&amp;quot;}): type: &#39;Normal&#39; reason: &#39;UPDATE&#39; Ingress three/test
+event.go:278] Event(v1.ObjectReference{Kind:&amp;quot;Ingress&amp;quot;, Namespace:&amp;quot;three&amp;quot;, Name:&amp;quot;test&amp;quot;, UID:&amp;quot;176f0f8e-d3d5-4476-9b51-2d02c7eb47e2&amp;quot;, APIVersion:&amp;quot;networking.k8s.io/v1beta1&amp;quot;, ResourceVersion:&amp;quot;57195&amp;quot;, FieldPath:&amp;quot;&amp;quot;}): type: &#39;Normal&#39; reason: &#39;UPDATE&#39; Ingress three/test
+
+two ingress-ingress-nginx-controller-5db5984d7d-vljth controller status.go:275] updating Ingress one/test status from [{100.64.0.0 }] to [{172.18.0.2 }]
+two ingress-ingress-nginx-controller-5db5984d7d-vljth controller status.go:275] updating Ingress three/test status from [{100.64.0.2 }] to [{172.18.0.2 }]
+
+three       test   &amp;lt;none&amp;gt;   *       172.18.0.2   80      174m
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;whodunit&#34;&gt;Whodunit&lt;/h2&gt;
+
+&lt;p&gt;So, it looks like the culprit is the ingress controller in namespace &lt;code&gt;two&lt;/code&gt; and it tries to change status fields of all three ingresses. Now it&amp;rsquo;s safe to look at exactly how it was installed, and this is the helm values file:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;controller:
+  publishService:
+    enabled: false
+    pathOverride: &amp;quot;two/svc&amp;quot;
+  scope:
+    enabled: false
+  admissionWebhooks:
+    enabled: false
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;It looks like the scope variable is set incorrectly so the ingress controller defaults to trying to manage ingresses across all namespaces. This should be an easy fix - just change the scope to &lt;code&gt;true&lt;/code&gt; and upgrade the chart.&lt;/p&gt;
+
+&lt;p&gt;However, this still doesn&amp;rsquo;t explain the private IP address or its origin. Let&amp;rsquo;s try the following command:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl get nodes -o wide
+NAME                           STATUS   ROLES    AGE    VERSION   INTERNAL-IP
+ingress-puzzle-control-plane   Ready    master   5h3m   v1.18.2   172.18.0.2 
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;So this is where it comes from - it&amp;rsquo;s the IP of the k8s node we&amp;rsquo;ve been running our tests on. But why would it get allocated to an ingress? To understand that we need to have a look at
+ the nginx-ingress controller source code, specifically this function from &lt;a href=&#34;https://github.com/kubernetes/ingress-nginx/blob/master/internal/ingress/status/status.go#L174&#34; target=&#34;_blank&#34;&gt;status.go&lt;/a&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func (s *statusSync) runningAddresses() ([]string, error) {
+	if s.PublishStatusAddress != &amp;quot;&amp;quot; {
+		return []string{s.PublishStatusAddress}, nil
+	}
+
+	if s.PublishService != &amp;quot;&amp;quot; {
+		return statusAddressFromService(s.PublishService, s.Client)
+	}
+
+	// get information about all the pods running the ingress controller
+	pods, err := s.Client.CoreV1().Pods(s.pod.Namespace).List(context.TODO(), metav1.ListOptions{
+		LabelSelector: labels.SelectorFromSet(s.pod.Labels).String(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	addrs := make([]string, 0)
+	for _, pod := range pods.Items {
+		// only Running pods are valid
+		if pod.Status.Phase != apiv1.PodRunning {
+			continue
+		}
+
+		name := k8s.GetNodeIPOrName(s.Client, pod.Spec.NodeName, s.UseNodeInternalIP)
+		if !sliceutils.StringInSlice(name, addrs) {
+			addrs = append(addrs, name)
+		}
+	}
+
+	return addrs, nil
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This is how the nginx-ingress controller determines the address to report in the ingress status:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Check if the address is statically set with the &lt;code&gt;--publish-status-address&lt;/code&gt; flag.&lt;/li&gt;
+&lt;li&gt;Try to collect addresses from a published service (load-balancer).&lt;/li&gt;
+&lt;li&gt;If both of the above have failed, get the list of pods and return the IPs of the nodes they are running on.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;This last bit is why we had that private IP in the status field. If you look at the above values YAML again, you&amp;rsquo;ll see that the &lt;code&gt;publishService&lt;/code&gt; value is overridden with a static service called &lt;code&gt;svc&lt;/code&gt;. However, because this service doesn&amp;rsquo;t exist and was never created, the ingress controller will fail to collect the right IP and will fall through to step 3.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ingress-puzzle-solved.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;The logic described above is quite common and is also implemented by &lt;a href=&#34;https://github.com/Kong/kubernetes-ingress-controller/blob/master/internal/ingress/status/status.go&#34; target=&#34;_blank&#34;&gt;Kong&lt;/a&gt; ingress controller. The idea is that if your k8s nodes are running in a cluster with public IPs, this should still make the ingress accessible, even without a load-balancer.&lt;/p&gt;
+</description>
+    </item>
     
     <item>
       <title>Getting Started with Cluster API using Docker</title>
@@ -1172,12 +1434,11 @@ kubectl get pod test
 &lt;li&gt;Upload the enforcer and scheduler scripts as configmaps.&lt;/li&gt;
 &lt;li&gt;Create Traefik (HTTP proxy) daemonset to be used as ingress.&lt;/li&gt;
 &lt;li&gt;Upload generic device data model along with its template and label them accordingly.&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Create a deployment, service and ingress resources for the scheduler service.&lt;/p&gt;
+&lt;li&gt;Create a deployment, service and ingress resources for the scheduler service.&lt;/li&gt;
+&lt;/ol&gt;
 
 &lt;pre&gt;&lt;code&gt;make scheduler-build
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-&lt;/ol&gt;
+&lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;If running as non-root, the user may be prompted for a sudo password.&lt;/p&gt;
 
@@ -2815,8 +3076,8 @@ inet 172.20.0.2/16 brd 172.20.255.255 scope global eth4
 &lt;li&gt;Download cirros and CumulusVX images and upload them to Glance&lt;/li&gt;
 &lt;li&gt;Create a virtual network&lt;/li&gt;
 &lt;li&gt;Update security rules to allow inbound ICMP and SSH connections&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;Create a pair of VMs - one based on cirros and one based on CumulusVX image&lt;/p&gt;
+&lt;li&gt;Create a pair of VMs - one based on cirros and one based on CumulusVX image&lt;/li&gt;
+&lt;/ol&gt;
 
 &lt;pre&gt;&lt;code&gt;curl -L -o ./cirros http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
 curl -L -o ./cumulusVX http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2
@@ -2832,8 +3093,8 @@ rm ./cumulusVX
 openstack network create --provider-network-type vxlan irb-net
 
 openstack subnet create --subnet-range 10.0.100.160/27 --network irb-net \
-  --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
-  --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
+      --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
+      --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
 
 openstack flavor create --id 1 --ram 256 --disk 1 --vcpus 1 m1.nano
 openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
@@ -2841,14 +3102,13 @@ openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
 ADMIN_PROJECT_ID=$(openstack project show &#39;admin&#39; -f value -c id)
 ADMIN_SEC_GROUP=$(openstack security group list --project ${ADMIN_PROJECT_ID} | awk &#39;/ default / {print $2}&#39;)
 openstack security group rule create --ingress --ethertype IPv4 \
---protocol icmp ${ADMIN_SEC_GROUP}
+    --protocol icmp ${ADMIN_SEC_GROUP}
 openstack security group rule create --ingress --ethertype IPv4 \
---protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
+    --protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
 
 openstack server create --image cirros --flavor m1.nano --net irb-net VM1
 openstack server create --image cumulus --flavor m1.tiny --net irb-net VR1
-&lt;/code&gt;&lt;/pre&gt;&lt;/li&gt;
-&lt;/ol&gt;
+&lt;/code&gt;&lt;/pre&gt;
 
 &lt;p&gt;The only thing worth noting in the above script is that a default gateway &lt;code&gt;10.0.100.161&lt;/code&gt; gets overridden by a default host route pointing to &lt;code&gt;10.0.100.190&lt;/code&gt;. Normally, to demonstrate DC-GW IRB scenario, I would have setup a gateway-less L2 only subnet, however in that case I wouldn&amp;rsquo;t have been able to demonstrate BGPaaS on the same network, since this feature relies on having a gateway IP setup (which later acts as a BGP session termination endpoint). So instead of setting up two separate networks I&amp;rsquo;ve decided to implement this hack to minimise the required configuration.&lt;/p&gt;
 
@@ -3424,276 +3684,6 @@ Route Distinguisher: 100:100 (default for vrf ODL)
 &lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
 
 &lt;p&gt;OpenDaylight is a pretty advanced OpenStack SDN platform. Its functionality includes clustering, site-to-site federation (without EVPN) and L2/L3 EVPN DC-GW integration for both IPv4 and IPv6. It is yet another example of how an open-source platform can match even the most advanced proprietary SDN solutions from incumbent vendors. This is all thanks to the companies involved in OpenDaylight development. I also want to say special thanks to Vyshakh Krishnan, Kiran N Upadhyaya and Dayavanti Gopal Kamath from Ericsson for helping me clear up some of the questions I posted on netvirt-dev mailing list.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN - NFV Management and Orchestration</title>
-      <link>https://networkop.co.uk/blog/2017/11/23/os-nfv-mano/</link>
-      <pubDate>Thu, 23 Nov 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/11/23/os-nfv-mano/</guid>
-      <description>
-
-&lt;p&gt;In the ongoing hysteria surrounding all things SDN, one important thing gets often overlooked. You don&amp;rsquo;t build SDN for its own sake. SDN is just a little cog in a big machine called &amp;ldquo;cloud&amp;rdquo;. To take it even further, I would argue that the best SDN solution is the one that you don&amp;rsquo;t know even exists. Despite what the big vendors tell you, operators are not supposed to interact with SDN interface, be it GUI or CLI. If you dig up some of the earliest presentation about Cisco ACI, when the people talking about it were the actual people who designed the product, you&amp;rsquo;ll notice one common motif being repeated over and over again. That is that ACI was never designed for direct human interaction, but rather was supposed to be configured by a higher level orchestrating system. In data center environments such orchestrating system may glue together services of virtualization layer and SDN layer to provide a seamless &amp;ldquo;cloud&amp;rdquo; experience to the end users. The focus of this post will be one incarnation of such orchestration system, specific to SP/Telco world, commonly known as NFV MANO.&lt;/p&gt;
-
-&lt;hr /&gt;
-
-&lt;h1 id=&#34;nfv-mano-for-telco-sdn&#34;&gt;NFV MANO for Telco SDN&lt;/h1&gt;
-
-&lt;p&gt;At the early dawn of SDN/NFV era a lot of people got very excited by &lt;strong&gt;&amp;ldquo;the promise&amp;rdquo;&lt;/strong&gt; and started applying the disaggregation and virtualization paradigms to all areas of networking. For Telcos that meant virtualizing network functions that built the service core of their networks - EPC, IMS, RAN. Traditionally those network functions were a collection of vertically-integrated baremetal appliances that took a long time to commission and had to be overprovisioned to cope with the peak-hour demand. Virtualizing them would have made it possible to achieve quicker time-to-market, elasticity to cope with a changing network demand and hardware/software disaggregation.&lt;/p&gt;
-
-&lt;p&gt;As expected however, such fundamental change has to come at price. Not only do Telcos get a new virtualization platform to manage but they also need to worry about lifecycle management and end-to-end orchestration (MANO) of VNFs. Since any such change presents an opportunity for new streams of revenue, it didn&amp;rsquo;t take long for vendors to jump on the bandwagon and start working on a new architecture designed to address those issues.&lt;/p&gt;
-
-&lt;p&gt;The first problem was the easiest to solve since VMware and OpenStack already existed at that stage and could be used to host VNFs with very little modifications. The management and orchestration problem, however, was only partially solved by existing orchestration solutions. There were a lot of gaps between the current operational model and the new VNF world and although these problems could have been solved by Telcos engaging themselves with the open-source community, this proved to be too big of a change for them and they&amp;rsquo;ve turned to the only thing they could trust - the standards bodies.&lt;/p&gt;
-
-&lt;h1 id=&#34;etsi-mano&#34;&gt;ETSI MANO&lt;/h1&gt;
-
-&lt;p&gt;ETSI NFV MANO working group has set out to define a reference architecture for management and orchestration of virtualized resources in Telco data centers. The goal of NFV MANO initiative was to do a research into what&amp;rsquo;s required to manage and orchestrate VNFs, what&amp;rsquo;s currently available and identify potential gaps for other standards bodies to fill. Initial ETSI NFV Release 1 (2014) defined a base framework through relatively weak requirements and recommendations and was followed by Release 2 (2016) that made them more concrete by locking down the interfaces and data model specifications. For a very long time Release 1 was the only available NFV MANO standard, which led to a lot of inconsistencies in each vendors&amp;rsquo; implementations of it. This was very frustrating for Telcos since it required a lot of integration effort to build a multi-vendor MANO stack. Another potential issue with ETSI MANO standard is its limited scope - a lot of critical components like OSS and EMS are left outside of it which created a lot of confusion for Telcos and resulted in other standardisation efforts addressing those gaps.&lt;/p&gt;
-
-&lt;p&gt;On the below diagram I have shown an adbridged version of the original ETSI MANO &lt;a href=&#34;https://www.ietf.org/proceedings/88/slides/slides-88-opsawg-6.pdf&#34; target=&#34;_blank&#34;&gt;reference architecture diagram&lt;/a&gt; adapted to the use case I&amp;rsquo;ll be demonstrating in this post.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/etsi-mano.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;This architecture consists of the following building blocks:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;NFVI&lt;/strong&gt; (NFV Infrastructure) - OpenStacks compute or VMware&amp;rsquo;s ESXI nodes&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;VIM&lt;/strong&gt; (Virtual Infrastructure Manager) - OpenStack&amp;rsquo;s controller/API or VMware&amp;rsquo;s vCenter nodes&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;VNFM&lt;/strong&gt; (VNF Manager) - an element responsible for lifecycle management (create,delete,scale) and monitoring of VNFs&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;NFVO&lt;/strong&gt; (NFV Orchestrator) - an element responsible for lifecyle management of Network Services (described below)&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;All these elements are working together towards a single goal - managing and orchestrating a Network Service (NS), which itself is comprised of multiple VNFs, Virtual Links (VLs), VNF Forwarding Graphs (VNFFGs) and Physical Network Functions (PNFs). In this post I create a NS for a simple virtual IDS use case, described in my previous &lt;a href=&#34;https://networkop.co.uk/blog/2017/09/15/os-sfc-skydive/&#34;&gt;SFC post&lt;/a&gt;. The goal is to steer all ICMP traffic coming from VM1 through a vIDS VNF which will forward the traffic to its original destination.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/vids-created.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Before I get to the implementation, let me give a quick overview of how a Network Service is build from its constituent parts, in the context of our vIDS use case.&lt;/p&gt;
-
-&lt;h1 id=&#34;relationship-between-ns-vnf-and-vnffg&#34;&gt;Relationship between NS, VNF and VNFFG&lt;/h1&gt;
-
-&lt;p&gt;According to ETSI MANO, a &lt;strong&gt;Network Service&lt;/strong&gt; (NS) is a subset of end-to-end service implemented by VNFs and instantiated on the NFVI. As I&amp;rsquo;ve mentioned before, some examples of a NS would be vEPC, vIMS or vCPE. NS can be described in either a YANG or a Tosca template called NS Descriptor (NSD). The main goal of a NSD is to tie together VNFs, VLs, VNFFGs and PNFs by defining relationship between various templates describing those objects (VNFDs, VLDs, VNFFGDs). Once NSD is onboarded (uploaded), it can be instantiated by NFVO, which communicates with VIM and VNFM to create the constituent components and stitch them together as described in a template. NSD normally does not contain VNFD or VNFFGD templates, but imports them through their names, which means that in order to instantiate a NSD, the corresponding VNFDs and VNFFGDs should already be onboarded.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/vids-nsd.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;&lt;strong&gt;VNF Descriptor&lt;/strong&gt; is a template describing the compute and network parameters of a single VNF. Each VNF consists of one or more VNF components (VNFCs), represented in Tosca as Virtual Deployment Units (VDUs). A VDU is the smallest part of a VNF and can be implemented as either a container or, as it is in our case, a VM. Apart from the usual set of parameters like CPU, RAM and disk, VNFD also describes all the virtual networks required for internal communication between VNFCs, called internal VLs. VNFM can ask VIM to create those networks when the VNF is being instantiated. VNFD also contains a reference to external networks, which are supposed to be created by NFVO. Those networks are used to connect different VNFs together or to connect VNFs to PNFs and other elements outside of NFVI platform. If external VLs are defined in a VNFD, VNFM will need to source them externally, either as input parameters to VNFM or from NFVO. In fact, VNF instantiation by VNFM, as described in Tacker &lt;a href=&#34;https://docs.openstack.org/tacker/latest/user/vnfm_usage_guide.html&#34; target=&#34;_blank&#34;&gt;documentation&lt;/a&gt;, is only used for testing purposes and since a VNF only makes sense as a part of a Network Service, the intended way is to use a NSD to instantiate all VNFs in production environment.&lt;/p&gt;
-
-&lt;p&gt;The final component that we&amp;rsquo;re going to use is VNF Forwarding Graph. &lt;strong&gt;VNFFG Descriptor&lt;/strong&gt; is an optional component that describes how different VNFs are supposed to be chained together to form a Network Service. In the absence of VNFFG, VNFs will fall back to the default destination-based forwarding, when the IPs of VNFs forming a NS are either automatically discovered (e.g. through DNS) or provisioned statically. Tacker&amp;rsquo;s implementation of VNFFG is not fully integrated with NSD yet and VNFFGD has to be instantiated separately and, as will be shown below, linked to an already running instance of a Network Service through its ID.&lt;/p&gt;
-
-&lt;h1 id=&#34;using-tacker-to-orchestrate-a-network-service&#34;&gt;Using Tacker to orchestrate a Network Service&lt;/h1&gt;
-
-&lt;p&gt;Tacker is an OpenStack project implementing a generic VNFM and NFVO. At the input it consumes Tosca-based templates, converts them to Heat templates which are then used to spin up VMs on OpenStack. This diagram from Brocade, the biggest Tacker contributor (at least until its acquisition), is the best overview of internal Tacker architecture.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/brocade-tacker.jpg&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;For this demo environment I&amp;rsquo;ll keep using my OpenStack Kolla lab environment described in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/09/08/os-lab-docker/&#34;&gt;previous post&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h2 id=&#34;step-1-vim-registration&#34;&gt;Step 1 - VIM registration&lt;/h2&gt;
-
-&lt;p&gt;Before we can start using Tacker, it needs to know how to reach the OpenStack environment, so the first step in the workflow is OpenStack or VIM registration. We need to provide the address of the keystone endpoint along with the admin credentials to give Tacker enough rights to create and delete VMs and SFC objects:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;cat &amp;lt;&amp;lt; EOF &amp;gt; ./vim.yaml
-auth_url: &#39;http://192.168.133.254:35357/v3&#39;
-username: &#39;admin&#39;
-password: &#39;admin&#39;
-project_name: &#39;admin&#39;
-project_domain_name: &#39;Default&#39;
-user_domain_name: &#39;Default&#39;
-EOF
-
-tacker vim-register --is-default --config-file vim.yaml --description MYVIM KOLLA-OPENSTACK
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The successful result can be checked with &lt;code&gt;tacker vim-list&lt;/code&gt; which should report that registered VIM is now reachable.&lt;/p&gt;
-
-&lt;h2 id=&#34;step-2-onboarding-a-vnfd&#34;&gt;Step 2 - Onboarding a VNFD&lt;/h2&gt;
-
-&lt;p&gt;VNFD defines a set of VMs (VNFCs), network ports (CPs) and networks (VLs) and their relationship. In our case we have a single cirros-based VM with a pair of ingress/egress ports. In this template we also define a special node type &lt;code&gt;tosca.nodes.nfv.vIDS&lt;/code&gt; which will be used by NSD to pass the required parameters for ingress and egress VLs. These parameters are going to be used by VNFD to attach network ports (CPs) to virtual networks (VLs) as defined in the &lt;code&gt;substitution_mappings&lt;/code&gt; section.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;cat &amp;lt;&amp;lt; EOF &amp;gt; ./vnfd.yaml
-tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
-description = Cirros vIDS example
-
-node_types:
-  tosca.nodes.nfv.vIDS:
-    requirements:
-      - INGRESS_VL:
-          type: tosca.nodes.nfv.VL
-          required: true
-      - EGRESS_VL:
-          type: tosca.nodes.nfv.VL
-          required: true
-
-topology_template:
-  substitution_mappings:
-    node_type: tosca.nodes.nfv.vIDS
-    requirements:
-      INGRESS_VL: [CP1, virtualLink]
-      EGRESS_VL:  [CP2, virtualLink]
-
-  node_templates:
-    VDU1:
-      type: tosca.nodes.nfv.VDU.Tacker
-      properties:
-        availability_zone: nova
-        flavor: m1.nano
-        image: cirros
-        mgmt_driver: noop
-        user_data_format: RAW
-        user_data: |
-          #!/bin/sh
-          sudo cirros-dhcpc up eth1
-          sudo ip rule add iif eth0 table default
-          sudo ip route add default via 10.0.0.1 dev eth1 table default
-          sudo sysctl -w net.ipv4.ip_forward=1
-
-    CP1:
-      type: tosca.nodes.nfv.CP.Tacker
-      properties:
-        anti_spoofing_protection: false
-      requirements:
-        - virtualBinding:
-            node: VDU1
-
-    CP2:
-      type: tosca.nodes.nfv.CP.Tacker
-      properties:
-        anti_spoofing_protection: false
-      requirements:
-        - virtualBinding:
-            node: VDU1
-EOF
-
-tacker vnfd-create --vnfd-file vnfd.yaml vIDS-TEMPLATE
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;step-4-onboarding-a-nsd&#34;&gt;Step 4 - Onboarding a NSD&lt;/h2&gt;
-
-&lt;p&gt;In our use case the NSD template is going to really small. All what we need to define is a single VNF of the &lt;code&gt;tosca.nodes.nfv.vIDS&lt;/code&gt; type that was defined previously in the VNFD. We also define a VL node which points to the pre-existing &lt;code&gt;demo-net&lt;/code&gt; virtual network and pass this VL to both INGRESS_VL and EGRESS_VL parameters of the VNFD.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;cat &amp;lt;&amp;lt; EOF &amp;gt; ./nsd.yaml
-tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
-imports:
-  - vIDS-TEMPLATE
-
-topology_template:
-  node_templates:
-    vIDS:
-      type: tosca.nodes.nfv.vIDS
-      requirements:
-        - INGRESS_VL: VL1
-        - EGRESS_VL: VL1
-    VL1:
-      type: tosca.nodes.nfv.VL
-      properties:
-          network_name: demo-net
-          vendor: tacker
-EOF
-
-tacker nsd-create --nsd-file nsd.yaml NSD-vIDS-TEMPLATE
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;step-5-instantiating-a-nsd&#34;&gt;Step 5 - Instantiating a NSD&lt;/h2&gt;
-
-&lt;p&gt;As I&amp;rsquo;ve mentioned before, VNFFG is not integrated with NSD yet, so we&amp;rsquo;ll add it later. For now, we have provided enough information to instantiate our NSD.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;tacker ns-create --nsd-name NSD-vIDS-TEMPLATE NS-vIDS-1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This last command creates a cirros-based VM with two interfaces and connects them to &lt;code&gt;demo-net&lt;/code&gt; virtual network. All ICMP traffic from VM1 still goes directly to its default gateway so the last thing we need to do is create a VNFFG.&lt;/p&gt;
-
-&lt;h2 id=&#34;step-6-onboarding-and-instantiating-a-vnffg&#34;&gt;Step 6 - Onboarding and Instantiating a VNFFG&lt;/h2&gt;
-
-&lt;p&gt;VNFFG consists of two two types of nodes. The first type defines a Forwarding Path (FP) as a set of virtual ports (CPs) and a flow classifier to build an equivalent service function chain inside the VIM. The second type groups multiple forwarding paths to build a complex service chain graphs, however only one FP is supported by Tacker at the time of writing.&lt;/p&gt;
-
-&lt;p&gt;The following template demonstrates another important feature - template parametrization. Instead of defining all parameters statically in a template, they can be provided as inputs during instantiation, which allows to keep templates generic. In this case I&amp;rsquo;ve replaced the network port id parameter with &lt;code&gt;PORT_ID&lt;/code&gt; variable which will be provided during VNFFGD instantiation.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;cat &amp;lt;&amp;lt; EOF &amp;gt; ./vnffg.yaml
-tosca_definitions_version: tosca_simple_profile_for_nfv_1_0_0
-
-description = vIDS VNFFG tosca
-
-topology_template:
-  inputs:
-    PORT_ID:
-      type: string
-description = Port ID of the target VM
-
-  node_templates:
-
-    Forwarding_Path-1:
-      type: tosca.nodes.nfv.FP.Tacker
-description = creates path (CP1-&amp;gt;CP2)
-      properties:
-        id: 51
-        policy:
-          type: ACL
-          criteria:
-            - network_src_port_id: { get_input: PORT_ID }
-            - ip_proto: 1
-        path:
-          - forwarder: vIDS-TEMPLATE
-            capability: CP1
-          - forwarder: vIDS-TEMPLATE
-            capability: CP2
-
-
-  groups:
-    VNFFG1:
-      type: tosca.groups.nfv.VNFFG
-description = Set of Forwarding Paths
-      properties:
-        vendor: tacker
-        version: 1.0
-        number_of_endpoints: 1
-        dependent_virtual_link: [VL1]
-        connection_point: [CP1]
-        constituent_vnfs: [vIDS-TEMPLATE]
-      members: [Forwarding_Path-1]
-EOF
-
-tacker vnffgd-create --vnffgd-file vnffgd.yaml VNFFG-TEMPLATE
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Note that the VNFFGD has been updated to support multiple flow classifiers which means you many need to update the above template as per the &lt;a href=&#34;https://github.com/openstack/tacker/blob/master/samples/tosca-templates/vnffgd/tosca-vnffgd-multiple-classifiers-sample.yaml&#34; target=&#34;_blank&#34;&gt;sample VNFFGD template&lt;/a&gt;&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;In order to instantiate a VNFFGD we need to provide two runtime parameters:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;OpenStack port ID of VM1 for forwarding path flow classifier&lt;/li&gt;
-&lt;li&gt;ID of the VNF created by the Network Service&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;All these parameters can be obtained using the CLI commands as shown below:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;CLIENT_IP=$(openstack server list | grep VM1 | grep -Eo &#39;[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+&#39;)
-PORT_ID=$(openstack port list | grep $CLIENT_IP | awk &#39;{print $2}&#39;)
-echo &amp;quot;PORT_ID: $PORT_ID&amp;quot; &amp;gt; params-vnffg.yaml
-vIDS_ID=$(tacker ns-show NS-vIDS-1 -f value -c vnf_ids | sed &amp;quot;s/&#39;/\&amp;quot;/g&amp;quot; | jq &#39;.vIDS&#39; | sed &amp;quot;s/\&amp;quot;//g&amp;quot;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The following command creates a VNFFG and an equivalent SFC to steer all ICMP traffic from VM1 through vIDS VNF. The result can be verified using Skydive following the procedure described in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/09/15/os-sfc-skydive/&#34;&gt;previous post&lt;/a&gt;.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;tacker vnffg-create --vnffgd-name VNFFG-TEMPLATE \
-                    --vnf-mapping vIDS-TEMPLATE:$vIDS_ID \
-                    --param-file params-vnffg.yaml VNFFG-1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;other-tacker-features&#34;&gt;Other Tacker features&lt;/h1&gt;
-
-&lt;p&gt;This post only scratches the surface of what&amp;rsquo;s available in Tacker with a lot of other salient features left out of scope, including:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;VNF monitoring - through monitoring driver its possible to do VNF monitoring from VNFM using various methods ranging from a single ICMP/HTTP ping to Alarm-based monitoring using OpenStack&amp;rsquo;s &lt;a href=&#34;https://wiki.openstack.org/wiki/Telemetry&#34; target=&#34;_blank&#34;&gt;Telemetry framework&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;Enhanced Placement Awareness - VNFD Tosca template extensions that allow the definition of required performance features like NUMA topology mapping, SR-IOV and CPU pinning.&lt;/li&gt;
-&lt;li&gt;Mistral workflows - ability to drive Tacker workflows through Mistral&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
-
-&lt;p&gt;Tacker is one of &lt;a href=&#34;https://thenewstack.io/opensource-nfv-part-4-opensource-mano/&#34; target=&#34;_blank&#34;&gt;many&lt;/a&gt; NFV orchestration platforms in a very competitive environment. Other &lt;a href=&#34;https://www.mirantis.com/blog/which-nfv-orchestration-platform-best-review-osm-open-o-cord-cloudify/&#34; target=&#34;_blank&#34;&gt;open-source initiatives&lt;/a&gt; have been created in response to the shortcomings of the original ETSI Release 1 reference architecture. The fact the some of the biggest Telcos have finally realised that the only way to achieve the goal of NFV orchestration is to get involved with open-source and do it themselves, may be a good sign for the industry and maybe not so good for the ETSI NFV MANO working group. Whether ONAP with its broader scope becomes a new de-facto standard for NFV orchestration, still remains to be seen, until then ETSI MANO remains the only viable standard for NFV lifecycle management and orchestration.&lt;/p&gt;
 </description>
     </item>
     

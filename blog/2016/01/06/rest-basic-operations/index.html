@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="theme" content="hugo-academic">
-  <meta name="generator" content="Hugo 0.55.6" />
+  <meta name="generator" content="Hugo 0.37" />
   <meta name="author" content="Michael Kashin">
 
   
@@ -17,7 +17,8 @@
       
     
   
-  <meta name="description" content="In this post I&rsquo;ll show how to build REST SDK to authenticate, create labs and nodes in UnetLab. I&rsquo;ll briefly cover the difference between composition and inheritance design patterns and demonstrate how to use test-driven development">
+  <meta name="description" content="REST SDK Design As it is with networks, design is a very crucial part of programming. I won&rsquo;t pretend to be an expert in that field and merely present the way I&rsquo;ve built REST SDK. Fortunately, a lot of design will mimic the objects and their relationship on the server side. I&rsquo;ll slightly enhance it to improve code re-use and portability. Here are the basic objects:
+ RestServer - implements basic application-agnostic HTTP CRUD logic UnlServer - an extension of a RestServer with specific authentication method (cookie-based) and several additional methods Device - an instance of a network device with specific attributes like type, image name, number of CPUs UnlLab - a lab instance existing inside a UnlServer UnlNode - a node instance existing inside a UnlLab UnlNet - a network instance also existing inside a UnlLab object  All these objects and their relationships are depicted on the following simplified UML diagram.">
 
   
   <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/01/06/rest-basic-operations/">
@@ -90,7 +91,8 @@
   <meta property="og:site_name" content="networkop">
   <meta property="og:url" content="https://networkop.co.uk/blog/2016/01/06/rest-basic-operations/">
   <meta property="og:title" content="REST for Network Engineers Part 2 - Basic Operations With UnetLab | networkop">
-  <meta property="og:description" content="In this post I&rsquo;ll show how to build REST SDK to authenticate, create labs and nodes in UnetLab. I&rsquo;ll briefly cover the difference between composition and inheritance design patterns and demonstrate how to use test-driven development">
+  <meta property="og:description" content="REST SDK Design As it is with networks, design is a very crucial part of programming. I won&rsquo;t pretend to be an expert in that field and merely present the way I&rsquo;ve built REST SDK. Fortunately, a lot of design will mimic the objects and their relationship on the server side. I&rsquo;ll slightly enhance it to improve code re-use and portability. Here are the basic objects:
+ RestServer - implements basic application-agnostic HTTP CRUD logic UnlServer - an extension of a RestServer with specific authentication method (cookie-based) and several additional methods Device - an instance of a network device with specific attributes like type, image name, number of CPUs UnlLab - a lab instance existing inside a UnlServer UnlNode - a node instance existing inside a UnlLab UnlNet - a network instance also existing inside a UnlLab object  All these objects and their relationships are depicted on the following simplified UML diagram.">
   <meta property="og:locale" content="en-us">
   
   <meta property="article:published_time" content="2016-01-06T00:00:00&#43;00:00">
@@ -100,7 +102,8 @@
 
   <meta name="twitter:card" content="summary"/>
 <meta name="twitter:title" content="REST for Network Engineers Part 2 - Basic Operations With UnetLab"/>
-<meta name="twitter:description" content="In this post I&rsquo;ll show how to build REST SDK to authenticate, create labs and nodes in UnetLab. I&rsquo;ll briefly cover the difference between composition and inheritance design patterns and demonstrate how to use test-driven development"/>
+<meta name="twitter:description" content="REST SDK Design As it is with networks, design is a very crucial part of programming. I won&rsquo;t pretend to be an expert in that field and merely present the way I&rsquo;ve built REST SDK. Fortunately, a lot of design will mimic the objects and their relationship on the server side. I&rsquo;ll slightly enhance it to improve code re-use and portability. Here are the basic objects:
+ RestServer - implements basic application-agnostic HTTP CRUD logic UnlServer - an extension of a RestServer with specific authentication method (cookie-based) and several additional methods Device - an instance of a network device with specific attributes like type, image name, number of CPUs UnlLab - a lab instance existing inside a UnlServer UnlNode - a node instance existing inside a UnlLab UnlNet - a network instance also existing inside a UnlLab object  All these objects and their relationships are depicted on the following simplified UML diagram."/>
 
 
   <title>REST for Network Engineers Part 2 - Basic Operations With UnetLab | networkop</title>
@@ -661,7 +664,7 @@ if __name__ == '__main__':
   
 <section id="comments">
   <div id="disqus_thread"></div>
-<script type="application/javascript">
+<script>
     var disqus_config = function () {
     
     

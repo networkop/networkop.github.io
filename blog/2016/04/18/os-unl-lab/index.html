@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="theme" content="hugo-academic">
-  <meta name="generator" content="Hugo 0.55.6" />
+  <meta name="generator" content="Hugo 0.37" />
   <meta name="author" content="Michael Kashin">
 
   
@@ -17,7 +17,8 @@
       
     
   
-  <meta name="description" content="In the previous post I&rsquo;ve demonstrated how to get a working instance of a single-node OpenStack inside UNetLab. In this post we&rsquo;ll continue building on that by adding two new compute nodes and redesigning our network to resemble something you might actually see in a real life.">
+  <meta name="description" content="OpenStack network requirements Depending on the number of deployed components, OpenStack physical network requirements could be different. In our case we&rsquo;re not going to deploy any storage solution and simply use the ephemeral storage, i.e. hard disk that&rsquo;s a part of a virtual machine. However, even in minimal installations, there are a number of networks that should be considered individually due to different connectivity requirements:
+ Server OOB management network - this is usually a dedicated physical network used mainly for server bootstrapping and OS deployment.">
 
   
   <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/blog/2016/04/18/os-unl-lab/">
@@ -90,7 +91,8 @@
   <meta property="og:site_name" content="networkop">
   <meta property="og:url" content="https://networkop.co.uk/blog/2016/04/18/os-unl-lab/">
   <meta property="og:title" content="Building a Multi-node OpenStack Lab in UNetLab | networkop">
-  <meta property="og:description" content="In the previous post I&rsquo;ve demonstrated how to get a working instance of a single-node OpenStack inside UNetLab. In this post we&rsquo;ll continue building on that by adding two new compute nodes and redesigning our network to resemble something you might actually see in a real life.">
+  <meta property="og:description" content="OpenStack network requirements Depending on the number of deployed components, OpenStack physical network requirements could be different. In our case we&rsquo;re not going to deploy any storage solution and simply use the ephemeral storage, i.e. hard disk that&rsquo;s a part of a virtual machine. However, even in minimal installations, there are a number of networks that should be considered individually due to different connectivity requirements:
+ Server OOB management network - this is usually a dedicated physical network used mainly for server bootstrapping and OS deployment.">
   <meta property="og:locale" content="en-us">
   
   <meta property="article:published_time" content="2016-04-19T00:00:00&#43;00:00">
@@ -100,7 +102,8 @@
 
   <meta name="twitter:card" content="summary"/>
 <meta name="twitter:title" content="Building a Multi-node OpenStack Lab in UNetLab"/>
-<meta name="twitter:description" content="In the previous post I&rsquo;ve demonstrated how to get a working instance of a single-node OpenStack inside UNetLab. In this post we&rsquo;ll continue building on that by adding two new compute nodes and redesigning our network to resemble something you might actually see in a real life."/>
+<meta name="twitter:description" content="OpenStack network requirements Depending on the number of deployed components, OpenStack physical network requirements could be different. In our case we&rsquo;re not going to deploy any storage solution and simply use the ephemeral storage, i.e. hard disk that&rsquo;s a part of a virtual machine. However, even in minimal installations, there are a number of networks that should be considered individually due to different connectivity requirements:
+ Server OOB management network - this is usually a dedicated physical network used mainly for server bootstrapping and OS deployment."/>
 
 
   <title>Building a Multi-node OpenStack Lab in UNetLab | networkop</title>
@@ -336,19 +339,19 @@
 
 <li><p><strong>Tenant</strong> - this will be a routed leaf/spine <a href="https://en.wikipedia.org/wiki/Clos_network" target="_blank">Clos</a> fabric comprised of 3 leaf and 2 spine switches running a single-area OSPF process on all their links. Each server will have its own unique tenant subnet (Vlan100) terminated on the leaf switch and subnet injected into OSPF. The subnet used for this Vlan is going to be <code>10.0.X.0/24</code>, where X is the number of the leaf switch terminating the vlan.</p>
 
-<p>The links between switches are all L3 point-to-point with addresses borrowed from 169.254.0.0/16 range specifically to emphasize the fact that the internal addressing does not need to be known or routed outside of the fabric. The <strong>sole function of the fabric</strong> is to provide multiple equal cost paths between any pair of leafs, thereby achieving maximum link utilisation. Here&rsquo;s an example of a traceroute between Vlan100&rsquo;s of Leaf #1 and Leaf #3.</p>
+<p>The links between switches are all L3 point-to-point with addresses borrowed from 169.254.0.0/16 range specifically to emphasize the fact that the internal addressing does not need to be known or routed outside of the fabric. The <strong>sole function of the fabric</strong> is to provide multiple equal cost paths between any pair of leafs, thereby achieving maximum link utilisation. Here&rsquo;s an example of a traceroute between Vlan100&rsquo;s of Leaf #1 and Leaf #3.</p></li>
+</ul>
 
 <pre><code>L3#traceroute 10.0.1.1 source 10.0.3.1
 Type escape sequence to abort.
 Tracing the route to 10.0.1.1
 VRF info: (vrf in name/id, vrf out name/id)
-1 169.254.31.111 1 msec
-169.254.32.222 0 msec
-169.254.31.111 0 msec
-2 169.254.12.1 1 msec
-169.254.11.1 1 msec *
-</code></pre></li>
-</ul>
+  1 169.254.31.111 1 msec
+    169.254.32.222 0 msec
+    169.254.31.111 0 msec
+  2 169.254.12.1 1 msec
+    169.254.11.1 1 msec *
+</code></pre>
 
 <h1 id="building-lab-servers">Building lab servers</h1>
 
@@ -393,15 +396,18 @@ router ospf 1
 <p>Refer to my <a href="/blog/2016/04/04/openstack-unl/">previous blogpost</a> for instructions on how to install OpenStack and follow the first 5 steps from &ldquo;Installing CentOS and OpenStack&rdquo; section. Before doing the final step, we need to configure our VMs&rsquo; new interfaces:</p>
 
 <ul>
-<li><p>Remove any IP configuration from <strong>eth1</strong> interface to make it look like this:</p>
+<li>Remove any IP configuration from <strong>eth1</strong> interface to make it look like this:</li>
+</ul>
 
 <pre><code>TYPE=Ethernet
 BOOTPROTO=none
 DEVICE=eth1
 ONBOOT=yes
-</code></pre></li>
+</code></pre>
 
-<li><p>Configure <strong>Tenant network</strong> in <code>ifcfg-eth1.100</code>:</p>
+<ul>
+<li>Configure <strong>Tenant network</strong> in <code>ifcfg-eth1.100</code>:</li>
+</ul>
 
 <pre><code>VLAN=yes
 DEVICE=eth1.100
@@ -409,14 +415,18 @@ BOOTPROTO=none
 IPADDR=10.0.X.10
 PREFIX=24
 ONBOOT=yes
-</code></pre></li>
+</code></pre>
 
-<li><p>Setup a <strong>static route</strong> to all other leaf nodes in <code>route-eth1.100</code>:</p>
+<ul>
+<li>Setup a <strong>static route</strong> to all other leaf nodes in <code>route-eth1.100</code>:</li>
+</ul>
 
 <pre><code>10.0.0.0/8 via 10.0.X.1
-</code></pre></li>
+</code></pre>
 
-<li><p>On Control node setup <strong>External network</strong> interface</p>
+<ul>
+<li>On Control node setup <strong>External network</strong> interface</li>
+</ul>
 
 <pre><code>DEVICE=eth1.300
 IPADDR=192.168.247.100
@@ -424,8 +434,7 @@ PREFIX=24
 ONBOOT=yes
 BOOTPROTO=none
 VLAN=yes
-</code></pre></li>
-</ul>
+</code></pre>
 
 <p>Now we&rsquo;re ready to kick off OpenStack installation. This can be done with a single command that needs to be executed on the Control node. Note that <code>eth1.100</code> interface is spelled as <code>eth1_100</code> in the last line.</p>
 
@@ -520,7 +529,7 @@ VLAN=yes
   
 <section id="comments">
   <div id="disqus_thread"></div>
-<script type="application/javascript">
+<script>
     var disqus_config = function () {
     
     
