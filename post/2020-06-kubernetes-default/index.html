@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="Every Kubernetes cluster is provisioned with a special service that provides a way for internal applications to talk to the API server. However, unlike the rest of the components that get spun up by default, you won&rsquo;t find the definition of this service in any of the static manifests and this is just one of the many things that make this service unique.
+The Special One To make sure we&rsquo;re on the same page, I&rsquo;m talking about this:">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2020-06-kubernetes-default/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2020-06-kubernetes-default/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2020-06-kubernetes-default/">
+  <meta property="og:title" content="Anatomy of the &#34;kubernetes.default&#34; | networkop">
+  <meta property="og:description" content="Every Kubernetes cluster is provisioned with a special service that provides a way for internal applications to talk to the API server. However, unlike the rest of the components that get spun up by default, you won&rsquo;t find the definition of this service in any of the static manifests and this is just one of the many things that make this service unique.
+The Special One To make sure we&rsquo;re on the same page, I&rsquo;m talking about this:">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2020-06-29T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2020-06-29T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary"/>
+<meta name="twitter:title" content="Anatomy of the &#34;kubernetes.default&#34;"/>
+<meta name="twitter:description" content="Understanding how the default kubernetes service is configured"/>
+
+
+  <title>Anatomy of the &#34;kubernetes.default&#34; | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Anatomy of the &#34;kubernetes.default&#34;</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2020-06-29 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      29 Jun 2020
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    7 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2020-06-kubernetes-default/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/howto">howto</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Anatomy%20of%20the%20%22kubernetes.default%22&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-06-kubernetes-default%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-06-kubernetes-default%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-06-kubernetes-default%2f&amp;title=Anatomy%20of%20the%20%22kubernetes.default%22"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Anatomy%20of%20the%20%22kubernetes.default%22&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2020-06-kubernetes-default%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>Every Kubernetes cluster is provisioned with a special service that provides a way for internal applications to talk to the API server. However, unlike the rest of the components that get spun up by default, you won&rsquo;t find the definition of this service in any of the static manifests and this is just one of the many things that make this service unique.</p>
+
+<h2 id="the-special-one">The Special One</h2>
+
+<p>To make sure we&rsquo;re on the same page, I&rsquo;m talking about this:</p>
+
+<pre><code>$ kubect get svc kubernetes -n default
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1    &lt;none&gt;        443/TCP   161m
+</code></pre>
+
+<p>This service is unique in many ways. First, as you may have noticed, it always occupies the first available IP in the Cluster CIDR, a.k.a. <code>--service-cluster-ip-range</code>.</p>
+
+<p>Second, this service is invincible, i.e. it will always get re-created, even when it&rsquo;s manually removed:</p>
+
+<pre><code>$ kubectl get svc
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1    &lt;none&gt;        443/TCP   118s
+$ kubectl delete svc kubernetes
+service &quot;kubernetes&quot; deleted
+$ kubectl get svc
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1    &lt;none&gt;        443/TCP   0s
+</code></pre>
+
+<p>You may notice that it comes up with the same ClusterIP, regardless of how many services may already exist in the cluster.</p>
+
+<p>Third, this service does not have any matching pods, however it does have a fully populated <code>Endpoints</code> object:</p>
+
+<pre><code>$ kubectl get pod --selector component=apiserver --all-namespaces
+No resources found
+$ kubectl get endpoints kubernetes
+NAME         ENDPOINTS                                         AGE
+kubernetes   172.18.0.2:6443,172.18.0.3:6443,172.18.0.4:6443   4m16s
+</code></pre>
+
+<p>This last bit is perhaps the most curious one. How can a service have a list of endpoints when there are no pods that match this service&rsquo;s label selector? This goes against how services controller <a href="https://kubernetes.io/docs/concepts/services-networking/service/#defining-a-service" target="_blank">works</a>.  Note that this behaviour is true even for managed kubernetes clusters, where the API server is run by the provider (e.g. GKE).</p>
+
+<p>Finally, the IP and Port of this service get injected into every pod as environment variables:</p>
+
+<pre><code>KUBERNETES_SERVICE_HOST=10.96.0.1
+KUBERNETES_SERVICE_PORT=443
+KUBERNETES_SERVICE_PORT_HTTPS=443
+</code></pre>
+
+<p>These values can later be used by k8s controllers to <a href="https://github.com/kubernetes/client-go/blob/master/tools/clientcmd/client_config.go#L561" target="_blank">configure</a> the client-go&rsquo;s rest interface that is used to establish connectivity to the API server:</p>
+
+<pre><code class="language-go">func InClusterConfig() (*Config, error) {
+
+  host := os.Getenv(&quot;KUBERNETES_SERVICE_HOST&quot;), 
+  port := os.Getenv(&quot;KUBERNETES_SERVICE_PORT&quot;)
+
+  return &amp;Config{
+		Host: &quot;https://&quot; + net.JoinHostPort(host, port),
+  }
+</code></pre>
+
+<h2 id="controller-of-controllers">Controller of controllers</h2>
+
+<p>To find out who&rsquo;s behind this magical service, we need to look at the code for the k/k&rsquo;s <a href="https://github.com/kubernetes/kubernetes/blob/master/pkg/master/controller.go" target="_blank">master controller</a>, that is described as the &ldquo;controller manager for the core bootstrap Kubernetes controller loops&rdquo;, meaning it&rsquo;s one of the first controllers that gets spun up by the API server binary. Let&rsquo;s break it down into smaller pieces and see what&rsquo;s going on inside it.</p>
+
+<p>When the controller is started, it spins up a runner, which is a group of functions that run forever until they receive a stop signal via a channel.</p>
+
+<pre><code class="language-go">// Start begins the core controller loops that must exist for bootstrapping
+// a cluster.
+func (c *Controller) Start() {
+  
+	c.runner = async.NewRunner(c.RunKubernetesNamespaces, c.RunKubernetesService, repairClusterIPs.RunUntil, repairNodePorts.RunUntil)
+	c.runner.Start()
+}
+
+</code></pre>
+
+<p>The most interesting is the second function - <code>RunKubernetesService()</code>, which is a control loop that constantly updates the default kubernetes service.</p>
+
+<pre><code class="language-go">// RunKubernetesService periodically updates the kubernetes service
+func (c *Controller) RunKubernetesService(ch chan struct{}) {
+
+	if err := c.UpdateKubernetesService(false); err != nil {
+		runtime.HandleError(fmt.Errorf(&quot;unable to sync kubernetes service: %v&quot;, err))
+	}
+}
+</code></pre>
+
+<p>Most of the work is done by the <code>UpdateKubernetesService()</code>. This function does three things:</p>
+
+<ul>
+<li>Creates the &ldquo;default&rdquo; namespace whose name is defined in the <code>metav1.NamespaceDefault</code> variable.</li>
+<li>Creates/Updates the default kuberentes service.</li>
+<li>Creates/Updates the endpoints resource for this service.</li>
+</ul>
+
+<pre><code class="language-go">// UpdateKubernetesService attempts to update the default Kube service.
+func (c *Controller) UpdateKubernetesService(reconcile bool) error {
+
+	if err := createNamespaceIfNeeded(c.NamespaceClient, metav1.NamespaceDefault); err != nil {
+		return err
+   }
+
+	if err := c.CreateOrUpdateMasterServiceIfNeeded(kubernetesServiceName, c.ServiceIP, servicePorts, serviceType, reconcile); err != nil {
+		return err
+	}
+
+	if err := c.EndpointReconciler.ReconcileEndpoints(kubernetesServiceName, c.PublicIP, endpointPorts, reconcile); err != nil {
+		return err
+	}
+
+	return nil
+}
+</code></pre>
+
+<p>Finally, the <code>CreateOrUpdateMasterServiceIfNeeded()</code> function is where the default service is being built. You can see the skeleton of this service&rsquo;s object in the below snippet:</p>
+
+<pre><code class="language-go">const kubernetesServiceName = &quot;kubernetes&quot;
+
+// CreateOrUpdateMasterServiceIfNeeded will create the specified service if it
+// doesn't already exist.
+func (c *Controller) CreateOrUpdateMasterServiceIfNeeded(serviceName string, serviceIP net.IP, servicePorts []corev1.ServicePort, serviceType corev1.ServiceType, reconcile bool) error {
+
+	svc := &amp;corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName,
+			Namespace: metav1.NamespaceDefault,
+			Labels:    map[string]string{&quot;provider&quot;: &quot;kubernetes&quot;, &quot;component&quot;: &quot;apiserver&quot;},
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: servicePorts,
+			// maintained by this code, not by the pod selector
+			Selector:        nil,
+			ClusterIP:       serviceIP.String(),
+			SessionAffinity: corev1.ServiceAffinityNone,
+			Type:            serviceType,
+		},
+	}
+
+	_, err := c.ServiceClient.Services(metav1.NamespaceDefault).Create(context.TODO(), svc, metav1.CreateOptions{})
+
+	return err
+}
+</code></pre>
+
+<p>The code above explains why this service can never be completely removed from the cluster - the master controller loop will always recreate it if it&rsquo;s missing, along with its endpoints object. However, this still doesn&rsquo;t explain how the IP for this service is selected nor where the endpoint IPs are coming from. In order to do this, we need to get a deeper look at how the API server builds its runtime configuration.</p>
+
+<h2 id="always-the-first">Always the first</h2>
+
+<p>One of the interesting qualities of the ClusterIP of the <code>kubernetes.default</code> is that it always (unless manually overridden) occupies the first IP in the Cluster CIDR. The answer is hidden in the <code>ServiceIPRange()</code> function of the master controller&rsquo;s <a href="https://github.com/kubernetes/kubernetes/blob/master/pkg/master/services.go" target="_blank">service.go</a>:</p>
+
+<pre><code class="language-go">
+func ServiceIPRange(passedServiceClusterIPRange net.IPNet) (net.IPNet, net.IP, error) {
+
+	size := integer.Int64Min(utilnet.RangeSize(&amp;serviceClusterIPRange), 1&lt;&lt;16)
+	if size &lt; 8 {
+		return net.IPNet{}, net.IP{}, fmt.Errorf(&quot;the service cluster IP range must be at least %d IP addresses&quot;, 8)
+	}
+
+	// Select the first valid IP from ServiceClusterIPRange to use as the GenericAPIServer service IP.
+	apiServerServiceIP, err := utilnet.GetIndexedIP(&amp;serviceClusterIPRange, 1)
+	if err != nil {
+		return net.IPNet{}, net.IP{}, err
+	}
+
+	return serviceClusterIPRange, apiServerServiceIP, nil
+}
+</code></pre>
+
+<p>This function gets <a href="https://github.com/kubernetes/kubernetes/blob/master/pkg/master/master.go#L292" target="_blank">called</a> when the master controller is started and hard-codes the service IP for the default service to the first IP of the range. Another interesting fact in this function is that it always checks that the Cluster IP range is at least /29, which fits 6 usable addresses in the worst case. The latter can probably be explained by the fact that the next size down is /30, which doesn&rsquo;t leave much room for user-defined clusterIPs after the <code>kubernetes.default</code> and <code>kube-dns.kube-system</code> are configured, so in the smallest possible cluster you can at least configure a few non-default services before you run out of IPs.</p>
+
+<h2 id="endpoint-ips">Endpoint IPs</h2>
+
+<p>The way endpoint addresses are populated is different between managed (GKE, AKS, EKS) and non-managed clusters. Let&rsquo;s first have a look at a highly-available kind cluster:</p>
+
+<pre><code>$ kubectl describe svc kubernetes | grep Endpoints
+Endpoints:         172.18.0.3:6443,172.18.0.4:6443,172.18.0.7:6443
+</code></pre>
+
+<p>Bearing in mind that by default kind would use <code>10.244.0.0/16</code> as the pod IP range and <code>10.96.0.0/12</code> as the cluster IP range, these IPs don&rsquo;t make a lot of sense. However, since kind uses kubeadm under the hood, which spins up control plane components as static pods, we can find API server pods in the <code>kube-system</code> namespace:</p>
+
+<pre><code>kubectl -n kube-system get pod -l tier=control-plane -o wide | grep api
+kube-apiserver-kind-control-plane             1/1     Running   172.18.0.3
+kube-apiserver-kind-control-plane2            1/1     Running   172.18.0.4
+kube-apiserver-kind-control-plane3            1/1     Running   172.18.0.7
+</code></pre>
+
+<p>If we check the manifest of any of the above pods, we&rsquo;ll see that they are run with <code>hostNetwork: true</code> and those IP come from the underlying containers that kind uses as nodes. As a part of the <code>UpdateKubernetesService()</code> mentioned above, each API server in the cluster goes and <a href="https://github.com/kubernetes/kubernetes/blob/master/pkg/master/controller.go#L243" target="_blank">updates</a> the <code>endpoints</code> object with its own IP and Port as defined in the <a href="https://github.com/kubernetes/kubernetes/blob/master/pkg/master/reconcilers/mastercount.go#L62" target="_blank">mastercount.go</a>:</p>
+
+<pre><code class="language-go">func (r *masterCountEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.IP, endpointPorts []corev1.EndpointPort, reconcilePorts bool) error {
+
+	e.Subsets = []corev1.EndpointSubset{{
+		Addresses: []corev1.EndpointAddress{{IP: ip.String()}},
+		Ports:     endpointPorts,
+	}}
+	klog.Warningf(&quot;Resetting endpoints for master service %q to %#v&quot;, serviceName, e)
+	_, err = r.epAdapter.Update(metav1.NamespaceDefault, e)
+}
+</code></pre>
+
+<hr />
+
+<p>With managed Kubernetes clusters, control-plane nodes are not accessible by end users, so it&rsquo;s harder to say exactly how endpoints are getting populated. However, it&rsquo;s fairly easy to imagine that a cloud provider spins up a 3-node control-plane with a load-balancer and configures all three API servers with this LB&rsquo;s IP as the <code>advertise-address</code>. This would results in a single endpoint that represents that managed control-plane load-balancer:</p>
+
+<pre><code>$ kubectl get ep kubernetes
+NAME         ENDPOINTS          AGE
+kubernetes   172.16.0.2:443   40d
+</code></pre>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/devops">devops</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/k8s">k8s</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2020-06-ingress-puzzle/">Solving the Ingress Mystery Puzzle</a></li>
+    
+    <li><a href="/post/2020-05-cluster-api-intro/">Getting Started with Cluster API using Docker</a></li>
+    
+    <li><a href="/post/2020-01-nsm-topo/">Network Simulations with Network Service Mesh</a></li>
+    
+    <li><a href="/post/2019-06-naas-p3/">Network-as-a-Service Part 3 - Authentication and Admission control</a></li>
+    
+    <li><a href="/post/2019-06-naas-p2/">Network-as-a-Service Part 2 - Designing a Network API</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+

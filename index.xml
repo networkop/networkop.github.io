@@ -11,6 +11,221 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Anatomy of the &#34;kubernetes.default&#34;</title>
+      <link>https://networkop.co.uk/post/2020-06-kubernetes-default/</link>
+      <pubDate>Mon, 29 Jun 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-06-kubernetes-default/</guid>
+      <description>
+
+&lt;p&gt;Every Kubernetes cluster is provisioned with a special service that provides a way for internal applications to talk to the API server. However, unlike the rest of the components that get spun up by default, you won&amp;rsquo;t find the definition of this service in any of the static manifests and this is just one of the many things that make this service unique.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-special-one&#34;&gt;The Special One&lt;/h2&gt;
+
+&lt;p&gt;To make sure we&amp;rsquo;re on the same page, I&amp;rsquo;m talking about this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubect get svc kubernetes -n default
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1    &amp;lt;none&amp;gt;        443/TCP   161m
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This service is unique in many ways. First, as you may have noticed, it always occupies the first available IP in the Cluster CIDR, a.k.a. &lt;code&gt;--service-cluster-ip-range&lt;/code&gt;.&lt;/p&gt;
+
+&lt;p&gt;Second, this service is invincible, i.e. it will always get re-created, even when it&amp;rsquo;s manually removed:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get svc
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1    &amp;lt;none&amp;gt;        443/TCP   118s
+$ kubectl delete svc kubernetes
+service &amp;quot;kubernetes&amp;quot; deleted
+$ kubectl get svc
+NAME         TYPE        CLUSTER-IP   EXTERNAL-IP   PORT(S)   AGE
+kubernetes   ClusterIP   10.96.0.1    &amp;lt;none&amp;gt;        443/TCP   0s
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You may notice that it comes up with the same ClusterIP, regardless of how many services may already exist in the cluster.&lt;/p&gt;
+
+&lt;p&gt;Third, this service does not have any matching pods, however it does have a fully populated &lt;code&gt;Endpoints&lt;/code&gt; object:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get pod --selector component=apiserver --all-namespaces
+No resources found
+$ kubectl get endpoints kubernetes
+NAME         ENDPOINTS                                         AGE
+kubernetes   172.18.0.2:6443,172.18.0.3:6443,172.18.0.4:6443   4m16s
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This last bit is perhaps the most curious one. How can a service have a list of endpoints when there are no pods that match this service&amp;rsquo;s label selector? This goes against how services controller &lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/service/#defining-a-service&#34; target=&#34;_blank&#34;&gt;works&lt;/a&gt;.  Note that this behaviour is true even for managed kubernetes clusters, where the API server is run by the provider (e.g. GKE).&lt;/p&gt;
+
+&lt;p&gt;Finally, the IP and Port of this service get injected into every pod as environment variables:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;KUBERNETES_SERVICE_HOST=10.96.0.1
+KUBERNETES_SERVICE_PORT=443
+KUBERNETES_SERVICE_PORT_HTTPS=443
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;These values can later be used by k8s controllers to &lt;a href=&#34;https://github.com/kubernetes/client-go/blob/master/tools/clientcmd/client_config.go#L561&#34; target=&#34;_blank&#34;&gt;configure&lt;/a&gt; the client-go&amp;rsquo;s rest interface that is used to establish connectivity to the API server:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func InClusterConfig() (*Config, error) {
+
+  host := os.Getenv(&amp;quot;KUBERNETES_SERVICE_HOST&amp;quot;), 
+  port := os.Getenv(&amp;quot;KUBERNETES_SERVICE_PORT&amp;quot;)
+
+  return &amp;amp;Config{
+		Host: &amp;quot;https://&amp;quot; + net.JoinHostPort(host, port),
+  }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;controller-of-controllers&#34;&gt;Controller of controllers&lt;/h2&gt;
+
+&lt;p&gt;To find out who&amp;rsquo;s behind this magical service, we need to look at the code for the k/k&amp;rsquo;s &lt;a href=&#34;https://github.com/kubernetes/kubernetes/blob/master/pkg/master/controller.go&#34; target=&#34;_blank&#34;&gt;master controller&lt;/a&gt;, that is described as the &amp;ldquo;controller manager for the core bootstrap Kubernetes controller loops&amp;rdquo;, meaning it&amp;rsquo;s one of the first controllers that gets spun up by the API server binary. Let&amp;rsquo;s break it down into smaller pieces and see what&amp;rsquo;s going on inside it.&lt;/p&gt;
+
+&lt;p&gt;When the controller is started, it spins up a runner, which is a group of functions that run forever until they receive a stop signal via a channel.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;// Start begins the core controller loops that must exist for bootstrapping
+// a cluster.
+func (c *Controller) Start() {
+  
+	c.runner = async.NewRunner(c.RunKubernetesNamespaces, c.RunKubernetesService, repairClusterIPs.RunUntil, repairNodePorts.RunUntil)
+	c.runner.Start()
+}
+
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The most interesting is the second function - &lt;code&gt;RunKubernetesService()&lt;/code&gt;, which is a control loop that constantly updates the default kubernetes service.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;// RunKubernetesService periodically updates the kubernetes service
+func (c *Controller) RunKubernetesService(ch chan struct{}) {
+
+	if err := c.UpdateKubernetesService(false); err != nil {
+		runtime.HandleError(fmt.Errorf(&amp;quot;unable to sync kubernetes service: %v&amp;quot;, err))
+	}
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Most of the work is done by the &lt;code&gt;UpdateKubernetesService()&lt;/code&gt;. This function does three things:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Creates the &amp;ldquo;default&amp;rdquo; namespace whose name is defined in the &lt;code&gt;metav1.NamespaceDefault&lt;/code&gt; variable.&lt;/li&gt;
+&lt;li&gt;Creates/Updates the default kuberentes service.&lt;/li&gt;
+&lt;li&gt;Creates/Updates the endpoints resource for this service.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;// UpdateKubernetesService attempts to update the default Kube service.
+func (c *Controller) UpdateKubernetesService(reconcile bool) error {
+
+	if err := createNamespaceIfNeeded(c.NamespaceClient, metav1.NamespaceDefault); err != nil {
+		return err
+   }
+
+	if err := c.CreateOrUpdateMasterServiceIfNeeded(kubernetesServiceName, c.ServiceIP, servicePorts, serviceType, reconcile); err != nil {
+		return err
+	}
+
+	if err := c.EndpointReconciler.ReconcileEndpoints(kubernetesServiceName, c.PublicIP, endpointPorts, reconcile); err != nil {
+		return err
+	}
+
+	return nil
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, the &lt;code&gt;CreateOrUpdateMasterServiceIfNeeded()&lt;/code&gt; function is where the default service is being built. You can see the skeleton of this service&amp;rsquo;s object in the below snippet:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;const kubernetesServiceName = &amp;quot;kubernetes&amp;quot;
+
+// CreateOrUpdateMasterServiceIfNeeded will create the specified service if it
+// doesn&#39;t already exist.
+func (c *Controller) CreateOrUpdateMasterServiceIfNeeded(serviceName string, serviceIP net.IP, servicePorts []corev1.ServicePort, serviceType corev1.ServiceType, reconcile bool) error {
+
+	svc := &amp;amp;corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      serviceName,
+			Namespace: metav1.NamespaceDefault,
+			Labels:    map[string]string{&amp;quot;provider&amp;quot;: &amp;quot;kubernetes&amp;quot;, &amp;quot;component&amp;quot;: &amp;quot;apiserver&amp;quot;},
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: servicePorts,
+			// maintained by this code, not by the pod selector
+			Selector:        nil,
+			ClusterIP:       serviceIP.String(),
+			SessionAffinity: corev1.ServiceAffinityNone,
+			Type:            serviceType,
+		},
+	}
+
+	_, err := c.ServiceClient.Services(metav1.NamespaceDefault).Create(context.TODO(), svc, metav1.CreateOptions{})
+
+	return err
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The code above explains why this service can never be completely removed from the cluster - the master controller loop will always recreate it if it&amp;rsquo;s missing, along with its endpoints object. However, this still doesn&amp;rsquo;t explain how the IP for this service is selected nor where the endpoint IPs are coming from. In order to do this, we need to get a deeper look at how the API server builds its runtime configuration.&lt;/p&gt;
+
+&lt;h2 id=&#34;always-the-first&#34;&gt;Always the first&lt;/h2&gt;
+
+&lt;p&gt;One of the interesting qualities of the ClusterIP of the &lt;code&gt;kubernetes.default&lt;/code&gt; is that it always (unless manually overridden) occupies the first IP in the Cluster CIDR. The answer is hidden in the &lt;code&gt;ServiceIPRange()&lt;/code&gt; function of the master controller&amp;rsquo;s &lt;a href=&#34;https://github.com/kubernetes/kubernetes/blob/master/pkg/master/services.go&#34; target=&#34;_blank&#34;&gt;service.go&lt;/a&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;
+func ServiceIPRange(passedServiceClusterIPRange net.IPNet) (net.IPNet, net.IP, error) {
+
+	size := integer.Int64Min(utilnet.RangeSize(&amp;amp;serviceClusterIPRange), 1&amp;lt;&amp;lt;16)
+	if size &amp;lt; 8 {
+		return net.IPNet{}, net.IP{}, fmt.Errorf(&amp;quot;the service cluster IP range must be at least %d IP addresses&amp;quot;, 8)
+	}
+
+	// Select the first valid IP from ServiceClusterIPRange to use as the GenericAPIServer service IP.
+	apiServerServiceIP, err := utilnet.GetIndexedIP(&amp;amp;serviceClusterIPRange, 1)
+	if err != nil {
+		return net.IPNet{}, net.IP{}, err
+	}
+
+	return serviceClusterIPRange, apiServerServiceIP, nil
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This function gets &lt;a href=&#34;https://github.com/kubernetes/kubernetes/blob/master/pkg/master/master.go#L292&#34; target=&#34;_blank&#34;&gt;called&lt;/a&gt; when the master controller is started and hard-codes the service IP for the default service to the first IP of the range. Another interesting fact in this function is that it always checks that the Cluster IP range is at least /29, which fits 6 usable addresses in the worst case. The latter can probably be explained by the fact that the next size down is /30, which doesn&amp;rsquo;t leave much room for user-defined clusterIPs after the &lt;code&gt;kubernetes.default&lt;/code&gt; and &lt;code&gt;kube-dns.kube-system&lt;/code&gt; are configured, so in the smallest possible cluster you can at least configure a few non-default services before you run out of IPs.&lt;/p&gt;
+
+&lt;h2 id=&#34;endpoint-ips&#34;&gt;Endpoint IPs&lt;/h2&gt;
+
+&lt;p&gt;The way endpoint addresses are populated is different between managed (GKE, AKS, EKS) and non-managed clusters. Let&amp;rsquo;s first have a look at a highly-available kind cluster:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl describe svc kubernetes | grep Endpoints
+Endpoints:         172.18.0.3:6443,172.18.0.4:6443,172.18.0.7:6443
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Bearing in mind that by default kind would use &lt;code&gt;10.244.0.0/16&lt;/code&gt; as the pod IP range and &lt;code&gt;10.96.0.0/12&lt;/code&gt; as the cluster IP range, these IPs don&amp;rsquo;t make a lot of sense. However, since kind uses kubeadm under the hood, which spins up control plane components as static pods, we can find API server pods in the &lt;code&gt;kube-system&lt;/code&gt; namespace:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;kubectl -n kube-system get pod -l tier=control-plane -o wide | grep api
+kube-apiserver-kind-control-plane             1/1     Running   172.18.0.3
+kube-apiserver-kind-control-plane2            1/1     Running   172.18.0.4
+kube-apiserver-kind-control-plane3            1/1     Running   172.18.0.7
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;If we check the manifest of any of the above pods, we&amp;rsquo;ll see that they are run with &lt;code&gt;hostNetwork: true&lt;/code&gt; and those IP come from the underlying containers that kind uses as nodes. As a part of the &lt;code&gt;UpdateKubernetesService()&lt;/code&gt; mentioned above, each API server in the cluster goes and &lt;a href=&#34;https://github.com/kubernetes/kubernetes/blob/master/pkg/master/controller.go#L243&#34; target=&#34;_blank&#34;&gt;updates&lt;/a&gt; the &lt;code&gt;endpoints&lt;/code&gt; object with its own IP and Port as defined in the &lt;a href=&#34;https://github.com/kubernetes/kubernetes/blob/master/pkg/master/reconcilers/mastercount.go#L62&#34; target=&#34;_blank&#34;&gt;mastercount.go&lt;/a&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func (r *masterCountEndpointReconciler) ReconcileEndpoints(serviceName string, ip net.IP, endpointPorts []corev1.EndpointPort, reconcilePorts bool) error {
+
+	e.Subsets = []corev1.EndpointSubset{{
+		Addresses: []corev1.EndpointAddress{{IP: ip.String()}},
+		Ports:     endpointPorts,
+	}}
+	klog.Warningf(&amp;quot;Resetting endpoints for master service %q to %#v&amp;quot;, serviceName, e)
+	_, err = r.epAdapter.Update(metav1.NamespaceDefault, e)
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;hr /&gt;
+
+&lt;p&gt;With managed Kubernetes clusters, control-plane nodes are not accessible by end users, so it&amp;rsquo;s harder to say exactly how endpoints are getting populated. However, it&amp;rsquo;s fairly easy to imagine that a cloud provider spins up a 3-node control-plane with a load-balancer and configures all three API servers with this LB&amp;rsquo;s IP as the &lt;code&gt;advertise-address&lt;/code&gt;. This would results in a single endpoint that represents that managed control-plane load-balancer:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ kubectl get ep kubernetes
+NAME         ENDPOINTS          AGE
+kubernetes   172.16.0.2:443   40d
+&lt;/code&gt;&lt;/pre&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Solving the Ingress Mystery Puzzle</title>
       <link>https://networkop.co.uk/post/2020-06-ingress-puzzle/</link>
       <pubDate>Sat, 13 Jun 2020 00:00:00 +0000</pubDate>
@@ -3333,357 +3548,6 @@ bgp.l3vpn.0: 6 destinations, 6 routes (3 active, 0 holddown, 3 hidden)
 &lt;h1 id=&#34;outro&#34;&gt;Outro&lt;/h1&gt;
 
 &lt;p&gt;This post concludes Series 2 of my OpenStack SDN saga. I&amp;rsquo;ve covered quite an extensive range of topics in my two-part series, however, OpenStack networking landscape is so big, it&amp;rsquo;s simply impossible to cover everything I find interesting. I started writing about OpenStack SDN when I first learned I got a job with Nokia. Back then I knew little about VMware NSX and even less about OpenStack. That&amp;rsquo;s why I started researching topics that I found interesting and branching out into adjacent areas as I went along. Almost 2 years later, looking back I can say I&amp;rsquo;ve learned a lot about the internals of SDN in general and hopefully so have my readers. Now I&amp;rsquo;m leaving Nokia to rediscover my networking roots at Arista. I&amp;rsquo;ll dive into DC networking from a different perspective now and it may be awhile before I accumulate a critical mass of interesting material to start spilling it out in my blog again. I still may come back to OpenStack some day but for now I&amp;rsquo;m gonna take a little break, maybe do some house keeping (e.g. move my blog from Jekyll to &lt;a href=&#34;https://gohugo.io/&#34; target=&#34;_blank&#34;&gt;Hugo&lt;/a&gt;, add TLS support) and enjoy my time being a farther.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN - OpenDaylight With BGP VPN</title>
-      <link>https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/</link>
-      <pubDate>Fri, 15 Dec 2017 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/</guid>
-      <description>
-
-&lt;p&gt;For the last 5 years OpenStack has been the training ground for a lot of emerging DC SDN solutions. OpenStack integration use case was one of the most compelling and easiest to implement thanks to the limited and suboptimal implementation of the native networking stack. Today, in 2017, features like &lt;a href=&#34;https://networkop.co.uk/blog/2016/05/06/neutron-l2pop/&#34;&gt;L2 population&lt;/a&gt;, local &lt;a href=&#34;https://networkop.co.uk/blog/2016/05/06/neutron-l2pop/&#34;&gt;ARP responder&lt;/a&gt;, &lt;a href=&#34;https://networkop.co.uk/blog/2016/05/21/neutron-l2gw/&#34;&gt;L2 gateway integration&lt;/a&gt;, &lt;a href=&#34;https://networkop.co.uk/blog/2016/10/13/os-dvr/&#34;&gt;distributed routing&lt;/a&gt; and &lt;a href=&#34;https://networkop.co.uk/blog/2017/09/15/os-sfc-skydive/&#34;&gt;service function chaining&lt;/a&gt; have all become available in vanilla OpenStack and don&amp;rsquo;t require a proprietary SDN controller anymore. Admittedly, some of the features are still not (and may never be) implemented in the most optimal way (e.g. DVR). This is where new opensource SDN controllers, the likes of &lt;a href=&#34;https://networkop.co.uk/blog/2016/12/10/ovn-part2/&#34;&gt;OVN&lt;/a&gt; and &lt;a href=&#34;https://docs.openstack.org/developer/dragonflow/distributed_dragonflow.html&#34; target=&#34;_blank&#34;&gt;Dragonflow&lt;/a&gt;, step in to provide scalable, elegant and efficient implementation of these advanced networking features. However one major feature still remains outside of the scope of a lot of these new opensource SDN projects, and that is data centre gateway (DC-GW) integration. Let me start by explain why you would need this feature in the first place.&lt;/p&gt;
-
-&lt;h1 id=&#34;optimal-forwarding-of-north-south-traffic&#34;&gt;Optimal forwarding of North-South traffic&lt;/h1&gt;
-
-&lt;p&gt;OpenStack Neutron and VMware NSX, both being pure software solutions, rely on a special type of node to forward traffic between VMs and hosts outside of the data centre. This node acts as a L2/L3 gateway for all North-South traffic and is often implemented as either a VM or a network namespace. This kind of solution gives software developers greater independence from the underlying networking infrastructure which makes it easier for them to innovate and introduce new features.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sdn-ns.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;However, from the traffic forwarding point of view, having a gateway/network node is not a good solution at all. There is no technological reason for a packet to have to go through this node when after all it ends up on a DC-GW anyway. In fact, this solution introduces additional complexity which needs to be properly managed (e.g. designed, configured and troubleshooted) and a potential bottleneck for high-throughput traffic flows.&lt;/p&gt;
-
-&lt;p&gt;It&amp;rsquo;s clear that the most optimal way to forward traffic is directly from a compute node to a DC-GW. The only question is how can this optimal forwarding be achieved? SDN controller needs to be able to exchange reachability information with DC-GW using a common protocol understood by most of the existing routing stacks. One such protocol, becoming very common in DC environments, is BGP, which has two address families we can potentially use:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;VPNv4/6 will allow routes to be exchanged and the dataplance to use MPLSoGRE encapsulation. This should be considered a &amp;ldquo;legacy&amp;rdquo; approach since for a very long time DC-GWs did not have the VXLAN ecap/decap capabilities.&lt;/li&gt;
-&lt;li&gt;EVPN with VXLAN-based overlays. EVPN makes it possible to exchange both L2 and L3 information under the same AF, which means we have the flexibility of doing not only a L3 WAN integration, but also a L2 data centre interconnect with just a single protocol.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;In OpenStack specifically, BGPVPN project was created to provide a pluggable driver framework for 3rd party BGP implementations. Apart from a reference BaGPipe driver (BaGPipe is an ExaBGP fork with lightweight implementation of BGP VPNs), which relies on a default &lt;code&gt;openvswitch&lt;/code&gt; ML2 mechanism driver, only Nuage, OpenDaylight and OpenContrail have contributed their drivers to this project. In this post I will focus on OpenDaylight and show how to install containerised OpenStack with OpenDaylight and integrate it with Cisco CSR using EVPN.&lt;/p&gt;
-
-&lt;h1 id=&#34;opendaylight-integration-with-openstack&#34;&gt;OpenDaylight integration with OpenStack&lt;/h1&gt;
-
-&lt;p&gt;Historically, OpenDaylight has had multiple projects implementing custom OpenStack networking drivers:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;VTN&lt;/strong&gt; (Virtual Tenant Networking) - spearheaded by NEC was the first project to provide OpenStack networking implementation&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;GBP&lt;/strong&gt; (Group Based Policy) - a project led by Cisco, one of the first (if not THE first) commercial implementation of Intent-based networking&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;NetVirt&lt;/strong&gt; - currently a default Neutron plugin from ODL, developed jointly by Brocade (RIP), RedHat, Ericsson, Intel and many others.&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;NetVirt provides several common Neutron services including L2 and L3 forwarding, ACL and NAT, as well as advanced services like L2 gateway, QoS and SFC. To do that it assumes full control over an OVS switch inside each compute node and implements the above services inside a single &lt;code&gt;br-int&lt;/code&gt; OVS bridge. L2/L3 forwarding tables are built based on tenant IP/MAC addresses that have been allocated by Neutron and the current network topology. For high-level overview of NetVirt&amp;rsquo;s forwarding pipeline you can refer to &lt;a href=&#34;https://docs.google.com/presentation/d/15h4ZjPxblI5Pz9VWIYnzfyRcQrXYxA1uUoqJsgA53KM/edit#slide=id.g1c73ae9953_2_0&#34; target=&#34;_blank&#34;&gt;this document&lt;/a&gt;.&lt;/p&gt;
-
-&lt;p&gt;It helps to think of an ODL-managed OpenStack as a big chassis switch. NetVirt plays the role of a supervisor by managing control plane and compiling RIB based on the information received from Neutron. Each compute node running an OVS is a linecard with VMs connected to its ports. Unlike the distributed architecture of &lt;a href=&#34;https://networkop.co.uk/blog/2016/12/10/ovn-part2/&#34;&gt;OVN&lt;/a&gt; and Dragonflow, compute nodes do not contain any control plane elements and each OVS gets its FIB programmed directly by the supervisor. DC underlay is a backplane, interconnecting all linecards and a supervisor.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/odl-netvirt-chassis.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h1 id=&#34;opendaylight-bgp-vpn-service-architecture&#34;&gt;OpenDaylight BGP VPN service architecture&lt;/h1&gt;
-
-&lt;p&gt;In order to provide BGP VPN functionality, NetVirt employs the use of three service components:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;FIB service&lt;/strong&gt; - maintains L2/L3 forwarding tables and reacts to topology changes&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;BGP manager&lt;/strong&gt; - provides a translation of information sent to and received from an external BGP stack (Quagga BGP)&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;VPN Manager&lt;/strong&gt; - ties together the above two components, creates VRFs and keeps track of RD/RT values&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;In order to exchange BGP updates with external DC-GW, NetVirt requires a BGP stack with EVPN and VPNV4/6 capabilities. Ideally, internal ODL BGP stack could have been used for that, however it didn&amp;rsquo;t meet all the performance requirements (injecting/withdrawing thousand of prefixes at the same time). Instead, an external &lt;a href=&#34;https://github.com/6WIND/quagga/tree/qthrift_mpbgp_evpn&#34; target=&#34;_blank&#34;&gt;Quagga fork&lt;/a&gt; with EVPN add-ons is connected to BGP manager via a high-speed Apache Thrift interface. This interface defines the &lt;a href=&#34;https://github.com/6WIND/quagga/blob/qthrift_mpbgp_evpn/qthriftd/vpnservice.thrift&#34; target=&#34;_blank&#34;&gt;format&lt;/a&gt; of data to be exchanged between Quagga (a.k.a QBGP) and NetVirt&amp;rsquo;s BGP Manager in order to do two things:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;Configure BGP settings like ASN and BGP neighbors&lt;/li&gt;
-&lt;li&gt;Read/Write RIB entries inside QBGP&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;BGP session is established between QBGP and external DC-GW, however next-hop values installed by NetVirt and advertised by QBGP have IPs of the respective compute nodes, so that traffic is sent directly via the most optimal path.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/odl-netvirt.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h1 id=&#34;demo&#34;&gt;Demo&lt;/h1&gt;
-
-&lt;p&gt;Enough of the theory, let&amp;rsquo;s have a look at how to configure a L3VPN between QBGP (advertising ODL&amp;rsquo;s distributed router subnets) and IOS-XE DC-GW using EVPN route type 5 or, more specifically, &lt;a href=&#34;https://tools.ietf.org/html/draft-ietf-bess-evpn-prefix-advertisement-09#section-4.4.1&#34; target=&#34;_blank&#34;&gt;Interface-less IP-VRF-to-IP-VRF model&lt;/a&gt;:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/odl-evpn-topo.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h2 id=&#34;installation&#34;&gt;Installation&lt;/h2&gt;
-
-&lt;p&gt;My lab environment is still based on a pair of nested VMs running containerised Kolla OpenStack I&amp;rsquo;ve described in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/09/08/os-lab-docker/&#34;&gt;earlier post&lt;/a&gt;. A few months ago OpenDaylight role has been added to kolla-ansible so now it is possible to install OpenDaylight-intergrated OpenStack automatically. However, there is no option to install QBGP so I had to augment the default &lt;a href=&#34;https://github.com/openstack/kolla&#34; target=&#34;_blank&#34;&gt;Kolla&lt;/a&gt; and &lt;a href=&#34;https://github.com/openstack/kolla-ansible&#34; target=&#34;_blank&#34;&gt;Kolla-ansible&lt;/a&gt; repositories to include the QBGP &lt;a href=&#34;https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_build/templates/quagga-Dockerfile.j2&#34; target=&#34;_blank&#34;&gt;Dockerfile template&lt;/a&gt; and QBGP &lt;a href=&#34;https://github.com/networkop/kolla-odl-bgpvpn/blob/master/roles/kolla_deploy/tasks/create.yml#L90-L120&#34; target=&#34;_blank&#34;&gt;ansible role&lt;/a&gt;. So the first step is to download my latest automated installer and make sure &lt;code&gt;enable_opendaylight&lt;/code&gt; global variable is set to &lt;code&gt;yes&lt;/code&gt;:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;git clone https://github.com/networkop/kolla-odl-bgpvpn.git &amp;amp;&amp;amp; cd kolla-odl-bgpvpn
-mkdir group_vars
-echo &amp;quot;enable_opendaylight: \&amp;quot;yes\&amp;quot;&amp;quot; &amp;gt;&amp;gt; group_vars/all.yaml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At the time of writing I was relying on a couple of latest bug fixes inside OpenDaylight, so I had to modify the default ODL role to install the latest master-branch ODL build. Make sure the link below is pointing to the latest &lt;code&gt;zip&lt;/code&gt; file in &lt;code&gt;0.8.0-SNAPSHOT&lt;/code&gt; directory.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;cat &amp;lt;&amp;lt; EOF &amp;gt;&amp;gt; group_vars/all.yaml
-odl_latest_enabled: true
-odl_latest_url: https://nexus.opendaylight.org/content/repositories/opendaylight.snapshot/org/opendaylight/integration/netvirt/karaf/0.8.0-SNAPSHOT/karaf-0.8.0-20171106.102232-1767.zip
-EOF
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The next few steps are similar to what I&amp;rsquo;ve described in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/09/08/os-lab-docker/&#34;&gt;Kolla lab post&lt;/a&gt;, will create a pair of VMs, build all Kolla containers, push them to a local Docker repo and finally deploy OpenStack using Kolla-ansible playbooks:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;./1-create.sh do
-./2-bootstrap.sh do
-./3-build.sh do 
-./4-deploy.sh do
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The final &lt;code&gt;4-deploy.sh&lt;/code&gt; script will also create a simple &lt;code&gt;init.sh&lt;/code&gt; script inside the controller VM that can be used to setup a test topology with a single VM connected to a &lt;code&gt;10.0.0.0/24&lt;/code&gt; subnet:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ssh kolla-controller
-source /etc/kolla/admin-openrc.sh
-./init.sh
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Of course, another option to build a lab is to follow the official &lt;a href=&#34;https://docs.openstack.org/kolla-ansible/latest/user/quickstart.html&#34; target=&#34;_blank&#34;&gt;Kolla documentation&lt;/a&gt; to create your own custom test environment.&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;h2 id=&#34;configuration&#34;&gt;Configuration&lt;/h2&gt;
-
-&lt;p&gt;Assuming the test topology was setup with no issues and a test VM can ping its default gateway &lt;code&gt;10.0.0.1&lt;/code&gt;, we can start configuring BGP VPNs. Unfortunately, we won&amp;rsquo;t be able to use OpenStack BGPVPN API/CLI, since ODL requires an extra parameter (L3 VNI for symmetric IRB) which is not available in OpenStack BGPVPN API, but we still can configure everything directly through ODL&amp;rsquo;s API. My interface of choice is always REST, since it&amp;rsquo;s easier to build it into a fully programmatic plugin, so even though all of the below steps can be accomplished through karaf console CLI, I&amp;rsquo;ll be using cURL to send and retrieve data from ODL&amp;rsquo;s REST API.&lt;/p&gt;
-
-&lt;h3 id=&#34;1-source-admin-credentials-and-setup-odl-s-rest-variables&#34;&gt;1. Source admin credentials and setup ODL&amp;rsquo;s REST variables&lt;/h3&gt;
-
-&lt;pre&gt;&lt;code&gt;source /etc/kolla/admin-openrc.sh
-export ODL_URL=&#39;http://192.168.133.100:8181/restconf&#39;
-export CT_JSON=&amp;quot;Content-Type: application/json&amp;quot;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h3 id=&#34;2-configure-local-bgp-settings-and-bgp-peering-with-dc-gw&#34;&gt;2. Configure local BGP settings and BGP peering with DC-GW&lt;/h3&gt;
-
-&lt;pre&gt;&lt;code&gt;cat &amp;lt;&amp;lt; EOF &amp;gt; ./bgp-full.json
-{
-    &amp;quot;bgp&amp;quot;: {
-        &amp;quot;as-id&amp;quot;: {
-            &amp;quot;announce-fbit&amp;quot;: false,
-            &amp;quot;local-as&amp;quot;: 100,
-            &amp;quot;router-id&amp;quot;: &amp;quot;192.168.133.100&amp;quot;,
-            &amp;quot;stalepath-time&amp;quot;: 0
-        },
-        &amp;quot;logging&amp;quot;: {
-            &amp;quot;file&amp;quot;: &amp;quot;/var/log/bgp_debug.log&amp;quot;,
-            &amp;quot;level&amp;quot;: &amp;quot;errors&amp;quot;
-        },
-        &amp;quot;neighbors&amp;quot;: [
-            {
-                &amp;quot;address&amp;quot;: &amp;quot;192.168.133.50&amp;quot;,
-                &amp;quot;remote-as&amp;quot;: 100,
-                &amp;quot;address-families&amp;quot;: [
-                   {
-                     &amp;quot;ebgp:afi&amp;quot;: &amp;quot;3&amp;quot;,
-                     &amp;quot;ebgp:peer-ip&amp;quot;: &amp;quot;192.168.133.50&amp;quot;,
-                     &amp;quot;ebgp:safi&amp;quot;: &amp;quot;6&amp;quot;
-                   }
-                ]
-            }
-        ]
-    }
-}
-EOF
-
-curl -X PUT -u admin:admin -k -v -H &amp;quot;$CT_JSON&amp;quot;  \
-     $ODL_URL/config/ebgp:bgp -d @bgp-full.json
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h3 id=&#34;3-define-l3vpn-instance-and-associate-it-with-openstack-admin-tenant&#34;&gt;3. Define L3VPN instance and associate it with OpenStack &lt;code&gt;admin&lt;/code&gt; tenant&lt;/h3&gt;
-
-&lt;pre&gt;&lt;code&gt;TENANT_UUID=$(openstack project show admin -f value -c id | \
-            sed &#39;s/\(........\)\(....\)\(....\)\(....\)\(.*\)/\1-\2-\3-\4-\5/&#39;)
-
-cat &amp;lt;&amp;lt; EOF &amp;gt; ./l3vpn-full.json
-{
-   &amp;quot;input&amp;quot;: {
-      &amp;quot;l3vpn&amp;quot;:[
-         {
-            &amp;quot;id&amp;quot;:&amp;quot;f503fcb0-3fd9-4dee-8c3a-5034cf707fd9&amp;quot;,
-            &amp;quot;name&amp;quot;:&amp;quot;L3EVPN&amp;quot;,
-            &amp;quot;route-distinguisher&amp;quot;: [&amp;quot;100:100&amp;quot;],
-            &amp;quot;export-RT&amp;quot;: [&amp;quot;100:100&amp;quot;],
-            &amp;quot;import-RT&amp;quot;: [&amp;quot;100:100&amp;quot;],
-            &amp;quot;l3vni&amp;quot;: &amp;quot;5000&amp;quot;,
-            &amp;quot;tenant-id&amp;quot;:&amp;quot;${TENANT_UUID}&amp;quot;
-         }
-      ]
-   }
-}
-EOF
-
-curl -X POST -u admin:admin -k -v -H &amp;quot;$CT_JSON&amp;quot;  \
-      $ODL_URL/operations/neutronvpn:createL3VPN -d @l3vpn-full.json
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h3 id=&#34;4-inject-prefixes-into-l3vpn-by-associating-the-previously-created-l3vpn-with-a-demo-router&#34;&gt;4. Inject prefixes into L3VPN by associating the previously created L3VPN with a &lt;code&gt;demo-router&lt;/code&gt;&lt;/h3&gt;
-
-&lt;pre&gt;&lt;code&gt;ROUTER_UUID=$(openstack router show demo-router -f value -c id)
-
-cat &amp;lt;&amp;lt; EOF &amp;gt; ./l3vpn-assoc.json
-{
-  &amp;quot;input&amp;quot;:{
-     &amp;quot;vpn-id&amp;quot;:&amp;quot;f503fcb0-3fd9-4dee-8c3a-5034cf707fd9&amp;quot;,
-     &amp;quot;router-id&amp;quot;:[ &amp;quot;${ROUTER_UUID}&amp;quot; ]
-   }
-}
-EOF
-
-curl -X POST -u admin:admin -k -v -H &amp;quot;$CT_JSON&amp;quot;  \
-     $ODL_URL/operations/neutronvpn:associateRouter -d @l3vpn-assoc.json
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h3 id=&#34;5-configure-dc-gw-vtep-ip&#34;&gt;5. Configure DC-GW VTEP IP&lt;/h3&gt;
-
-&lt;p&gt;ODL cannot automatically extract VTEP IP from updates received from DC-GW, so we need to explicitly configure it:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;cat &amp;lt;&amp;lt; EOF &amp;gt; ./tep.json
-{
-  &amp;quot;input&amp;quot;: {
-    &amp;quot;destination-ip&amp;quot;: &amp;quot;1.1.1.1&amp;quot;,
-    &amp;quot;tunnel-type&amp;quot;: &amp;quot;odl-interface:tunnel-type-vxlan&amp;quot;
-  }
-}
-EOF
-curl -X POST -u admin:admin -k -v -H &amp;quot;$CT_JSON&amp;quot;  \
-     $ODL_URL/operations/itm-rpc:add-external-tunnel-endpoint -d @tep.json
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h3 id=&#34;6-dc-gw-configuration&#34;&gt;6. DC-GW configuration&lt;/h3&gt;
-
-&lt;p&gt;That is all what needs to be configured on ODL. Although I would consider this to be outside of the scope of the current post, for the sake of completeness I&amp;rsquo;m including the relevant configuration from the DC-GW:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;!
-vrf definition ODL
- rd 100:100
- route-target export 100:100
- route-target import 100:100
- !        
- address-family ipv4
-  route-target export 100:100 stitching
-  route-target import 100:100 stitching
- exit-address-family
-!
-bridge-domain 5000 
- member vni 5000
-!
-interface Loopback0
- ip address 1.1.1.1 255.255.255.255
-!
-interface GigabitEthernet1
- ip address 192.168.133.50 255.255.255.0
-!
-interface nve1
- no ip address
- source-interface Loopback0
- host-reachability protocol bgp
- member vni 5000 vrf ODL
-!
-interface BDI5000
- vrf forwarding ODL
- ip address 8.8.8.8 255.255.255.0
- encapsulation dot1Q 500
-!
-router bgp 100
- bgp log-neighbor-changes
- no bgp default ipv4-unicast
- neighbor 192.168.133.100 remote-as 100
- !
- address-family l2vpn evpn
-  import vpnv4 unicast
-  neighbor 192.168.133.100 activate
- exit-address-family
- !
- address-family ipv4 vrf ODL
-  advertise l2vpn evpn
-  redistribute connected
- exit-address-family
-!
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;For detailed explanation of how EVPN RT5 is configured on Cisco CSR refer to the &lt;a href=&#34;https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/cether/configuration/xe-16/ce-xe-16-book/evpn-vxlan-l3.html&#34; target=&#34;_blank&#34;&gt;following guide&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h2 id=&#34;verification&#34;&gt;Verification&lt;/h2&gt;
-
-&lt;p&gt;There are several things that can be checked to verify that the DC-GW integration is working. One of the first steps would be to check if BGP session with CSR is up.
-This can be done from the CSR side, however it&amp;rsquo;s also possible to check this from the QBGP side. First we need to get into the QBGP&amp;rsquo;s interactive shell from the controller node:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;[centos@controller-1 ~]$ sudo docker exec -it quagga /opt/quagga/bin/vtysh
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;From here, we can check that the BGP session has been established:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;controller-1# sh bgp neighbors 192.168.133.50     
-BGP neighbor is 192.168.133.50, remote AS 100, local AS 100, internal link
-  BGP version 4, remote router ID 1.1.1.1
-  BGP state = Established, up for 00:03:05
-&amp;lt;snip&amp;gt;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;We can also check the contents of EVPN RIB compiled by QBGP&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;controller-1# sh bgp evpn rd 100:100
-BGP table version is 0, local router ID is 192.168.133.100
-Status codes: s suppressed, d damped, h history, * valid, &amp;gt; best, i - internal
-Origin codes: i - IGP, e - EGP, ? - incomplete
-
-   Network          Next Hop            Metric LocPrf Weight Path
-Route Distinguisher: as2 100:100
-*&amp;gt; [0][fa:16:3e:37:42:d8/48][10.0.0.2/32]
-                    192.168.133.100         0          32768 i
-*&amp;gt; [0][fa:16:3e:dc:77:65/48][10.0.0.3/32]
-                    192.168.133.101         0          32768 i
-*&amp;gt;i8.8.8.0/24       1.1.1.1         0     100       0 ?
-*&amp;gt; 10.0.0.0/24      192.168.133.100         0          32768 i
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Finally, we can verify that the prefix &lt;code&gt;8.8.8.0/24&lt;/code&gt; advertised from DC-GW is being passed by QBGP and accepted by NetVirt&amp;rsquo;s FIB Manager:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ curl -u admin:admin -k -v  $ODL_URL/config/odl-fib:fibEntries/\
-  vrfTables/100%3A100/vrfEntry/8.8.8.0%2F24 | python -m json.tool
-{
-    &amp;quot;vrfEntry&amp;quot;: [
-        {
-            &amp;quot;destPrefix&amp;quot;: &amp;quot;8.8.8.0/24&amp;quot;,
-            &amp;quot;encap-type&amp;quot;: &amp;quot;vxlan&amp;quot;,
-            &amp;quot;gateway_mac_address&amp;quot;: &amp;quot;00:1e:49:69:24:bf&amp;quot;,
-            &amp;quot;l3vni&amp;quot;: 5000,
-            &amp;quot;origin&amp;quot;: &amp;quot;b&amp;quot;,
-            &amp;quot;route-paths&amp;quot;: [
-                {
-                    &amp;quot;nexthop-address&amp;quot;: &amp;quot;1.1.1.1&amp;quot;
-                }
-            ]
-        }
-    ]
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The last output confirms that the prefix is being received and accepted by ODL. To do a similar check on CSR side we can run the following command:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;CSR1k#show bgp l2vpn evpn 
-&amp;lt;snip&amp;gt;
-     Network          Next Hop            Metric LocPrf Weight Path
-Route Distinguisher: 100:100 (default for vrf ODL)
- *&amp;gt;i  [2][100:100][0][48][FA163E3742D8][32][10.0.0.2]/24
-                      192.168.133.100          0    100      0 i
- *&amp;gt;i  [2][100:100][0][48][FA163EDC7765][32][10.0.0.3]/24
-                      192.168.133.101          0    100      0 i
- *&amp;gt;   [5][100:100][0][24][8.8.8.0]/17
-                      0.0.0.0                  0         32768 ?
- *&amp;gt;i  [5][100:100][0][24][10.0.0.0]/17
-                      192.168.133.100          0    100      0 i
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This confirms that the control plane information has been successfully exchanged between NetVirt and Cisco CSR.&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;At the time of writing, there was an &lt;a href=&#34;https://git.opendaylight.org/gerrit/#/c/63324/&#34; target=&#34;_blank&#34;&gt;open bug&lt;/a&gt; in ODL master branch that prevented the forwarding entries from being installed in OVS datapath. Once the bug is fixed I will update this post with the dataplance verification, a.k.a ping&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
-
-&lt;p&gt;OpenDaylight is a pretty advanced OpenStack SDN platform. Its functionality includes clustering, site-to-site federation (without EVPN) and L2/L3 EVPN DC-GW integration for both IPv4 and IPv6. It is yet another example of how an open-source platform can match even the most advanced proprietary SDN solutions from incumbent vendors. This is all thanks to the companies involved in OpenDaylight development. I also want to say special thanks to Vyshakh Krishnan, Kiran N Upadhyaya and Dayavanti Gopal Kamath from Ericsson for helping me clear up some of the questions I posted on netvirt-dev mailing list.&lt;/p&gt;
 </description>
     </item>
     
