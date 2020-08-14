@@ -5,6 +5,7 @@ categories = ["howto"]
 tags = ["devops", "k8s"]
 summary = "Understanding how the default kubernetes service is configured"
 description = "Understanding how the default kubernetes service is configured"
+images = ["/img/d13.png"]
 +++
 
 
