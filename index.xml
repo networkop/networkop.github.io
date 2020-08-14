@@ -11,6 +11,106 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Self-hosted external DNS resolver for Kubernetes</title>
+      <link>https://networkop.co.uk/post/2020-08-k8s-gateway/</link>
+      <pubDate>Fri, 14 Aug 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-08-k8s-gateway/</guid>
+      <description>
+
+&lt;p&gt;There comes a time in the life of every Kubernetes cluster when internal resources (pods, deployments) need to be exposed to the outside world. Doing so from a pure IP connectivity perspective is relatively easy as most of the constructs come baked-in (e.g. NodePort-type Services) or can be enabled with an off-the-shelf add-on (e.g. Ingress and LoadBalancer controllers). In this post, we&amp;rsquo;ll focus on one crucial piece of network connectivity which glues together the dynamically-allocated external IP with a static customer-defined hostname — a DNS. We&amp;rsquo;ll examine the pros and cons of various ways of implementing external DNS in Kubernetes and introduce a new CoreDNS plugin that can be used for dynamic discovery and resolution of multiple types of external Kubernetes resources.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/d11.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;external-kubernetes-resources&#34;&gt;External Kubernetes Resources&lt;/h2&gt;
+
+&lt;p&gt;Let&amp;rsquo;s start by reviewing various types of &amp;ldquo;external&amp;rdquo; Kubernetes resources and the level of networking abstraction they provide starting from the lowest all the way to the highest level.&lt;/p&gt;
+
+&lt;p&gt;One of the most fundamental building block of all things external in Kubernetes is the &lt;strong&gt;&lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/service/#nodeport&#34; target=&#34;_blank&#34;&gt;NodePort&lt;/a&gt;&lt;/strong&gt; service. It works by allocating a unique external port for every service instance and setting up kube-proxy to deliver incoming packets from that port to the one of the healthy backend pods. This service is rarely used on its own and was designed to be a building block for other higher-level resources.&lt;/p&gt;
+
+&lt;p&gt;Next level up is the &lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer&#34; target=&#34;_blank&#34;&gt;&lt;strong&gt;LoadBalancer&lt;/strong&gt;&lt;/a&gt; service which is one of the most common ways of exposing services externally. This service type requires an extra controller that will be responsible for IP address allocation and delivering traffic to the Kubernetes nodes. This function can be implemented by cloud load-balancers, in case the cluster is deployed one of the public clouds, a physical appliance or a cluster add-on like &lt;a href=&#34;https://github.com/metallb/metallb&#34; target=&#34;_blank&#34;&gt;MetalLB&lt;/a&gt; or &lt;a href=&#34;https://github.com/kubesphere/porter&#34; target=&#34;_blank&#34;&gt;Porter&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;At the highest level of abstraction is the &lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/ingress/&#34; target=&#34;_blank&#34;&gt;&lt;strong&gt;Ingress&lt;/strong&gt;&lt;/a&gt; resource. It, too, requires a dedicated controller which spins up and configures a number of proxy servers that can act as a L7 load-balancer, API gateway or, in some cases, a L4 (TCP/UDP) proxy. Similarly to the LoadBalancer, Ingress may be implemented by one of the public cloud L7 load-balancers or could be self-hosted by the cluster using any one of the &lt;a href=&#34;https://docs.google.com/spreadsheets/d/16bxRgpO1H_Bn-5xVZ1WrR_I-0A-GOI6egmhvqqLMOmg/edit#gid=1612037324&#34; target=&#34;_blank&#34;&gt;open-source ingress controllers&lt;/a&gt;. Amongst other things, Ingress controllers can perform &lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/ingress/#tls&#34; target=&#34;_blank&#34;&gt;TLS offloading&lt;/a&gt; and &lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/ingress/#name-based-virtual-hostinghttps://kubernetes.io/docs/concepts/services-networking/ingress/#name-based-virtual-hosting&#34; target=&#34;_blank&#34;&gt;named-based routing&lt;/a&gt; which rely heavily on external DNS infrastructure that can dynamically discover Ingress resources as they get added/removed from the cluster.&lt;/p&gt;
+
+&lt;p&gt;There are other external-ish resources like &lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/service/&#34; target=&#34;_blank&#34;&gt;ExternalName&lt;/a&gt; services and even ClusterIP in &lt;a href=&#34;https://docs.projectcalico.org/networking/advertise-service-ips&#34; target=&#34;_blank&#34;&gt;certain cases&lt;/a&gt;. They represent a very small subset of corner case scenarios and are considered outside of the scope of this article. Instead, we&amp;rsquo;ll focus on the two most widely used external resources—LoadBalancers and Ingresses, and see how they can be integrated into the public DNS infrastructure.&lt;/p&gt;
+
+&lt;h2 id=&#34;externaldns&#34;&gt;ExternalDNS&lt;/h2&gt;
+
+&lt;p&gt;The most popular solution today is the &lt;a href=&#34;https://github.com/kubernetes-sigs/external-dns&#34; target=&#34;_blank&#34;&gt;ExternalDNS controller&lt;/a&gt;. It works by integrating with one of the public DNS providers and populates a pre-configured DNS zone with entries extracted from the monitored objects, e.g. Ingress&amp;rsquo;s &lt;code&gt;spec.rules[*].host&lt;/code&gt; or Service&amp;rsquo;s &lt;code&gt;external-dns.alpha.kubernetes.io/hostname&lt;/code&gt; annotations. In addition, it natively supports non-standard resources like Istio&amp;rsquo;s Gateway or Contour&amp;rsquo;s IngressRoute which, together with the support for over 15 cloud DNS providers, makes it a default choice for anyone approaching this problem for the first time.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/d12.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;ExternalDNS is an ideal solution for Kubernetes clusters under a single administrative domain, however, it does have a number of trade-offs that start to manifest themselves when a cluster is shared among multiple tenants:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Multiple DNZ zones require a dedicated ExternalDNS instance per zone.&lt;/li&gt;
+&lt;li&gt;Each new zone requires cloud-specific IAM rules to be set up to allow ExternalDNS to make the required changes.&lt;/li&gt;
+&lt;li&gt;Unless managing a local cloud DNS, API credentials will need to be stored as a secret inside the cluster.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;In addition to the above, ExternalDNS represents another layer of abstraction and complexity outside of the cluster that needs to be considered during maintenance and troubleshooting. Every time the controller fails, there&amp;rsquo;s a possibility of some stale state to be left, accumulating over time and polluting the hosted DNS zone.&lt;/p&gt;
+
+&lt;h2 id=&#34;coredns-s-k8s-external-plugin&#34;&gt;CoreDNS&amp;rsquo;s &lt;code&gt;k8s_external&lt;/code&gt; plugin&lt;/h2&gt;
+
+&lt;p&gt;An alternative approach is to make internal Kubernetes DNS add-on respond to external DNS queries. The prime example of this is the CoreDNS &lt;a href=&#34;https://coredns.io/plugins/k8s_external/&#34; target=&#34;_blank&#34;&gt;k8s_external&lt;/a&gt; plugin. It works by configuring CoreDNS to respond to external queries matching a number of pre-configured domains. For example, the following configuration will allow it to resolve queries for &lt;code&gt;svc2.ns.mydomain.com&lt;/code&gt;, as shown in the diagram above, as well as the &lt;code&gt;svc2.ns.example.com&lt;/code&gt; domain:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;k8s_external mydomain.com example.com
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Both queries will return the same set of IP addresses extracted from the &lt;code&gt;.status.loadBalancer&lt;/code&gt; field of the &lt;code&gt;svc2&lt;/code&gt; object.&lt;/p&gt;
+
+&lt;p&gt;These domains will still need to be delegated, which means you will need to expose CoreDNS externally with service type LoadBalancer and update NS records with the provisioned IP address.&lt;/p&gt;
+
+&lt;p&gt;Under the hood, &lt;code&gt;k8s_external&lt;/code&gt; relies on the main &lt;a href=&#34;https://coredns.io/plugins/kubernetes/&#34; target=&#34;_blank&#34;&gt;kubernetes&lt;/a&gt; plugin and simply re-uses information already collected by it. This presents a problem when trying to add extra resources (e.g. Ingresses, Gateways) as these changes will increase the amount of information the main plugin needs to process and will inevitably affect its performance. This is why there&amp;rsquo;s a new plugin now that&amp;rsquo;s designed to absorb and extend the functionality of the &lt;code&gt;k8s_external&lt;/code&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;the-new-k8s-gateway-coredns-plugin&#34;&gt;The new &lt;code&gt;k8s_gateway&lt;/code&gt; CoreDNS plugin&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://github.com/ori-edge/k8s_gateway&#34; target=&#34;_blank&#34;&gt;This out-of-tree plugin&lt;/a&gt; is loosely based on the &lt;code&gt;k8s_external&lt;/code&gt; and maintains a similar configuration syntax, however it does contain a few notable differences:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;It doesn&amp;rsquo;t rely on any other plugin and uses its own mechanism of Kubernetes object discovery.&lt;/li&gt;
+&lt;li&gt;It&amp;rsquo;s designed to be used alongside (and not replace) an existing internal DNS plugin, be it kube-dns or CoreDNS.&lt;/li&gt;
+&lt;li&gt;It doesn&amp;rsquo;t collect or expose any internal cluster IP addresses.&lt;/li&gt;
+&lt;li&gt;It supports both LoadBalancer services and Ingresses with an eye on the service API&amp;rsquo;s &lt;a href=&#34;https://github.com/kubernetes-sigs/service-apis/blob/master/examples/basic-http.yaml#L29&#34; target=&#34;_blank&#34;&gt;HTTPRoute&lt;/a&gt; when it becomes available.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/d13.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;The way it&amp;rsquo;s designed to be used can be summarised as follows:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;The scope of the plugin is controlled by a set of RBAC rules and by default is limited to List/Watch operations on Ingress and Service resources.&lt;/li&gt;
+&lt;li&gt;The plugin is &lt;a href=&#34;https://github.com/ori-edge/k8s_gateway#build&#34; target=&#34;_blank&#34;&gt;built&lt;/a&gt; as a CoreDNS binary and run as a deployment.&lt;/li&gt;
+&lt;li&gt;This deployment is exposed externally and the required domains are delegated to the address of the external load-balancer.&lt;/li&gt;
+&lt;li&gt;Any DNS query that reaches the &lt;code&gt;k8s_gateway&lt;/code&gt; plugin will go through the following stages:
+
+&lt;ul&gt;
+&lt;li&gt;First, it will be matched against one of the zones configured for this plugin in the Corefile.&lt;/li&gt;
+&lt;li&gt;If there&amp;rsquo;s a hit, the next step is to match it against any of the existing Ingress resources. The lookup is performed against FQDNs configured in &lt;code&gt;spec.rules[*].host&lt;/code&gt; fields of the Ingress.&lt;/li&gt;
+&lt;li&gt;At this stage, the result can be returned to the user with IPs collected from the &lt;code&gt;.status.loadBalancer.ingress&lt;/code&gt;.&lt;/li&gt;
+&lt;li&gt;If no matching Ingress was found, the search continues with the Services objects. Since services don&amp;rsquo;t really have domain names, the lookup is performed using the &lt;code&gt;serviceName.namespace&lt;/code&gt; as the key.&lt;/li&gt;
+&lt;li&gt;If there&amp;rsquo;s a match, it is returned to the end-user in a similar way, alternatively the plugin responds with &lt;code&gt;NXDOMAIN&lt;/code&gt;.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The design of the &lt;code&gt;k8s_gateway&lt;/code&gt; plugin attempts to address some of the issues of other solutions described above, but also brings a number of extra advantages:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;All external DNS entries and associated state are contained within the Kubernetes cluster while the hosted zone only contains a single NS record.&lt;/li&gt;
+&lt;li&gt;You get the power and flexibility of the full suite of CoreDNS&amp;rsquo;s &lt;a href=&#34;https://coredns.io/plugins/&#34; target=&#34;_blank&#34;&gt;internal&lt;/a&gt; and &lt;a href=&#34;https://coredns.io/explugins/&#34; target=&#34;_blank&#34;&gt;external&lt;/a&gt; plugins, e.g. you can use ACL to control which source IPs are (not)allowed to make queries.&lt;/li&gt;
+&lt;li&gt;Provisioning that doesn&amp;rsquo;t rely on annotations makes it easier to maintain Kubernetes manifests.&lt;/li&gt;
+&lt;li&gt;Separate deployment means that internal DNS resolution is not affected in case external DNS becomes overloaded.&lt;/li&gt;
+&lt;li&gt;Since API keys are &lt;strong&gt;not&lt;/strong&gt; stored in the cluster, it makes it easier and safer for new tenants to bring their own domain.&lt;/li&gt;
+&lt;li&gt;Federated Kubernetes cluster deployments (e.g. using &lt;a href=&#34;https://github.com/kubernetes-sigs/cluster-api&#34; target=&#34;_blank&#34;&gt;Cluster API&lt;/a&gt;) become easier as there&amp;rsquo;s only a single entrypoint via the management cluster and each workload cluster can get its own self-hosted subdomain.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/d14.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;The &lt;code&gt;k8s_gateway&lt;/code&gt; is developed as an out-of-tree plugin under an open-source license. Community contributions in the form of issues, pull requests and documentation are always &lt;a href=&#34;https://github.com/ori-edge/k8s_gateway&#34; target=&#34;_blank&#34;&gt;welcomed&lt;/a&gt;.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Anatomy of the &#34;kubernetes.default&#34;</title>
       <link>https://networkop.co.uk/post/2020-06-kubernetes-default/</link>
       <pubDate>Mon, 29 Jun 2020 00:00:00 +0000</pubDate>
@@ -3229,325 +3329,6 @@ inet 172.20.0.2/16 brd 172.20.255.255 scope global eth4
       <description>
 
 &lt;h2 id=&#34;openstack-sdn-tags-openstack-sdn-learn-through-hands-on-experience-everything-you-need-to-know-about-vanilla-openstack-neutron-implementation-of-virtual-networks-including-custom-sdn-controllers-like-ovn-opendaylight-and-opencontrail&#34;&gt;&lt;a href=&#34;https://networkop.co.uk/tags/openstack-sdn/&#34;&gt;OpenStack SDN&lt;/a&gt; - Learn through hands-on experience everything you need to know about vanilla OpenStack Neutron implementation of virtual networks, including custom SDN controllers like OVN, OpenDaylight and OpenContrail&lt;/h2&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN - OpenContrail With BGP VPN</title>
-      <link>https://networkop.co.uk/blog/2018/01/02/os-contrail/</link>
-      <pubDate>Tue, 02 Jan 2018 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/blog/2018/01/02/os-contrail/</guid>
-      <description>
-
-&lt;p&gt;Continuing on the trend started in my &lt;a href=&#34;https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/&#34;&gt;previous post about OpenDaylight&lt;/a&gt;, I&amp;rsquo;ll move on to the next open-source product that uses BGP VPNs for optimal North-South traffic forwarding. OpenContrail is one of the most popular SDN solutions for OpenStack. It was one of the first hybrid SDN solutions, offering both pure overlay and overlay/underlay integration. It is the default SDN platform of choice for Mirantis Cloud Platform, it has multiple large-scale deployments in companies like Workday and AT&amp;amp;T. I, personally, don&amp;rsquo;t have any production experience with OpenContrail, however my impression, based on what I&amp;rsquo;ve heard and seen in the last 2-3 years that I&amp;rsquo;ve been following Telco SDN space, is that OpenContrail is the most mature SDN platform for Telco NFVs not least because of its unique feature set.&lt;/p&gt;
-
-&lt;p&gt;During the time of production deployment at AT&amp;amp;T, Contrail has added a lot of features required by Telco NFVs like QoS, VLAN trunking and BGP-as-a-service. My first acquaintance with BGPaaS took place when I started working on Telco DCs and I remember being genuinely shocked when I first saw the requirement for dynamic routing exchange with VNFs. To me this seemed to break one of the main rules of cloud networking - a VM is not to have any knowledge or interaction with the underlay. I gradually went though all stages of grief, all the way to acceptance and although it still feels &amp;ldquo;wrong&amp;rdquo; now, I can at least understand why it&amp;rsquo;s needed and what are the pros/cons of different BGPaaS solutions.&lt;/p&gt;
-
-&lt;h1 id=&#34;bgp-as-a-service&#34;&gt;BGP-as-a-Service&lt;/h1&gt;
-
-&lt;p&gt;There&amp;rsquo;s a certain range of VNFs that may require to advertise a set of IP addresses into the existing VPNs inside Telco network. The most notable example is PGW inside EPC. I won&amp;rsquo;t pretend to be an expert in this field, but based on my limited understanding PGW needs to advertise IP networks into various customer VPNs, for example to connect private APNs to existing customer L3VPNs. Obviously, when this kind of network function gets virtualised, it still retains this requirement which now needs to be fulfilled by DC SDN.&lt;/p&gt;
-
-&lt;p&gt;This requirement catches a lot of big SDN vendors off guard and the best they come up with is connecting those VNFs, through VLANs, directly to underlay TOR switches. Although this solution is easy to implement, it has an incredible amount of drawbacks since a single VNF can now affect the stability of the whole POD or even the whole DC network. Some VNFs vendors also require BFD to monitor liveliness of those BGP sessions which, in case a L3 boundary is higher than the TOR, may create even a bigger number of issues on a POD spine.&lt;/p&gt;
-
-&lt;p&gt;There&amp;rsquo;s a small range of SDN platforms that run a full routing stack on each compute node (e.g. Cumulus, Calico). These solutions are the best fit for this kind of scenarios since they allow BGP sessions to be established over a single hop (VNF &amp;lt;-&amp;gt; virtual switch). However they represent a small fraction of total SDN solutions space with majority of vendors implementing a much simpler OpenFlow or XMPP-based flow push model.&lt;/p&gt;
-
-&lt;p&gt;OpenContrail, as far as I know, is the only SDN controller that doesn&amp;rsquo;t run a full routing stack on compute nodes but still fulfills this requirement in a very elegant way. When &lt;a href=&#34;https://www.juniper.net/documentation/en_US/contrail3.2/topics/concept/bgp-as-a-service-overview.html&#34; target=&#34;_blank&#34;&gt;BGPaaS&lt;/a&gt; is enabled for a particular VM&amp;rsquo;s interface, controller programs vRouter to proxy BGP TCP connections coming to virtual network&amp;rsquo;s default gateway IP and forward them to the controller. This way VNF thinks it peers with a next hop IP, however all BGP state and path computations still happen on the controller.&lt;/p&gt;
-
-&lt;p&gt;The diagram below depicts a sample implementation of BGPaaS using OpenContrail. VNF is connected to a vRouter using a dot1Q trunk interface (to allow multiple VRFs over a single vEth link). Each VRF has its own BGPaaS session setup to advertise network ranges (NET1-3) into customer VPNs. These BGP sessions get proxied to the controller which injects those prefixes into their respective VPNs. These updates are then sent to DC gateways using either a VPNv4/6 or EVPN and the traffic is forwarded through DC underlay with VPN segregation preserved by either an MPLS tag (for MPLSoGRE or MPLSoUDL encapsulation) or a VXLAN VNI.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/contrail-bgpaas.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Now let me briefly go over the lab that I&amp;rsquo;ve built to showcase the BGPaaS and DC-GW integration features.&lt;/p&gt;
-
-&lt;h1 id=&#34;lab-setup-overview&#34;&gt;Lab setup overview&lt;/h1&gt;
-
-&lt;p&gt;OpenContrail follows a familiar pattern of DC SDN architecture with central controller orchestrating the work of multiple virtual switches. In case of OpenContrail, these switches are called vRouters and they communicate with controller using XMPP-based extension of BGP as described in &lt;a href=&#34;https://www.ietf.org/archive/id/draft-ietf-l3vpn-end-system-06.txt&#34; target=&#34;_blank&#34;&gt;this RFC draft&lt;/a&gt;. A very detailed description of its internal architecture is available on &lt;a href=&#34;http://www.opencontrail.org/opencontrail-architecture-documentation/&#34; target=&#34;_blank&#34;&gt;OpenContrail&amp;rsquo;s website&lt;/a&gt; so it would be pointless to repeat all of this information here. That&amp;rsquo;s why I&amp;rsquo;ll concentrate on how to get things done rather then on the architectural aspects. However to get things started, I always like to have a clear picture of what I&amp;rsquo;m trying to achieve. The below diagram depicts a high-level architecture of my lab setup. Although OpenContrail supports BGP VPNv4/6 with multiple dataplane encapsulations, in this post I&amp;rsquo;ll use EVPN as the only control plane protocol to communicate with MX80 and use VXLAN encapsulation in the dataplane.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/contrail-lab.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;EVPN as a DC-GW integration protocol is relatively new to OpenContrail and comes with a few limitations. One of them is the absence of EVPN type-5 routes, which means I can&amp;rsquo;t use it in the same way I did in &lt;a href=&#34;https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/&#34;&gt;OpenDaylight&amp;rsquo;s case&lt;/a&gt;. Instead I&amp;rsquo;ll demonstrate a DC-GW IRB scenario, which extends the existing virtual network to a DC-GW and makes IRB/SVI interface on that DC-GW act as a default gateway for this network. This is a very common scenario for L2 DCI and active-active DC deployment models. To demonstrate this scenario I&amp;rsquo;m going to setup a single OpenStack virtual network with a couple of VMs whose gateway will reside on MX80. Since I only have a single OpenStack instance and a single MX80, I&amp;rsquo;ll setup one half of L2 DCI and setup a mutual redistribution to make our overlay network reachable from MX80&amp;rsquo;s global routing table.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/contrail-overlay.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h1 id=&#34;all-in-one-vm-setup&#34;&gt;All-in-one VM setup&lt;/h1&gt;
-
-&lt;p&gt;Physically, my lab will consist of a single hypervisor running an all-in-one VM with &lt;a href=&#34;https://docs.openstack.org/kolla/latest/&#34; target=&#34;_blank&#34;&gt;kolla-openstack&lt;/a&gt; and &lt;a href=&#34;https://github.com/Juniper/contrail-docker/wiki/OpenContrail-Kolla&#34; target=&#34;_blank&#34;&gt;kolla-contrail&lt;/a&gt; and a physical Juniper MX80 playing the role of a DC-GW.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/contrail-setup.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;OpenContrail&amp;rsquo;s &lt;a href=&#34;https://github.com/Juniper/contrail-docker/wiki/OpenContrail-Kolla&#34; target=&#34;_blank&#34;&gt;kolla github page&lt;/a&gt; contains a set of instructions to setup the environment. As usual, I have automated all of these steps which can be setup from a hypervisor with the following commands:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;git clone https://github.com/networkop/kolla-odl-bgpvpn &amp;amp;&amp;amp; cd kolla-odl-bgpvpn
-./1-create.sh do 
-./2-contrail.sh do
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;openstack-setup&#34;&gt;OpenStack setup&lt;/h1&gt;
-
-&lt;p&gt;Once installation is complete and all docker containers are up and running, we can setup the OpenStack side of our test environment. The script below will do the following:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;Download cirros and CumulusVX images and upload them to Glance&lt;/li&gt;
-&lt;li&gt;Create a virtual network&lt;/li&gt;
-&lt;li&gt;Update security rules to allow inbound ICMP and SSH connections&lt;/li&gt;
-&lt;li&gt;Create a pair of VMs - one based on cirros and one based on CumulusVX image&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;pre&gt;&lt;code&gt;curl -L -o ./cirros http://download.cirros-cloud.net/0.3.5/cirros-0.3.5-x86_64-disk.img
-curl -L -o ./cumulusVX http://cumulusfiles.s3.amazonaws.com/cumulus-linux-3.5.0-vx-amd64.qcow2
-
-openstack image create --disk-format qcow2 --container-format bare --public \
---property os_type=linux --file ./cirros cirros
-rm ./cirros
-
-openstack image create --disk-format qcow2 --container-format bare --public \
---property os_type=linux --file ./cumulusVX cumulus
-rm ./cumulusVX
-
-openstack network create --provider-network-type vxlan irb-net
-
-openstack subnet create --subnet-range 10.0.100.160/27 --network irb-net \
-      --host-route destination=0.0.0.0/0,gateway=10.0.100.190 \
-      --gateway 10.0.100.161 --dns-nameserver 8.8.8.8 irb-subnet
-
-openstack flavor create --id 1 --ram 256 --disk 1 --vcpus 1 m1.nano
-openstack flavor create --id 2 --ram 512 --disk 10 --vcpus 1 m1.tiny
-
-ADMIN_PROJECT_ID=$(openstack project show &#39;admin&#39; -f value -c id)
-ADMIN_SEC_GROUP=$(openstack security group list --project ${ADMIN_PROJECT_ID} | awk &#39;/ default / {print $2}&#39;)
-openstack security group rule create --ingress --ethertype IPv4 \
-    --protocol icmp ${ADMIN_SEC_GROUP}
-openstack security group rule create --ingress --ethertype IPv4 \
-    --protocol tcp --dst-port 22 ${ADMIN_SEC_GROUP}
-
-openstack server create --image cirros --flavor m1.nano --net irb-net VM1
-openstack server create --image cumulus --flavor m1.tiny --net irb-net VR1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The only thing worth noting in the above script is that a default gateway &lt;code&gt;10.0.100.161&lt;/code&gt; gets overridden by a default host route pointing to &lt;code&gt;10.0.100.190&lt;/code&gt;. Normally, to demonstrate DC-GW IRB scenario, I would have setup a gateway-less L2 only subnet, however in that case I wouldn&amp;rsquo;t have been able to demonstrate BGPaaS on the same network, since this feature relies on having a gateway IP setup (which later acts as a BGP session termination endpoint). So instead of setting up two separate networks I&amp;rsquo;ve decided to implement this hack to minimise the required configuration.&lt;/p&gt;
-
-&lt;h1 id=&#34;evpn-integration-with-mx80&#34;&gt;EVPN integration with MX80&lt;/h1&gt;
-
-&lt;p&gt;DC-GW integration procedure is very simple and requires only a few simple steps:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;Make sure VXLAN VNI is matched on both ends&lt;/li&gt;
-&lt;li&gt;Configure import/export route targets&lt;/li&gt;
-&lt;li&gt;Setup BGP peering with DC-GW&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;All of these steps can be done very easily through OpenContrail&amp;rsquo;s GUI. However as I&amp;rsquo;ve mentioned before, I always prefer to use API when I have a chance and in this case I even have a python library for OpenContrail&amp;rsquo;s REST API available on Juniper&amp;rsquo;s &lt;a href=&#34;https://github.com/Juniper/contrail-python-api&#34; target=&#34;_blank&#34;&gt;github page&lt;/a&gt;, which I&amp;rsquo;m going to use below to implement the above three steps.&lt;/p&gt;
-
-&lt;h2 id=&#34;configuration&#34;&gt;Configuration&lt;/h2&gt;
-
-&lt;p&gt;Before we can begin working with OpenContrail&amp;rsquo;s API, we need to authenticate with the controller and get a REST API connection handler.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;import pycontrail.client as client
-CONTRAIL_API = &#39;http://10.0.100.140:8082&#39;
-AUTH_URL = &#39;http://10.0.100.140:5000/v2.0&#39;
-AUTH_PARAMS = {
-    &#39;type&#39;: &#39;keystone&#39;,
-    &#39;username&#39;: &#39;admin&#39;,
-    &#39;password&#39;: &#39;mypassword&#39;,
-    &#39;tenant_name&#39;: &#39;admin&#39;,
-    &#39;auth_url&#39;: AUTH_URL
-}
-conn = client.Client(url=CONTRAIL_API,auth_params=AUTH_PARAMS)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The first thing I&amp;rsquo;m going to do is override the default VNI setup by OpenContrail for &lt;code&gt;irb-net&lt;/code&gt; to a pre-defined value of &lt;code&gt;5001&lt;/code&gt;. To do that I first need to get a handler for &lt;code&gt;irb-net&lt;/code&gt; object and extract the &lt;code&gt;virtual_network_properties&lt;/code&gt; object containing a &lt;code&gt;vxlan_network_identifier&lt;/code&gt; property. Once it&amp;rsquo;s overridden, I just need to update the parent &lt;code&gt;irb-net&lt;/code&gt; object to apply the change to the running configuration on the controller.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;irb_net = conn.virtual_network_read(fq_name = [ &#39;default-domain&#39;, &#39;admin&#39; ,&#39;irb-net&#39;] )
-vni_props=irb_net.get_virtual_network_properties()
-vni_props.set_vxlan_network_identifier(5001)
-irb_net.set_virtual_network_properties(vni_props)
-conn.virtual_network_update(irb_net)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The next thing I need to do is explicitly set the import/export route-target properties for the &lt;code&gt;irb-net&lt;/code&gt; object. This will require a new &lt;code&gt;RouteTargetList&lt;/code&gt; object which then gets referenced by a &lt;code&gt;route_target_list&lt;/code&gt; property of the &lt;code&gt;irb-net&lt;/code&gt; object.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;from pycontrail import types as t
-new_rtl = t.RouteTargetList([&#39;target:200:200&#39;])
-irb_net.set_route_target_list(new_rtl)
-conn.virtual_network_update(irb_net)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The final step is setting up a peering with MX80. The main object that needs to be created is &lt;code&gt;BgpRouter&lt;/code&gt;, which contains a pointer to BGP session parameters object with session-specific values like ASN and remote peer IP. BGP router is defined in a global context (default domain and default project) which will make it available to all configured virtual networks.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-python&#34;&gt;from pycontrail import types as t
-ctx = [&#39;default-domain&#39;, &#39;default-project&#39;, &#39;ip-fabric&#39;, &#39;__default__&#39;]
-af = t.AddressFamilies(family=[&#39;inet-vpn&#39;, &#39;e-vpn&#39;])
-bgp_params = t.BgpRouterParams(vendor=&#39;Juniper&#39;, \
-                               autonomous_system=65411, \
-                               address=&#39;10.0.101.15&#39;, \
-                               address_families=af)
-vrf = conn.routing_instance_read(fq_name = ctx)
-bgp_router = t.BgpRouter(name=&#39;MX80&#39;, display_name=&#39;MX80&#39;, \
-                         bgp_router_parameters=bgp_params,
-                         parent_obj=vrf)
-contrail = conn.bgp_router_read(fq_name = ctx + [&#39;controller-1&#39;])
-bgp_router.set_bgp_router(contrail,t.BgpPeeringAttributes())
-conn.bgp_router_create(bgp_router)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;For the sake of brevity, I will not cover MX80&amp;rsquo;s configuration in details and simply include it here for reference with some minor explanatory comments.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;# Interface and global settings configuration
-set interfaces irb unit 5001 family inet address 10.0.100.190/27
-set interfaces lo0 unit 0 family inet address 10.0.101.15/32
-set routing-options router-id 10.0.101.15
-set routing-options autonomous-system 65411
-
-# Setup BGP peering with OpenContrail
-set protocols bgp group CONTRAIL multihop
-set protocols bgp group CONTRAIL local-address 10.0.101.15
-set protocols bgp group CONTRAIL family inet-vpn unicast
-set protocols bgp group CONTRAIL family evpn signaling
-set protocols bgp group CONTRAIL peer-as 64512
-set protocols bgp group CONTRAIL neighbor 10.0.100.140
-
-# Setup EVPN instance type with IRB interface and matching RT and VNI
-set routing-instances EVPN-L2-IRB vtep-source-interface lo0.0
-set routing-instances EVPN-L2-IRB instance-type evpn
-set routing-instances EVPN-L2-IRB vlan-id 501
-set routing-instances EVPN-L2-IRB routing-interface irb.5001
-set routing-instances EVPN-L2-IRB vxlan vni 5001
-set routing-instances EVPN-L2-IRB route-distinguisher 200:200
-set routing-instances EVPN-L2-IRB vrf-target target:200:200
-set routing-instances EVPN-L2-IRB protocols evpn encapsulation vxlan
-
-# Setup VRF instance with IRB interface
-set routing-instances EVPN-L3-IRB instance-type vrf
-set routing-instances EVPN-L3-IRB interface irb.5001
-set routing-instances EVPN-L3-IRB route-distinguisher 201:200
-set routing-instances EVPN-L3-IRB vrf-target target:200:200
-
-# Setup route redistribution between EVPN and Global VRFs
-set routing-options rib-groups CONTRAIL-TO-GLOBAL import-rib EVPN-L3-IRB.inet.0
-set routing-options rib-groups CONTRAIL-TO-GLOBAL import-rib inet.0
-set routing-options rib-groups GLOBAL-TO-CONTRAIL import-rib inet.0
-set routing-options rib-groups GLOBAL-TO-CONTRAIL import-rib EVPN-L3-IRB.inet.0
-set routing-options interface-routes rib-group inet CONTRAIL-TO-GLOBAL
-set routing-instances EVPN-L3-IRB routing-options interface-routes rib-group inet CONTRAIL-TO-GLOBAL
-set protocols bgp group EXTERNAL-BGP family inet unicast rib-group GLOBAL-TO-CONTRAIL
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;verification&#34;&gt;Verification&lt;/h2&gt;
-
-&lt;p&gt;The easiest way to verify that BGP peering has been established is to query OpenContrail&amp;rsquo;s introspection API:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;$ curl  -s http://10.0.100.140:8083/Snh_BgpNeighborReq?ip_address=10.0.101.15 | \
-  xmllint --xpath &#39;/BgpNeighborListResp/neighbors[1]/list/BgpNeighborResp/state&#39; -
-&amp;lt;state type=&amp;quot;string&amp;quot; identifier=&amp;quot;8&amp;quot;&amp;gt;Established&amp;lt;/state&amp;gt;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Datapath verification can be done from either side, in this case I&amp;rsquo;m showing a ping from MX80&amp;rsquo;s global VRF towards one of the OpenStack VMs:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;admin@MX80&amp;gt; ping 10.0.100.164 count 2 
-PING 10.0.100.164 (10.0.100.164): 56 data bytes
-64 bytes from 10.0.100.164: icmp_seq=0 ttl=64 time=3.836 ms
-64 bytes from 10.0.100.164: icmp_seq=1 ttl=64 time=3.907 ms
-
---- 10.0.100.164 ping statistics ---
-2 packets transmitted, 2 packets received, 0% packet loss
-round-trip min/avg/max/stddev = 3.836/3.872/3.907/0.035 ms
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;bgp-as-a-service-1&#34;&gt;BGP-as-a-Service&lt;/h1&gt;
-
-&lt;p&gt;To keep things simple I will not use multiple dot1Q interfaces and setup a BGP peering with CumulusVX over a normal, non-trunk interface. From CumulusVX I will inject a loopback IP &lt;code&gt;1.1.1.1/32&lt;/code&gt; into the &lt;code&gt;irb-net&lt;/code&gt; network. Since REST API python library I&amp;rsquo;ve used above is two major releases behind the current version of OpenContrail, it cannot be used to setup BGPaaS feature. Instead I will demonstrate how to use REST API directly from the command line of all-in-one VM using cURL.&lt;/p&gt;
-
-&lt;h2 id=&#34;configuration-1&#34;&gt;Configuration&lt;/h2&gt;
-
-&lt;p&gt;In order to start working with OpenContrail&amp;rsquo;s API, I first need to obtain an authentication token from OpenStack&amp;rsquo;s keystone. With that token I can now query the list of IPs assigned to all OpenStack instances and pick the one assigned to CumulusVX. I need the UUID of that particular IP address in order to extract the ID of the VM interface this IP is assigned to.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;source /etc/kolla/admin-openrc.sh 
-TOKEN=$(openstack token issue -f value -c id)
-CONTRAIL_AUTH=&amp;quot;X-AUTH-TOKEN: $TOKEN&amp;quot;
-CTYPE=&amp;quot;Content-Type: application/json; charset=UTF-8&amp;quot;
-curl -H &amp;quot;$CONTRAIL_AUTH&amp;quot; http://10.0.100.140:8082/instance-ips | jq
-VMI_ID=$(curl -H &amp;quot;$CONTRAIL_AUTH&amp;quot; http://10.0.100.140:8082/instance-ip/2e7987be-3f53-4296-905a-0c64793307a9 | \
-         jq &#39;.[&amp;quot;instance-ip&amp;quot;] .virtual_machine_interface_refs[0].uuid&#39;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;With VM interface ID saved in a &lt;code&gt;VMI_ID&lt;/code&gt; variable I can create a BGPaaS service and link it to that particular VM interface.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;cat &amp;lt;&amp;lt; EOF &amp;gt; ./bgpaas.json
-{
-    &amp;quot;bgp-as-a-service&amp;quot;:
-    {
-        &amp;quot;fq_name&amp;quot;: [&amp;quot;default-domain&amp;quot;, &amp;quot;admin&amp;quot;, &amp;quot;cumulusVX-bgp&amp;quot; ],
-        &amp;quot;autonomous_system&amp;quot;: 321,
-        &amp;quot;bgpaas_session_attributes&amp;quot;: {
-            &amp;quot;address_families&amp;quot;: {&amp;quot;family&amp;quot;: [&amp;quot;inet&amp;quot;] }
-            },
-        &amp;quot;parent_type&amp;quot;: &amp;quot;project&amp;quot;,
-        &amp;quot;virtual_machine_interface_refs&amp;quot;: [{
-            &amp;quot;attr&amp;quot;: null,
-            &amp;quot;to&amp;quot;: [&amp;quot;default-domain&amp;quot;, &amp;quot;admin&amp;quot;, ${VMI_ID}]
-            }],
-        &amp;quot;bgpaas-shared&amp;quot;: false,
-        &amp;quot;bgpaas-ip-address&amp;quot;: &amp;quot;10.0.100.164&amp;quot;
-    }
-}
-EOF
-
-curl -X POST -H &amp;quot;$CONTRAIL_AUTH&amp;quot; -H &amp;quot;$CTYPE&amp;quot; -d @bgpaas.json http://10.0.100.140:8082/bgp-as-a-services
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The final step is setting up a BGP peering on the CumulusVX side. CumulusVX configuration is very simple and self-explanatory. The BGP neighbor IP is the IP of virtual network&amp;rsquo;s default gateway located on local vRouter.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;!
-interface lo
- ip address 1.1.1.1/32
-!
-router bgp 321
- neighbor 10.0.100.161 remote-as 64512
- !
- address-family ipv4 unicast
-  network 1.1.1.1/32
- exit-address-family
-!
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;verification-1&#34;&gt;Verification&lt;/h2&gt;
-
-&lt;p&gt;Here&amp;rsquo;s where we come across another limitation of EVPN. The loopback prefix &lt;code&gt;1.1.1.1/32&lt;/code&gt; does not get injected into EVPN address family, however it does show up automatically in the VPNv4 address family which can be verified from the MX80:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;admin@MX80&amp;gt; show route table bgp.l3vpn.0 hidden 1.1.1.1/32 extensive    
-
-bgp.l3vpn.0: 6 destinations, 6 routes (3 active, 0 holddown, 3 hidden)
-10.0.100.140:2:1.1.1.1/32 (1 entry, 0 announced)
-         BGP    Preference: 170/-101
-                Route Distinguisher: 10.0.100.140:2
-                Next hop type: Unusable, Next hop index: 0
-                Next-hop reference count: 6
-                State: &amp;lt;Hidden Ext ProtectionPath ProtectionCand&amp;gt;
-                Local AS: 65411 Peer AS: 64512
-                Age: 37:44 
-                Validation State: unverified 
-                Task: BGP_64512.10.0.100.140
-                AS path: 64512 321 I
-                Communities: target:200:200 target:64512:8000003 encapsulation:unknown(0x2) encapsulation:mpls-in-udp(0xd) unknown type 8004 value fc00:7a1201 unknown type 8071 value fc00:1389
-                Import Accepted
-                VPN Label: 31
-                Localpref: 100
-                Router ID: 10.0.100.140
-                Secondary Tables: EVPN-L3-IRB.inet.0
-                Indirect next hops: 1
-                        Protocol next hop: 10.0.100.140
-                        Label operation: Push 31
-                        Label TTL action: prop-ttl
-                        Load balance label: Label 31: None; 
-                        Indirect next hop: 0x0 - INH Session ID: 0x0
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;It&amp;rsquo;s hidden since I haven&amp;rsquo;t configured MPLSoUDP &lt;a href=&#34;https://www.juniper.net/documentation/en_US/junos/topics/example/example-next-hop-based-dynamic-mpls-udp-tunnel-configuring.html&#34; target=&#34;_blank&#34;&gt;dynamic tunnels&lt;/a&gt; on MX80. However this proves that the prefix does get injected into customer VPNs and become available on all devices with the matching import route-target communities.&lt;/p&gt;
-
-&lt;h1 id=&#34;outro&#34;&gt;Outro&lt;/h1&gt;
-
-&lt;p&gt;This post concludes Series 2 of my OpenStack SDN saga. I&amp;rsquo;ve covered quite an extensive range of topics in my two-part series, however, OpenStack networking landscape is so big, it&amp;rsquo;s simply impossible to cover everything I find interesting. I started writing about OpenStack SDN when I first learned I got a job with Nokia. Back then I knew little about VMware NSX and even less about OpenStack. That&amp;rsquo;s why I started researching topics that I found interesting and branching out into adjacent areas as I went along. Almost 2 years later, looking back I can say I&amp;rsquo;ve learned a lot about the internals of SDN in general and hopefully so have my readers. Now I&amp;rsquo;m leaving Nokia to rediscover my networking roots at Arista. I&amp;rsquo;ll dive into DC networking from a different perspective now and it may be awhile before I accumulate a critical mass of interesting material to start spilling it out in my blog again. I still may come back to OpenStack some day but for now I&amp;rsquo;m gonna take a little break, maybe do some house keeping (e.g. move my blog from Jekyll to &lt;a href=&#34;https://gohugo.io/&#34; target=&#34;_blank&#34;&gt;Hugo&lt;/a&gt;, add TLS support) and enjoy my time being a farther.&lt;/p&gt;
 </description>
     </item>
     
