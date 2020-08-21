@@ -3,8 +3,8 @@ title = "Self-hosted external DNS resolver for Kubernetes"
 date = 2020-08-14T00:00:00Z
 categories = ["howto"]
 tags = ["devops", "k8s"]
-summary = "Understanding how the default kubernetes service is configured"
-description = "Understanding how the default kubernetes service is configured"
+summary = "Solutions for external DNS resolution in Kubernetes"
+description = "Solutions for external DNS resolution in Kubernetes"
 images = ["/img/d13.png"]
 +++
 
