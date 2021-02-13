@@ -367,7 +367,7 @@
 <p>The &ldquo;smart&rdquo; functionality is designed to maintain a consistent user experience in the presence of network congestion and VPN gateway overloading and it does that by resetting a VPN connection if it becomes too slow or unresponsive. Translated to technical terms, this is implemented as the following sequence of steps :</p>
 
 <ul>
-<li>When a new VPN connection is setup, we record the &ldquo;baseline&rdquo; round-trip time over it.</li>
+<li>When a new VPN connection is set up, we record the &ldquo;baseline&rdquo; round-trip time over it.</li>
 <li>Connection health monitor periodically measures the RTT and maintains a record of the last 10 values.</li>
 <li>At the end of each measurement, connection health is evaluated and can be deemed degraded if either:
 
@@ -378,7 +378,7 @@
 <li>If health stays degraded for 3 consecutive measurement intervals, the VPN connection is re-established to the new &ldquo;closest&rdquo; VPN gateway.</li>
 </ul>
 
-<p>The VPN client binary can be build from <a href="https://github.com/networkop/smart-vpn-client" target="_blank">source</a> or downloaded as a docker image, which is how I&rsquo;m deploying it:</p>
+<p>The VPN client binary can be built from <a href="https://github.com/networkop/smart-vpn-client" target="_blank">source</a> or downloaded as a docker image, which is how I&rsquo;m deploying it:</p>
 
 <pre><code class="language-bash">#!/bin/sh
 docker pull networkop/smart-vpn-client
@@ -424,7 +424,7 @@ peer: PEER_PUBLIC_KEY
 
 <h2 id="envoy-split-proxy">Envoy Split Proxy</h2>
 
-<p><a href="https://en.wikipedia.org/wiki/Split_tunneling" target="_blank">Split tunneling</a> is a technique commonly used in VPN access to enable local internet breakout for some subset of user traffic. It works at Layer 3, so the decision is made based on the contents of a local routing table. What I&rsquo;ve done with Envoy is effectively taken the same idea and extended it to L4-L7, hence the name <strong>split proxy</strong>. The goal was to make L4-L7 split-routing completely transparent to the end user, with no extra requirements (e.g. no custom proxy configuration) apart from a default route pointing at the ARM64 box. This goal is achieved by a combination of:</p>
+<p><a href="https://en.wikipedia.org/wiki/Split_tunneling" target="_blank">Split tunneling</a> is a technique commonly used in VPN access to enable local internet breakout for some subset of user traffic. It works at Layer 3, so the decision is made based on the contents of a local routing table. What I&rsquo;ve done with Envoy is effectively taken the same idea and extended it to L4-L7, hence the name <strong>split proxy</strong>. The goal was to make L4-L7 split-routing completely transparent to the end-user, with no extra requirements (e.g. no custom proxy configuration) apart from a default route pointing at the ARM64 box. This goal is achieved by a combination of:</p>
 
 <ul>
 <li>Envoy proxy acting as a configurable dataplane for L4-L7 traffic.</li>
@@ -443,7 +443,7 @@ urls:
 
 <p>All other domains will be proxied and sent out the default (wireguard) interface, so the above file only defines the exceptions. One obvious problem is that streaming services will most likely use a combination of domains, not just their well-known second-level domains. The domain <a href="https://github.com/networkop/envoy-split-proxy#discovering-domain-names" target="_blank">discovery process</a> may be a bit tedious but only needs to be done once for a single streaming service. Some of the domains that I use are already <a href="https://github.com/networkop/envoy-split-proxy/blob/main/split.yaml" target="_blank">documented</a> in the source code repository.</p>
 
-<p>Similar to the VPN client, all software can be deployed directly on ARM64 box as binaries, or as docker containers. Regardless of the deployment method the two prerequisites are the user intent YAML file and the Envoy bootstrap configuration that makes it connect to the XDS controller.</p>
+<p>Similar to the VPN client, all software can be deployed directly on ARM64 box as binaries, or as docker containers. Regardless of the deployment method, the two prerequisites are the user intent YAML file and the Envoy bootstrap configuration that makes it connect to the XDS controller.</p>
 
 <pre><code>$ curl -O https://raw.githubusercontent.com/networkop/envoy-split-proxy/main/envoy.yaml
 $ curl -O https://raw.githubusercontent.com/networkop/envoy-split-proxy/main/split.yaml
@@ -548,7 +548,7 @@ docker run -d --name agent --restart always --net host \
 grafana/agent:v0.12.0 --config.file=/etc/agent-config/agent.yaml --prometheus.wal-directory=/etc/agent/data
 </code></pre>
 
-<p>The collected metrics can be a displayed in a beautiful dashboard allowing us to correlate network throughput, VPN healthchecks and proxy connection latencies.</p>
+<p>The collected metrics can be displayed in a beautiful dashboard allowing us to correlate network throughput, VPN healthchecks and proxy connection latencies.</p>
 
 <p><img src="/img/sdwan-dashboard.png" alt="" /></p>
 
@@ -557,7 +557,7 @@ grafana/agent:v0.12.0 --config.file=/etc/agent-config/agent.yaml --prometheus.wa
 <p>Building something like this would have been a lot more difficult without other FOSS projects:</p>
 
 <ul>
-<li><a href="https://github.com/envoyproxy/envoy" target="_blank">Envoy</a> proxy - the most versatile and feature rich proxy in the world today.</li>
+<li><a href="https://github.com/envoyproxy/envoy" target="_blank">Envoy</a> proxy - the most versatile and feature-rich proxy in the world today.</li>
 <li>Wireguard and <a href="https://github.com/WireGuard/wgctrl-go" target="_blank">wgctrl</a> Go package to manage all interface-related configurations.</li>
 <li>Grafana Cloud&rsquo;s with their <a href="https://grafana.com/products/cloud/pricing/" target="_blank">free tier plan</a> which is a perfect fit for personal/home use.</li>
 </ul>

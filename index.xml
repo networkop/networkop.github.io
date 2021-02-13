@@ -72,7 +72,7 @@
 &lt;p&gt;The &amp;ldquo;smart&amp;rdquo; functionality is designed to maintain a consistent user experience in the presence of network congestion and VPN gateway overloading and it does that by resetting a VPN connection if it becomes too slow or unresponsive. Translated to technical terms, this is implemented as the following sequence of steps :&lt;/p&gt;
 
 &lt;ul&gt;
-&lt;li&gt;When a new VPN connection is setup, we record the &amp;ldquo;baseline&amp;rdquo; round-trip time over it.&lt;/li&gt;
+&lt;li&gt;When a new VPN connection is set up, we record the &amp;ldquo;baseline&amp;rdquo; round-trip time over it.&lt;/li&gt;
 &lt;li&gt;Connection health monitor periodically measures the RTT and maintains a record of the last 10 values.&lt;/li&gt;
 &lt;li&gt;At the end of each measurement, connection health is evaluated and can be deemed degraded if either:
 
@@ -83,7 +83,7 @@
 &lt;li&gt;If health stays degraded for 3 consecutive measurement intervals, the VPN connection is re-established to the new &amp;ldquo;closest&amp;rdquo; VPN gateway.&lt;/li&gt;
 &lt;/ul&gt;
 
-&lt;p&gt;The VPN client binary can be build from &lt;a href=&#34;https://github.com/networkop/smart-vpn-client&#34; target=&#34;_blank&#34;&gt;source&lt;/a&gt; or downloaded as a docker image, which is how I&amp;rsquo;m deploying it:&lt;/p&gt;
+&lt;p&gt;The VPN client binary can be built from &lt;a href=&#34;https://github.com/networkop/smart-vpn-client&#34; target=&#34;_blank&#34;&gt;source&lt;/a&gt; or downloaded as a docker image, which is how I&amp;rsquo;m deploying it:&lt;/p&gt;
 
 &lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;#!/bin/sh
 docker pull networkop/smart-vpn-client
@@ -129,7 +129,7 @@ peer: PEER_PUBLIC_KEY
 
 &lt;h2 id=&#34;envoy-split-proxy&#34;&gt;Envoy Split Proxy&lt;/h2&gt;
 
-&lt;p&gt;&lt;a href=&#34;https://en.wikipedia.org/wiki/Split_tunneling&#34; target=&#34;_blank&#34;&gt;Split tunneling&lt;/a&gt; is a technique commonly used in VPN access to enable local internet breakout for some subset of user traffic. It works at Layer 3, so the decision is made based on the contents of a local routing table. What I&amp;rsquo;ve done with Envoy is effectively taken the same idea and extended it to L4-L7, hence the name &lt;strong&gt;split proxy&lt;/strong&gt;. The goal was to make L4-L7 split-routing completely transparent to the end user, with no extra requirements (e.g. no custom proxy configuration) apart from a default route pointing at the ARM64 box. This goal is achieved by a combination of:&lt;/p&gt;
+&lt;p&gt;&lt;a href=&#34;https://en.wikipedia.org/wiki/Split_tunneling&#34; target=&#34;_blank&#34;&gt;Split tunneling&lt;/a&gt; is a technique commonly used in VPN access to enable local internet breakout for some subset of user traffic. It works at Layer 3, so the decision is made based on the contents of a local routing table. What I&amp;rsquo;ve done with Envoy is effectively taken the same idea and extended it to L4-L7, hence the name &lt;strong&gt;split proxy&lt;/strong&gt;. The goal was to make L4-L7 split-routing completely transparent to the end-user, with no extra requirements (e.g. no custom proxy configuration) apart from a default route pointing at the ARM64 box. This goal is achieved by a combination of:&lt;/p&gt;
 
 &lt;ul&gt;
 &lt;li&gt;Envoy proxy acting as a configurable dataplane for L4-L7 traffic.&lt;/li&gt;
@@ -148,7 +148,7 @@ urls:
 
 &lt;p&gt;All other domains will be proxied and sent out the default (wireguard) interface, so the above file only defines the exceptions. One obvious problem is that streaming services will most likely use a combination of domains, not just their well-known second-level domains. The domain &lt;a href=&#34;https://github.com/networkop/envoy-split-proxy#discovering-domain-names&#34; target=&#34;_blank&#34;&gt;discovery process&lt;/a&gt; may be a bit tedious but only needs to be done once for a single streaming service. Some of the domains that I use are already &lt;a href=&#34;https://github.com/networkop/envoy-split-proxy/blob/main/split.yaml&#34; target=&#34;_blank&#34;&gt;documented&lt;/a&gt; in the source code repository.&lt;/p&gt;
 
-&lt;p&gt;Similar to the VPN client, all software can be deployed directly on ARM64 box as binaries, or as docker containers. Regardless of the deployment method the two prerequisites are the user intent YAML file and the Envoy bootstrap configuration that makes it connect to the XDS controller.&lt;/p&gt;
+&lt;p&gt;Similar to the VPN client, all software can be deployed directly on ARM64 box as binaries, or as docker containers. Regardless of the deployment method, the two prerequisites are the user intent YAML file and the Envoy bootstrap configuration that makes it connect to the XDS controller.&lt;/p&gt;
 
 &lt;pre&gt;&lt;code&gt;$ curl -O https://raw.githubusercontent.com/networkop/envoy-split-proxy/main/envoy.yaml
 $ curl -O https://raw.githubusercontent.com/networkop/envoy-split-proxy/main/split.yaml
@@ -253,7 +253,7 @@ docker run -d --name agent --restart always --net host \
 grafana/agent:v0.12.0 --config.file=/etc/agent-config/agent.yaml --prometheus.wal-directory=/etc/agent/data
 &lt;/code&gt;&lt;/pre&gt;
 
-&lt;p&gt;The collected metrics can be a displayed in a beautiful dashboard allowing us to correlate network throughput, VPN healthchecks and proxy connection latencies.&lt;/p&gt;
+&lt;p&gt;The collected metrics can be displayed in a beautiful dashboard allowing us to correlate network throughput, VPN healthchecks and proxy connection latencies.&lt;/p&gt;
 
 &lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sdwan-dashboard.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
 
@@ -262,7 +262,7 @@ grafana/agent:v0.12.0 --config.file=/etc/agent-config/agent.yaml --prometheus.wa
 &lt;p&gt;Building something like this would have been a lot more difficult without other FOSS projects:&lt;/p&gt;
 
 &lt;ul&gt;
-&lt;li&gt;&lt;a href=&#34;https://github.com/envoyproxy/envoy&#34; target=&#34;_blank&#34;&gt;Envoy&lt;/a&gt; proxy - the most versatile and feature rich proxy in the world today.&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://github.com/envoyproxy/envoy&#34; target=&#34;_blank&#34;&gt;Envoy&lt;/a&gt; proxy - the most versatile and feature-rich proxy in the world today.&lt;/li&gt;
 &lt;li&gt;Wireguard and &lt;a href=&#34;https://github.com/WireGuard/wgctrl-go&#34; target=&#34;_blank&#34;&gt;wgctrl&lt;/a&gt; Go package to manage all interface-related configurations.&lt;/li&gt;
 &lt;li&gt;Grafana Cloud&amp;rsquo;s with their &lt;a href=&#34;https://grafana.com/products/cloud/pricing/&#34; target=&#34;_blank&#34;&gt;free tier plan&lt;/a&gt; which is a perfect fit for personal/home use.&lt;/li&gt;
 &lt;/ul&gt;
