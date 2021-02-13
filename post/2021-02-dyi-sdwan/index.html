@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="When using a personal VPN at home, one of the biggest problems I&rsquo;ve faced was the inability to access public streaming services. I don&rsquo;t care about watching Netflix from another country, I just want to be able to use my local internet connection for this kind of traffic while still encrypting everything else. This problem is commonly known in network engineering as &ldquo;local internet breakout&rdquo; and is often implemented at remote branch/edge sites to save costs of transporting SaaS traffic (e.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2021-02-dyi-sdwan/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2021-02-dyi-sdwan/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2021-02-dyi-sdwan/">
+  <meta property="og:title" content="Building your own SD-WAN with Envoy and Wireguard | networkop">
+  <meta property="og:description" content="When using a personal VPN at home, one of the biggest problems I&rsquo;ve faced was the inability to access public streaming services. I don&rsquo;t care about watching Netflix from another country, I just want to be able to use my local internet connection for this kind of traffic while still encrypting everything else. This problem is commonly known in network engineering as &ldquo;local internet breakout&rdquo; and is often implemented at remote branch/edge sites to save costs of transporting SaaS traffic (e.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2021-02-13T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2021-02-13T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/sd-wan.png"/>
+
+<meta name="twitter:title" content="Building your own SD-WAN with Envoy and Wireguard"/>
+<meta name="twitter:description" content="How to build your own SD-WAN with Envoy and Wireguard"/>
+
+
+  <title>Building your own SD-WAN with Envoy and Wireguard | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Building your own SD-WAN with Envoy and Wireguard</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2021-02-13 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      13 Feb 2021
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    8 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2021-02-dyi-sdwan/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/howto">howto</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Building%20your%20own%20SD-WAN%20with%20Envoy%20and%20Wireguard&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-02-dyi-sdwan%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-02-dyi-sdwan%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-02-dyi-sdwan%2f&amp;title=Building%20your%20own%20SD-WAN%20with%20Envoy%20and%20Wireguard"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Building%20your%20own%20SD-WAN%20with%20Envoy%20and%20Wireguard&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-02-dyi-sdwan%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>When using a personal VPN at home, one of the biggest problems I&rsquo;ve faced was the inability to access public streaming services. I don&rsquo;t care about watching Netflix from another country, I just want to be able to use my local internet connection for this kind of traffic while still encrypting everything else. This problem is commonly known in network engineering as &ldquo;local internet breakout&rdquo; and is often implemented at remote branch/edge sites to save costs of transporting SaaS traffic (e.g. Office365) over the VPN infrastructure. These &ldquo;local breakout&rdquo; solutions often rely on <a href="https://sdwan-docs.cisco.com/Product_Documentation/Software_Features/SD-WAN_Release_16.2/07Policy_Applications/04Using_a_vEdge_Router_as_a_NAT_Device/Configuring_Local_Internet_Exit" target="_blank">explicit enumeration</a> of all public IP subnets, which is a bit <a href="https://docs.microsoft.com/en-gb/microsoft-365/enterprise/urls-and-ip-address-ranges?view=o365-worldwide" target="_blank">cumbersome</a>, or require &ldquo;intelligent&rdquo; (i.e. expensive) <a href="https://www.silver-peak.com/products/unity-edge-connect/first-packet-iq" target="_blank">DPI</a> functionality. However, it is absolutely possible to build something like this for personal use and this post will demonstrate how to do that.</p>
+
+<h2 id="solution-overview">Solution Overview</h2>
+
+<p>The problem scope consists of two relatively independent areas:</p>
+
+<ul>
+<li><p><strong>Traffic routing</strong> - how to forward traffic to different outgoing interfaces based on the target domain.</p></li>
+
+<li><p><strong>VPN management</strong> - how to connect to the best VPN gateway and make sure that connection stays healthy.</p></li>
+</ul>
+
+<p>Each of one these problem areas is addressed by a separate set of components.</p>
+
+<p>VPN management is solved by:</p>
+
+<ul>
+<li>A <strong>smart-vpn-client</strong> agent that discovers all of the available VPN gateways, connects to the closest one and continuously monitors the state of that connection.</li>
+</ul>
+
+<p>Traffic routing is solved by:</p>
+
+<ul>
+<li><p>A transparent proxy (<strong>Envoy</strong>), capable of domain- and SNI-based routing and binding to multiple outgoing interfaces.</p></li>
+
+<li><p>A proxy controller called <strong>envoy-split-proxy</strong>, that monitors the user intent (what traffic to route where) and ensures that Envoy configuration is updated accordingly.</p></li>
+</ul>
+
+<p>An extra bonus is a free-tier monitoring solution based on <a href="https://grafana.com/products/cloud/pricing/" target="_blank">Grafana Cloud</a> that scrapes local metrics and pushes them to the managed observability platform.</p>
+
+<p><img src="/img/sd-wan.png" alt="" /></p>
+
+<p>Below, I&rsquo;ll walk through the component design and steps of how to deploy this solution on a Linux-based ARM64 box (in my case it&rsquo;s a Synology NAS). The only two prerequisites that are not covered in this blogpost are:</p>
+
+<ul>
+<li>Docker support on the target ARM64 box (see <a href="https://github.com/markdumay/synology-docker" target="_blank">this guide</a> for Synology)</li>
+<li>Wireguard kernel module loaded on the target ARM64 box (see <a href="https://github.com/runfalk/synology-wireguard" target="_blank">this guide</a>  for Synology)</li>
+</ul>
+
+<h2 id="smart-vpn-client">Smart VPN Client</h2>
+
+<p>At its core, the <a href="https://github.com/networkop/smart-vpn-client" target="_blank">smart-vpn-client</a> implements a standard set of functions you&rsquo;d expect from a VPN client, i.e.:</p>
+
+<ul>
+<li>Discovers all of the available VPN gateways (exit nodes) it can connect to.</li>
+<li>Measures the latency and selects the &ldquo;closest&rdquo; gateway for higher <a href="https://en.wikipedia.org/wiki/Bandwidth-delay_product" target="_blank">throughput</a>.</li>
+<li>Configures the wireguard interface and associated <a href="https://www.wireguard.com/netns/#routing-all-your-traffic" target="_blank">routing policies</a>.</li>
+</ul>
+
+<p>The only supported VPN provider at this stage is PIA, so the discovery and VPN setup is based on the instructions from the <a href="https://github.com/pia-foss/manual-connections" target="_blank">pia-foss repo</a>.</p>
+
+<p>The &ldquo;smart&rdquo; functionality is designed to maintain a consistent user experience in the presence of network congestion and VPN gateway overloading and it does that by resetting a VPN connection if it becomes too slow or unresponsive. Translated to technical terms, this is implemented as the following sequence of steps :</p>
+
+<ul>
+<li>When a new VPN connection is setup, we record the &ldquo;baseline&rdquo; round-trip time over it.</li>
+<li>Connection health monitor periodically measures the RTT and maintains a record of the last 10 values.</li>
+<li>At the end of each measurement, connection health is evaluated and can be deemed degraded if either:
+
+<ul>
+<li>No response was received within a timeout window of 10s.</li>
+<li>The exponentially weighted average of the last 10 measurements exceeded 10x the &ldquo;baseline&rdquo;.</li>
+</ul></li>
+<li>If health stays degraded for 3 consecutive measurement intervals, the VPN connection is re-established to the new &ldquo;closest&rdquo; VPN gateway.</li>
+</ul>
+
+<p>The VPN client binary can be build from <a href="https://github.com/networkop/smart-vpn-client" target="_blank">source</a> or downloaded as a docker image, which is how I&rsquo;m deploying it:</p>
+
+<pre><code class="language-bash">#!/bin/sh
+docker pull networkop/smart-vpn-client
+
+docker rm -f vpn
+docker run --privileged networkop/smart-vpn-client -cleanup
+docker run -d --name vpn --restart always --net host \
+--env VPN_PWD=&lt;VPN-PASSWORD&gt; \
+--privileged \
+networkop/smart-vpn-client \
+-user &lt;VPN-USER&gt; -ignore=uk_2
+</code></pre>
+
+<p>The above script creates a new container attached to the root network namespace. We can see the main steps it went through in the logs:</p>
+
+<pre><code>$ docker logs vpn
+level=info msg=&quot;Starting VPN Connector&quot;
+level=info msg=&quot;Ignored headends: [uk_2]&quot;
+level=info msg=&quot;VPN provider is PIA&quot;
+level=info msg=&quot;Discovering VPN headends for PIA&quot;
+level=info msg=&quot;Winner is uk with latency 14 ms&quot;
+level=info msg=&quot;Brining up WG tunnel to 143.X.X.X:1337&quot;
+level=info msg=&quot;Wireguard Tunnel is UP&quot;
+level=info msg=&quot;New baseline is 202 ms; Threshold is 2020&quot;
+</code></pre>
+
+<p>Now we can verify that the wireguard tunnel has been set up:</p>
+
+<pre><code>$ sudo wg show
+interface: wg-pia
+  public key: MY_PUBLIC_KEY
+  private key: (hidden)
+  listening port: 34006
+  fwmark: 0xea55
+
+peer: PEER_PUBLIC_KEY
+  endpoint: 143.X.X.X:1337
+  allowed ips: 0.0.0.0/0
+  latest handshake: 1 minute, 21 seconds ago
+  transfer: 3.29 GiB received, 1.03 GiB sent
+  persistent keepalive: every 15 seconds
+</code></pre>
+
+<h2 id="envoy-split-proxy">Envoy Split Proxy</h2>
+
+<p><a href="https://en.wikipedia.org/wiki/Split_tunneling" target="_blank">Split tunneling</a> is a technique commonly used in VPN access to enable local internet breakout for some subset of user traffic. It works at Layer 3, so the decision is made based on the contents of a local routing table. What I&rsquo;ve done with Envoy is effectively taken the same idea and extended it to L4-L7, hence the name <strong>split proxy</strong>. The goal was to make L4-L7 split-routing completely transparent to the end user, with no extra requirements (e.g. no custom proxy configuration) apart from a default route pointing at the ARM64 box. This goal is achieved by a combination of:</p>
+
+<ul>
+<li>Envoy proxy acting as a configurable dataplane for L4-L7 traffic.</li>
+<li>IPTables redirecting all inbound TCP/80 and TCP/443 traffic to envoy listeners.</li>
+<li><a href="https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol" target="_blank">XDS</a> controller that configures envoy to act as a transparent forward proxy based on the user intent.</li>
+</ul>
+
+<p>The user intent is expressed as a YAML file with the list of domains and the non-default interface to bind to when making outgoing requests. This file is watched by the envoy-split-proxy application and applied to envoy on every detected change.</p>
+
+<pre><code class="language-yaml">interface: eth0
+urls:
+## Netflix
+- netflix.com
+- &quot;*.nflxso.net&quot;
+</code></pre>
+
+<p>All other domains will be proxied and sent out the default (wireguard) interface, so the above file only defines the exceptions. One obvious problem is that streaming services will most likely use a combination of domains, not just their well-known second-level domains. The domain <a href="https://github.com/networkop/envoy-split-proxy#discovering-domain-names" target="_blank">discovery process</a> may be a bit tedious but only needs to be done once for a single streaming service. Some of the domains that I use are already <a href="https://github.com/networkop/envoy-split-proxy/blob/main/split.yaml" target="_blank">documented</a> in the source code repository.</p>
+
+<p>Similar to the VPN client, all software can be deployed directly on ARM64 box as binaries, or as docker containers. Regardless of the deployment method the two prerequisites are the user intent YAML file and the Envoy bootstrap configuration that makes it connect to the XDS controller.</p>
+
+<pre><code>$ curl -O https://raw.githubusercontent.com/networkop/envoy-split-proxy/main/envoy.yaml
+$ curl -O https://raw.githubusercontent.com/networkop/envoy-split-proxy/main/split.yaml
+</code></pre>
+
+<p>With those files in the <code>pwd</code> we can spin up the two docker containers with the following script:</p>
+
+<pre><code class="language-bash">#!/bin/sh
+
+docker pull networkop/envoy-split-proxy
+docker pull envoyproxy/envoy:v1.16.2
+
+docker rm -f app
+docker rm -f envoy
+
+docker run -d --name app --restart always --net host \
+-v $(pwd)/split.yaml:/split.yaml \
+networkop/envoy-split-proxy \
+-conf /split.yaml
+
+docker run -d --name envoy --restart always --net host \
+-v $(pwd)/envoy.yaml:/etc/envoy/envoy.yaml \
+envoyproxy/envoy:v1.16.2 \
+--config-path /etc/envoy/envoy.yaml \
+</code></pre>
+
+<p>Finally, all transit traffic needs to get redirected to envoy with a couple of iptable rules:</p>
+
+<pre><code class="language-bash">#!/bin/sh
+sudo iptables -t nat -D PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 10000
+sudo iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 10001
+
+sudo iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 10000
+sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 10001
+</code></pre>
+
+<h2 id="monitoring">Monitoring</h2>
+
+<p>Observability is the critical part of any &ldquo;software-defined&rdquo; networking product, so our solution shouldn&rsquo;t be an exception. It&rsquo;s <a href="https://nleiva.medium.com/monitoring-your-home-lab-devices-in-the-cloud-for-free-54c4d11ac471" target="_blank">even easier</a> when we don&rsquo;t have to manage it ourselves. Thanks to Grafana Cloud&rsquo;s <a href="https://grafana.com/blog/2021/01/12/the-new-grafana-cloud-the-only-composable-observability-stack-for-metrics-logs-and-traces-now-with-free-and-paid-plans-to-suit-every-use-case/" target="_blank">forever free plan</a>, all we have to do is deploy a grafana agent and scrape metrics exposed by envoy and smart-vpn-client. In order to save on resource utilisation (both local and cloud), I&rsquo;ve disabled some of the less interesting collectors and dropped most of the envoy metrics, so that the final configuration file looks like this:</p>
+
+<pre><code>integrations:
+  node_exporter:
+    enabled: true
+    disable_collectors:
+      - bonding
+      - infiniband
+      - ipvs
+      - mdadm
+      - nfs
+      - nfsd
+      - xfs
+      - zfs
+      - arp
+      - btrfs
+      - bcache
+      - edac
+      - entropy
+      - pressure
+      - rapl
+      - softnet
+  prometheus_remote_write:
+    - basic_auth:
+        password: &lt;PWD&gt;
+        username: &lt;USERNAME&gt;
+      url: https://prometheus.grafana.net/api/prom/push
+prometheus:
+  configs:
+    - name: integrations
+      remote_write:
+        - basic_auth:
+            password: &lt;PWD&gt;
+            username: &lt;USERNAME&gt;
+          url: https://prometheus.grafana.net/api/prom/push
+      scrape_configs:
+      - job_name: vpn
+        scrape_interval: 5s
+        static_configs:
+        - targets: ['localhost:2112']
+      - job_name: envoy
+        metrics_path: /stats/prometheus
+        metric_relabel_configs:
+        - source_labels: [__name__]
+          regex: &quot;.+_ms_bucket&quot;
+          action: keep
+        - source_labels: [envoy_cluster_name]
+          regex: &quot;xds_cluster&quot;
+          action: drop
+        static_configs:
+        - targets: ['localhost:19000']
+  global:
+    scrape_interval: 15s
+</code></pre>
+
+<p>The script to enable grafana agent simply mounts the above configuration file and points the agent at it:</p>
+
+<pre><code class="language-bash">#!/bin/sh
+
+docker rm -f agent
+docker run -d --name agent --restart always --net host \
+-v /tmp/grafana-agent-wal:/etc/agent \
+-v $(pwd)/config.yaml:/etc/agent-config/agent.yaml \
+grafana/agent:v0.12.0 --config.file=/etc/agent-config/agent.yaml --prometheus.wal-directory=/etc/agent/data
+</code></pre>
+
+<p>The collected metrics can be a displayed in a beautiful dashboard allowing us to correlate network throughput, VPN healthchecks and proxy connection latencies.</p>
+
+<p><img src="/img/sdwan-dashboard.png" alt="" /></p>
+
+<h2 id="credits">Credits</h2>
+
+<p>Building something like this would have been a lot more difficult without other FOSS projects:</p>
+
+<ul>
+<li><a href="https://github.com/envoyproxy/envoy" target="_blank">Envoy</a> proxy - the most versatile and feature rich proxy in the world today.</li>
+<li>Wireguard and <a href="https://github.com/WireGuard/wgctrl-go" target="_blank">wgctrl</a> Go package to manage all interface-related configurations.</li>
+<li>Grafana Cloud&rsquo;s with their <a href="https://grafana.com/products/cloud/pricing/" target="_blank">free tier plan</a> which is a perfect fit for personal/home use.</li>
+</ul>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/automation">automation</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/wireguard">wireguard</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/envoy">envoy</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/tags/ansible-yang/">YANG &amp; Ansible</a></li>
+    
+    <li><a href="/tags/network-ci/">Network CI/CD</a></li>
+    
+    <li><a href="/tags/rest-api/">REST API SDK</a></li>
+    
+    <li><a href="/tags/network-ansible/">Ansible network automation</a></li>
+    
+    <li><a href="/tags/network-tdd/">Network Test-driven development</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+

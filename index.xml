@@ -11,6 +11,265 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Building your own SD-WAN with Envoy and Wireguard</title>
+      <link>https://networkop.co.uk/post/2021-02-dyi-sdwan/</link>
+      <pubDate>Sat, 13 Feb 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2021-02-dyi-sdwan/</guid>
+      <description>
+
+&lt;p&gt;When using a personal VPN at home, one of the biggest problems I&amp;rsquo;ve faced was the inability to access public streaming services. I don&amp;rsquo;t care about watching Netflix from another country, I just want to be able to use my local internet connection for this kind of traffic while still encrypting everything else. This problem is commonly known in network engineering as &amp;ldquo;local internet breakout&amp;rdquo; and is often implemented at remote branch/edge sites to save costs of transporting SaaS traffic (e.g. Office365) over the VPN infrastructure. These &amp;ldquo;local breakout&amp;rdquo; solutions often rely on &lt;a href=&#34;https://sdwan-docs.cisco.com/Product_Documentation/Software_Features/SD-WAN_Release_16.2/07Policy_Applications/04Using_a_vEdge_Router_as_a_NAT_Device/Configuring_Local_Internet_Exit&#34; target=&#34;_blank&#34;&gt;explicit enumeration&lt;/a&gt; of all public IP subnets, which is a bit &lt;a href=&#34;https://docs.microsoft.com/en-gb/microsoft-365/enterprise/urls-and-ip-address-ranges?view=o365-worldwide&#34; target=&#34;_blank&#34;&gt;cumbersome&lt;/a&gt;, or require &amp;ldquo;intelligent&amp;rdquo; (i.e. expensive) &lt;a href=&#34;https://www.silver-peak.com/products/unity-edge-connect/first-packet-iq&#34; target=&#34;_blank&#34;&gt;DPI&lt;/a&gt; functionality. However, it is absolutely possible to build something like this for personal use and this post will demonstrate how to do that.&lt;/p&gt;
+
+&lt;h2 id=&#34;solution-overview&#34;&gt;Solution Overview&lt;/h2&gt;
+
+&lt;p&gt;The problem scope consists of two relatively independent areas:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;&lt;strong&gt;Traffic routing&lt;/strong&gt; - how to forward traffic to different outgoing interfaces based on the target domain.&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;&lt;strong&gt;VPN management&lt;/strong&gt; - how to connect to the best VPN gateway and make sure that connection stays healthy.&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Each of one these problem areas is addressed by a separate set of components.&lt;/p&gt;
+
+&lt;p&gt;VPN management is solved by:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;A &lt;strong&gt;smart-vpn-client&lt;/strong&gt; agent that discovers all of the available VPN gateways, connects to the closest one and continuously monitors the state of that connection.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Traffic routing is solved by:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;p&gt;A transparent proxy (&lt;strong&gt;Envoy&lt;/strong&gt;), capable of domain- and SNI-based routing and binding to multiple outgoing interfaces.&lt;/p&gt;&lt;/li&gt;
+
+&lt;li&gt;&lt;p&gt;A proxy controller called &lt;strong&gt;envoy-split-proxy&lt;/strong&gt;, that monitors the user intent (what traffic to route where) and ensures that Envoy configuration is updated accordingly.&lt;/p&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;An extra bonus is a free-tier monitoring solution based on &lt;a href=&#34;https://grafana.com/products/cloud/pricing/&#34; target=&#34;_blank&#34;&gt;Grafana Cloud&lt;/a&gt; that scrapes local metrics and pushes them to the managed observability platform.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sd-wan.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Below, I&amp;rsquo;ll walk through the component design and steps of how to deploy this solution on a Linux-based ARM64 box (in my case it&amp;rsquo;s a Synology NAS). The only two prerequisites that are not covered in this blogpost are:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Docker support on the target ARM64 box (see &lt;a href=&#34;https://github.com/markdumay/synology-docker&#34; target=&#34;_blank&#34;&gt;this guide&lt;/a&gt; for Synology)&lt;/li&gt;
+&lt;li&gt;Wireguard kernel module loaded on the target ARM64 box (see &lt;a href=&#34;https://github.com/runfalk/synology-wireguard&#34; target=&#34;_blank&#34;&gt;this guide&lt;/a&gt;  for Synology)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id=&#34;smart-vpn-client&#34;&gt;Smart VPN Client&lt;/h2&gt;
+
+&lt;p&gt;At its core, the &lt;a href=&#34;https://github.com/networkop/smart-vpn-client&#34; target=&#34;_blank&#34;&gt;smart-vpn-client&lt;/a&gt; implements a standard set of functions you&amp;rsquo;d expect from a VPN client, i.e.:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Discovers all of the available VPN gateways (exit nodes) it can connect to.&lt;/li&gt;
+&lt;li&gt;Measures the latency and selects the &amp;ldquo;closest&amp;rdquo; gateway for higher &lt;a href=&#34;https://en.wikipedia.org/wiki/Bandwidth-delay_product&#34; target=&#34;_blank&#34;&gt;throughput&lt;/a&gt;.&lt;/li&gt;
+&lt;li&gt;Configures the wireguard interface and associated &lt;a href=&#34;https://www.wireguard.com/netns/#routing-all-your-traffic&#34; target=&#34;_blank&#34;&gt;routing policies&lt;/a&gt;.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The only supported VPN provider at this stage is PIA, so the discovery and VPN setup is based on the instructions from the &lt;a href=&#34;https://github.com/pia-foss/manual-connections&#34; target=&#34;_blank&#34;&gt;pia-foss repo&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;The &amp;ldquo;smart&amp;rdquo; functionality is designed to maintain a consistent user experience in the presence of network congestion and VPN gateway overloading and it does that by resetting a VPN connection if it becomes too slow or unresponsive. Translated to technical terms, this is implemented as the following sequence of steps :&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;When a new VPN connection is setup, we record the &amp;ldquo;baseline&amp;rdquo; round-trip time over it.&lt;/li&gt;
+&lt;li&gt;Connection health monitor periodically measures the RTT and maintains a record of the last 10 values.&lt;/li&gt;
+&lt;li&gt;At the end of each measurement, connection health is evaluated and can be deemed degraded if either:
+
+&lt;ul&gt;
+&lt;li&gt;No response was received within a timeout window of 10s.&lt;/li&gt;
+&lt;li&gt;The exponentially weighted average of the last 10 measurements exceeded 10x the &amp;ldquo;baseline&amp;rdquo;.&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;If health stays degraded for 3 consecutive measurement intervals, the VPN connection is re-established to the new &amp;ldquo;closest&amp;rdquo; VPN gateway.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The VPN client binary can be build from &lt;a href=&#34;https://github.com/networkop/smart-vpn-client&#34; target=&#34;_blank&#34;&gt;source&lt;/a&gt; or downloaded as a docker image, which is how I&amp;rsquo;m deploying it:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;#!/bin/sh
+docker pull networkop/smart-vpn-client
+
+docker rm -f vpn
+docker run --privileged networkop/smart-vpn-client -cleanup
+docker run -d --name vpn --restart always --net host \
+--env VPN_PWD=&amp;lt;VPN-PASSWORD&amp;gt; \
+--privileged \
+networkop/smart-vpn-client \
+-user &amp;lt;VPN-USER&amp;gt; -ignore=uk_2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The above script creates a new container attached to the root network namespace. We can see the main steps it went through in the logs:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ docker logs vpn
+level=info msg=&amp;quot;Starting VPN Connector&amp;quot;
+level=info msg=&amp;quot;Ignored headends: [uk_2]&amp;quot;
+level=info msg=&amp;quot;VPN provider is PIA&amp;quot;
+level=info msg=&amp;quot;Discovering VPN headends for PIA&amp;quot;
+level=info msg=&amp;quot;Winner is uk with latency 14 ms&amp;quot;
+level=info msg=&amp;quot;Brining up WG tunnel to 143.X.X.X:1337&amp;quot;
+level=info msg=&amp;quot;Wireguard Tunnel is UP&amp;quot;
+level=info msg=&amp;quot;New baseline is 202 ms; Threshold is 2020&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now we can verify that the wireguard tunnel has been set up:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ sudo wg show
+interface: wg-pia
+  public key: MY_PUBLIC_KEY
+  private key: (hidden)
+  listening port: 34006
+  fwmark: 0xea55
+
+peer: PEER_PUBLIC_KEY
+  endpoint: 143.X.X.X:1337
+  allowed ips: 0.0.0.0/0
+  latest handshake: 1 minute, 21 seconds ago
+  transfer: 3.29 GiB received, 1.03 GiB sent
+  persistent keepalive: every 15 seconds
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;envoy-split-proxy&#34;&gt;Envoy Split Proxy&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://en.wikipedia.org/wiki/Split_tunneling&#34; target=&#34;_blank&#34;&gt;Split tunneling&lt;/a&gt; is a technique commonly used in VPN access to enable local internet breakout for some subset of user traffic. It works at Layer 3, so the decision is made based on the contents of a local routing table. What I&amp;rsquo;ve done with Envoy is effectively taken the same idea and extended it to L4-L7, hence the name &lt;strong&gt;split proxy&lt;/strong&gt;. The goal was to make L4-L7 split-routing completely transparent to the end user, with no extra requirements (e.g. no custom proxy configuration) apart from a default route pointing at the ARM64 box. This goal is achieved by a combination of:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Envoy proxy acting as a configurable dataplane for L4-L7 traffic.&lt;/li&gt;
+&lt;li&gt;IPTables redirecting all inbound TCP/80 and TCP/443 traffic to envoy listeners.&lt;/li&gt;
+&lt;li&gt;&lt;a href=&#34;https://www.envoyproxy.io/docs/envoy/latest/api-docs/xds_protocol&#34; target=&#34;_blank&#34;&gt;XDS&lt;/a&gt; controller that configures envoy to act as a transparent forward proxy based on the user intent.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;The user intent is expressed as a YAML file with the list of domains and the non-default interface to bind to when making outgoing requests. This file is watched by the envoy-split-proxy application and applied to envoy on every detected change.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;interface: eth0
+urls:
+## Netflix
+- netflix.com
+- &amp;quot;*.nflxso.net&amp;quot;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;All other domains will be proxied and sent out the default (wireguard) interface, so the above file only defines the exceptions. One obvious problem is that streaming services will most likely use a combination of domains, not just their well-known second-level domains. The domain &lt;a href=&#34;https://github.com/networkop/envoy-split-proxy#discovering-domain-names&#34; target=&#34;_blank&#34;&gt;discovery process&lt;/a&gt; may be a bit tedious but only needs to be done once for a single streaming service. Some of the domains that I use are already &lt;a href=&#34;https://github.com/networkop/envoy-split-proxy/blob/main/split.yaml&#34; target=&#34;_blank&#34;&gt;documented&lt;/a&gt; in the source code repository.&lt;/p&gt;
+
+&lt;p&gt;Similar to the VPN client, all software can be deployed directly on ARM64 box as binaries, or as docker containers. Regardless of the deployment method the two prerequisites are the user intent YAML file and the Envoy bootstrap configuration that makes it connect to the XDS controller.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ curl -O https://raw.githubusercontent.com/networkop/envoy-split-proxy/main/envoy.yaml
+$ curl -O https://raw.githubusercontent.com/networkop/envoy-split-proxy/main/split.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;With those files in the &lt;code&gt;pwd&lt;/code&gt; we can spin up the two docker containers with the following script:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;#!/bin/sh
+
+docker pull networkop/envoy-split-proxy
+docker pull envoyproxy/envoy:v1.16.2
+
+docker rm -f app
+docker rm -f envoy
+
+docker run -d --name app --restart always --net host \
+-v $(pwd)/split.yaml:/split.yaml \
+networkop/envoy-split-proxy \
+-conf /split.yaml
+
+docker run -d --name envoy --restart always --net host \
+-v $(pwd)/envoy.yaml:/etc/envoy/envoy.yaml \
+envoyproxy/envoy:v1.16.2 \
+--config-path /etc/envoy/envoy.yaml \
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Finally, all transit traffic needs to get redirected to envoy with a couple of iptable rules:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;#!/bin/sh
+sudo iptables -t nat -D PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 10000
+sudo iptables -t nat -D PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 10001
+
+sudo iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 10000
+sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-port 10001
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id=&#34;monitoring&#34;&gt;Monitoring&lt;/h2&gt;
+
+&lt;p&gt;Observability is the critical part of any &amp;ldquo;software-defined&amp;rdquo; networking product, so our solution shouldn&amp;rsquo;t be an exception. It&amp;rsquo;s &lt;a href=&#34;https://nleiva.medium.com/monitoring-your-home-lab-devices-in-the-cloud-for-free-54c4d11ac471&#34; target=&#34;_blank&#34;&gt;even easier&lt;/a&gt; when we don&amp;rsquo;t have to manage it ourselves. Thanks to Grafana Cloud&amp;rsquo;s &lt;a href=&#34;https://grafana.com/blog/2021/01/12/the-new-grafana-cloud-the-only-composable-observability-stack-for-metrics-logs-and-traces-now-with-free-and-paid-plans-to-suit-every-use-case/&#34; target=&#34;_blank&#34;&gt;forever free plan&lt;/a&gt;, all we have to do is deploy a grafana agent and scrape metrics exposed by envoy and smart-vpn-client. In order to save on resource utilisation (both local and cloud), I&amp;rsquo;ve disabled some of the less interesting collectors and dropped most of the envoy metrics, so that the final configuration file looks like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;integrations:
+  node_exporter:
+    enabled: true
+    disable_collectors:
+      - bonding
+      - infiniband
+      - ipvs
+      - mdadm
+      - nfs
+      - nfsd
+      - xfs
+      - zfs
+      - arp
+      - btrfs
+      - bcache
+      - edac
+      - entropy
+      - pressure
+      - rapl
+      - softnet
+  prometheus_remote_write:
+    - basic_auth:
+        password: &amp;lt;PWD&amp;gt;
+        username: &amp;lt;USERNAME&amp;gt;
+      url: https://prometheus.grafana.net/api/prom/push
+prometheus:
+  configs:
+    - name: integrations
+      remote_write:
+        - basic_auth:
+            password: &amp;lt;PWD&amp;gt;
+            username: &amp;lt;USERNAME&amp;gt;
+          url: https://prometheus.grafana.net/api/prom/push
+      scrape_configs:
+      - job_name: vpn
+        scrape_interval: 5s
+        static_configs:
+        - targets: [&#39;localhost:2112&#39;]
+      - job_name: envoy
+        metrics_path: /stats/prometheus
+        metric_relabel_configs:
+        - source_labels: [__name__]
+          regex: &amp;quot;.+_ms_bucket&amp;quot;
+          action: keep
+        - source_labels: [envoy_cluster_name]
+          regex: &amp;quot;xds_cluster&amp;quot;
+          action: drop
+        static_configs:
+        - targets: [&#39;localhost:19000&#39;]
+  global:
+    scrape_interval: 15s
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The script to enable grafana agent simply mounts the above configuration file and points the agent at it:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;#!/bin/sh
+
+docker rm -f agent
+docker run -d --name agent --restart always --net host \
+-v /tmp/grafana-agent-wal:/etc/agent \
+-v $(pwd)/config.yaml:/etc/agent-config/agent.yaml \
+grafana/agent:v0.12.0 --config.file=/etc/agent-config/agent.yaml --prometheus.wal-directory=/etc/agent/data
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The collected metrics can be a displayed in a beautiful dashboard allowing us to correlate network throughput, VPN healthchecks and proxy connection latencies.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/sdwan-dashboard.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;h2 id=&#34;credits&#34;&gt;Credits&lt;/h2&gt;
+
+&lt;p&gt;Building something like this would have been a lot more difficult without other FOSS projects:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&#34;https://github.com/envoyproxy/envoy&#34; target=&#34;_blank&#34;&gt;Envoy&lt;/a&gt; proxy - the most versatile and feature rich proxy in the world today.&lt;/li&gt;
+&lt;li&gt;Wireguard and &lt;a href=&#34;https://github.com/WireGuard/wgctrl-go&#34; target=&#34;_blank&#34;&gt;wgctrl&lt;/a&gt; Go package to manage all interface-related configurations.&lt;/li&gt;
+&lt;li&gt;Grafana Cloud&amp;rsquo;s with their &lt;a href=&#34;https://grafana.com/products/cloud/pricing/&#34; target=&#34;_blank&#34;&gt;free tier plan&lt;/a&gt; which is a perfect fit for personal/home use.&lt;/li&gt;
+&lt;/ul&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Self-hosted external DNS resolver for Kubernetes</title>
       <link>https://networkop.co.uk/post/2020-08-k8s-gateway/</link>
       <pubDate>Fri, 14 Aug 2020 00:00:00 +0000</pubDate>
@@ -3317,18 +3576,6 @@ inet 172.20.0.2/16 brd 172.20.255.255 scope global eth4
 &lt;hr /&gt;
 
 &lt;p&gt;Huge kudos to the original &lt;a href=&#34;https://github.com/cziebuhr&#34; target=&#34;_blank&#34;&gt;author&lt;/a&gt; of the &lt;a href=&#34;https://github.com/cziebuhr/libnetwork/commit/d047825d4d156bc4cf01bfe410cb61b3bc33f572&#34; target=&#34;_blank&#34;&gt;libnetwork patch&lt;/a&gt; which is the sole reason this blogpost exists. I really hope that this issue will get resolved, in this form or another (could it be possible to keep track of the order in which endpoints are added to a sandbox and use that as a criteria for heap sort?), as this will make automated network testing much more approachable.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>OpenStack SDN</title>
-      <link>https://networkop.co.uk/tags/openstack-sdn/</link>
-      <pubDate>Tue, 02 Jan 2018 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/tags/openstack-sdn/</guid>
-      <description>
-
-&lt;h2 id=&#34;openstack-sdn-tags-openstack-sdn-learn-through-hands-on-experience-everything-you-need-to-know-about-vanilla-openstack-neutron-implementation-of-virtual-networks-including-custom-sdn-controllers-like-ovn-opendaylight-and-opencontrail&#34;&gt;&lt;a href=&#34;https://networkop.co.uk/tags/openstack-sdn/&#34;&gt;OpenStack SDN&lt;/a&gt; - Learn through hands-on experience everything you need to know about vanilla OpenStack Neutron implementation of virtual networks, including custom SDN controllers like OVN, OpenDaylight and OpenContrail&lt;/h2&gt;
 </description>
     </item>
     
