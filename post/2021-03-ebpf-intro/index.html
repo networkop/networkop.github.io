@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.37" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="eBPF has a thriving ecosystem with a plethora of educational resources both on the subject of eBPF itself and its various application, including XDP. Where it becomes confusing is when it comes to the choice of libraries and tools to interact with and orchestrate eBPF. Here you have to select between a Python-based BCC framework, C-based libbpf and a range of Go-based libraries from Dropbox, Cilium, Aqua and Calico. Another important area that is often overlooked is the &ldquo;productionisation&rdquo; of the eBPF code, i.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2021-03-ebpf-intro/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2021-03-ebpf-intro/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2021-03-ebpf-intro/">
+  <meta property="og:title" content="Getting Started with eBPF and Go | networkop">
+  <meta property="og:description" content="eBPF has a thriving ecosystem with a plethora of educational resources both on the subject of eBPF itself and its various application, including XDP. Where it becomes confusing is when it comes to the choice of libraries and tools to interact with and orchestrate eBPF. Here you have to select between a Python-based BCC framework, C-based libbpf and a range of Go-based libraries from Dropbox, Cilium, Aqua and Calico. Another important area that is often overlooked is the &ldquo;productionisation&rdquo; of the eBPF code, i.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2021-03-03T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2021-03-03T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/xdp-xconnect.png"/>
+
+<meta name="twitter:title" content="Getting Started with eBPF and Go"/>
+<meta name="twitter:description" content="Building a Linux interface cross-connect application with Go and eBPF"/>
+
+
+  <title>Getting Started with eBPF and Go | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Getting Started with eBPF and Go</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2021-03-03 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      3 Mar 2021
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    7 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2021-03-ebpf-intro/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/howto">howto</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Getting%20Started%20with%20eBPF%20and%20Go&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-03-ebpf-intro%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-03-ebpf-intro%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-03-ebpf-intro%2f&amp;title=Getting%20Started%20with%20eBPF%20and%20Go"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Getting%20Started%20with%20eBPF%20and%20Go&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-03-ebpf-intro%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>eBPF has a thriving ecosystem with a plethora of educational resources both on the subject of <a href="https://ebpf.io/what-is-ebpf/" target="_blank">eBPF itself</a> and its various application, including <a href="https://github.com/xdp-project/xdp-tutorial" target="_blank">XDP</a>. Where it becomes confusing is when it comes to the choice of libraries and tools to interact with and orchestrate eBPF. Here you have to select between a Python-based <a href="https://github.com/iovisor/bcc" target="_blank">BCC</a> framework, C-based <a href="https://github.com/libbpf/libbpf" target="_blank">libbpf</a> and a range of Go-based libraries from <a href="https://github.com/dropbox/goebpf" target="_blank">Dropbox</a>, <a href="https://github.com/cilium/ebpf" target="_blank">Cilium</a>, <a href="https://github.com/aquasecurity/tracee/tree/main/libbpfgo" target="_blank">Aqua</a> and <a href="https://github.com/projectcalico/felix/tree/master/bpf" target="_blank">Calico</a>. Another important area that is often overlooked is the &ldquo;productionisation&rdquo; of the eBPF code, i.e. going from manually instrumented examples towards production-grade applications like Cilium.
+In this post, I&rsquo;ll document some of my findings in this space, specifically in the context of writing a network (XDP) application with a userspace controller written in Go.</p>
+
+<h2 id="choosing-an-ebpf-library">Choosing an eBPF library</h2>
+
+<p>In most cases, an eBPF library is there to help you achieve two things:</p>
+
+<ul>
+<li><strong>Load eBPF programs and maps</strong> into the kernel and perform <a href="https://kinvolk.io/blog/2018/10/exploring-bpf-elf-loaders-at-the-bpf-hackfest/#common-steps" target="_blank">relocations</a>, associating an eBPF program with the correct map via its file descriptor.</li>
+<li><strong>Interact with eBPF maps</strong>, allowing all the standard CRUD operations on the key/value pairs stored in those maps.</li>
+</ul>
+
+<p>Some libraries may also help you attach your eBPF program to a specific <a href="https://ebpf.io/what-is-ebpf/#hook-overview" target="_blank">hook</a>, although for networking use case this may easily be done with any existing netlink API library.</p>
+
+<p>When it comes to the choice of an eBPF library, I&rsquo;m not the only one confused (see <a href="https://twitter.com/maurovasquezb/status/1146438190062063616" target="_blank">[1]</a>,<a href="https://twitter.com/qeole/status/1364521385138282497" target="_blank">[2]</a>). The truth is each library has its own unique scope and limitations:</p>
+
+<ul>
+<li><a href="(https://pkg.go.dev/github.com/projectcalico/felix@v3.8.9+incompatible/bpf)" target="_blank">Calico</a> implements a Go wrapper around CLI commands made with <a href="https://twitter.com/qeole/status/1101450782841466880" target="_blank">bpftool</a> and iproute2.</li>
+<li><a href="https://github.com/aquasecurity/tracee/tree/main/libbpfgo" target="_blank">Aqua</a> implements a Go wrapper around libbpf C library.</li>
+<li><a href="https://github.com/dropbox/goebpf" target="_blank">Dropbox</a> supports a small set of programs but has a very clean and convenient user API.</li>
+<li>IO Visor&rsquo;s <a href="https://github.com/iovisor/gobpf" target="_blank">gobpf</a> is a collection of go bindings for the BCC framework which has a stronger focus on tracing and profiling.</li>
+<li><a href="https://github.com/cilium/ebpf" target="_blank">Cilium and Cloudflare</a> are maintaining a <a href="https://linuxplumbersconf.org/event/4/contributions/449/attachments/239/529/A_pure_Go_eBPF_library.pdf" target="_blank">pure Go library</a> (referred to below as <code>libbpf-go</code>) that abstracts all eBPF syscalls behind a native Go interface.</li>
+</ul>
+
+<p>For my network-specific use case, I&rsquo;ve ended up using <code>libbpf-go</code> due to the fact that it&rsquo;s used by Cilium and Cloudflare and has an active community, although I really liked (the simplicity of) the one from Dropbox and could&rsquo;ve used it as well.</p>
+
+<p>In order to familiarise myself with the development process, I&rsquo;ve decided to implement an XDP cross-connect application, which has a very niche but important <a href="https://netdevops.me/2021/transparently-redirecting-packets/frames-between-interfaces/" target="_blank">use case</a> in network topology emulation. The goal is to have an application that watches a configuration file and ensures that local interfaces are interconnected according to the YAML spec from that file. Here is a high-level overview of how <a href="https://github.com/networkop/xdp-xconnect" target="_blank"><code>xdp-xconnect</code></a> works:</p>
+
+<p><img src="/img/xdp-xconnect.png" alt="" /></p>
+
+<p>The following sections will describe the application build and delivery process step-by-step, focusing more on integration and less on the actual code. Full code for <code>xdp-xconnect</code> is <a href="https://github.com/networkop/xdp-xconnect" target="_blank">available</a> on Github.</p>
+
+<h2 id="step-1-writing-the-ebpf-code">Step 1 - Writing the eBPF code</h2>
+
+<p>Normally this would be the main section of any &ldquo;Getting Started with eBPF&rdquo; article, however this time it&rsquo;s not the focus. I don&rsquo;t think I can help others learn how to write eBPF, however, I can refer to some very good resources that can:</p>
+
+<ul>
+<li>Generic eBPF theory is covered in a lot of details on <a href="https://ebpf.io/what-is-ebpf/" target="_blank">ebpf.io</a> and Cilium&rsquo;s eBPF and XDP <a href="https://docs.cilium.io/en/stable/bpf/" target="_blank">reference guide</a>.</li>
+<li>The best place for some hands-on practice with eBPF and XDP is the <a href="https://github.com/xdp-project/xdp-tutorial" target="_blank">xdp-tutorial</a>. It&rsquo;s an amazing resource that is definitely worth reading even if you don&rsquo;t end up doing the assignments.</li>
+<li>Cilium <a href="https://github.com/cilium/cilium/tree/master/bpf" target="_blank">source code</a> and it&rsquo;s analysis in <a href="https://k8s.networkop.co.uk/cni/cilium/#a-day-in-the-life-of-a-packet" target="_blank">[1]</a> and <a href="http://arthurchiao.art/blog/cilium-life-of-a-packet-pod-to-service/" target="_blank">[2]</a>.</li>
+</ul>
+
+<p>My eBPF program is very simple, it consists of a single call to an eBPF <a href="https://man7.org/linux/man-pages/man7/bpf-helpers.7.html" target="_blank">helper function </a>, which redirects <em>all</em> packets from one interface to another based on the index of the incoming interface.</p>
+
+<pre><code class="language-c">#include &lt;linux/bpf.h&gt;
+#include &lt;bpf/bpf_helpers.h&gt;
+
+SEC(&quot;xdp&quot;)
+int  xdp_xconnect(struct xdp_md *ctx)
+{
+    return bpf_redirect_map(&amp;xconnect_map, ctx-&gt;ingress_ifindex, 0);
+}
+</code></pre>
+
+<p>In order to compile the above program, we need to provide search paths for all the included header files. The easiest way to do that is to make a copy of everything under <a href="https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next.git/tree/tools/lib/bpf" target="_blank">linux/tools/lib/bpf/</a>, however, this will include a lot of unnecessary files. So an alternative is to create a list of dependencies:</p>
+
+<pre><code class="language-bash">$ clang -MD -MF xconnect.d -target bpf -I ~/linux/tools/lib/bpf -c xconnect.c
+</code></pre>
+
+<p>Now we can make a local copy of only a small number of files specified in <code>xconnect.d</code> and use the following command to compile eBPF code for the local CPU architecture:</p>
+
+<pre><code class="language-bash">$ clang -target bpf -Wall -O2 -emit-llvm -g -Iinclude -c xconnect.c -o - | \
+llc -march=bpf -mcpu=probe -filetype=obj -o xconnect.o
+</code></pre>
+
+<p>The resulting ELF file is what we&rsquo;d need to provide to our Go library in the next step.</p>
+
+<h2 id="step-2-writing-the-go-code">Step 2 - Writing the Go code</h2>
+
+<p>Compiled eBPF programs and maps can be loaded by <code>libbpf-go</code> with just a few instructions. By adding a struct with <code>ebpf</code> tags we can automate the relocation procedure so that our program knows where to find its map.</p>
+
+<pre><code class="language-go">spec, err := ebpf.LoadCollectionSpec(&quot;ebpf/xconnect.o&quot;)
+if err != nil {
+  panic(err)
+}
+
+var objs struct {
+	XCProg  *ebpf.Program `ebpf:&quot;xdp_xconnect&quot;`
+	XCMap   *ebpf.Map     `ebpf:&quot;xconnect_map&quot;`
+}
+if err := spec.LoadAndAssign(&amp;objs, nil); err != nil {
+	panic(err)
+}
+defer objs.XCProg.Close()
+defer objs.XCMap.Close()
+</code></pre>
+
+<p>Type <code>ebpf.Map</code> has a set of methods that perform standard CRUD operations on the contents of the loaded map:</p>
+
+<pre><code class="language-go">err = objs.XCMap.Put(uint32(0), uint32(10))
+
+var v0 uint32
+err = objs.XCMap.Lookup(uint32(0), &amp;v0)
+
+err = objs.XCMap.Delete(uint32(0))
+</code></pre>
+
+<p>The only step that&rsquo;s not covered by <code>libbpf-go</code> is the attachment of programs to network hooks. This, however, can easily be accomplished by any existing netlink library, e.g. <a href="https://github.com/vishvananda/netlink" target="_blank">vishvananda/netlink</a>, by associating a network link with a file descriptor of the loaded program:</p>
+
+<pre><code class="language-go">link, err := netlink.LinkByName(&quot;eth0&quot;)
+err = netlink.LinkSetXdpFdWithFlags(*link, c.objs.XCProg.FD(), 2)
+</code></pre>
+
+<p>Note that I&rsquo;m using the <a href="https://github.com/torvalds/linux/blob/master/tools/include/uapi/linux/if_link.h#L966" target="_blank">SKB_MODE</a> XDP flag to work around the exiting veth driver <a href="https://github.com/xdp-project/xdp-tutorial/tree/master/packet03-redirecting#sending-packets-back-to-the-interface-they-came-from" target="_blank">caveat</a>. Although the native XDP mode is <a href="https://www.netronome.com/media/images/fig3.width-800.png" target="_blank">considerably faster</a> than any other eBPF hook, SKB_MODE may not be as fast due to the fact that packet headers have to be pre-parsed by the network stack (see <a href="https://www.youtube.com/watch?v=q3gjNe6LKDI" target="_blank">video</a>).</p>
+
+<h2 id="step-3-code-distribution">Step 3 - Code Distribution</h2>
+
+<p>At this point everything should have been ready to package and ship our application if it wasn&rsquo;t for one problem - eBPF <a href="https://facebookmicrosites.github.io/bpf/blog/2020/02/19/bpf-portability-and-co-re.html#the-problem-of-bpf-portability" target="_blank">code portability</a>. Historically, this process involved copying of the eBPF source code to the target platform, pulling in the required kernel headers and compiling it for the specific kernel version. This problem is especially pronounced for tracing/monitoring/profiling use cases which may require access to pretty much any kernel data structure, so the only solution is to introduce another layer of indirection (see <a href="https://facebookmicrosites.github.io/bpf/blog/2020/02/19/bpf-portability-and-co-re.html" target="_blank">CO-RE</a>).</p>
+
+<p>Network use cases, on the other hand, rely on a relatively small and stable subset of kernel types, so they don&rsquo;t suffer from the same kind of problems as their tracing and profiling counterparts. Based on what I&rsquo;ve seen so far, the two most common code packaging approaches are:</p>
+
+<ul>
+<li>Ship eBPF code together with the required kernel headers, assuming they match the underlying kernel (see <a href="https://github.com/cilium/cilium/tree/master/bpf" target="_blank">Cilium</a>).</li>
+<li>Ship eBPF code and pull in the kernel headers on the target platform.</li>
+</ul>
+
+<p>In both of these cases, the eBPF code is still compiled on that target platform which is an extra step that needs to be performed before the user-space application can start. However, there&rsquo;s an alternative, which is to pre-compile the eBPF code and only ship the ELF files. This is exactly what can be done with <a href="https://pkg.go.dev/github.com/cilium/ebpf/cmd/bpf2go" target="_blank"><code>bpf2go</code></a>, which can embed the compiled code into a Go package. It relies on <code>go generate</code> to produce a <a href="https://github.com/networkop/xdp-xconnect/blob/main/pkg/xdp/xdp_bpf.go" target="_blank">new file</a> with compiled eBPF and <code>libbpf-go</code> skeleton code, the only requirement being the <a href="https://github.com/networkop/xdp-xconnect/blob/main/pkg/xdp/xdp.go#L14" target="_blank"><code>//go:generate</code></a> instruction. Once generated though, our eBPF program can be loaded with just a few lines (note the absence of any arguments):</p>
+
+<pre><code class="language-go">specs, err := newXdpSpecs()
+objs, err := specs.Load(nil)
+</code></pre>
+
+<p>The obvious benefit of this approach is that we no longer need to compile on the target machine and can ship both eBPF and userspace Go code in a single package or Go binary. This is great because it allows us to use our application not only as a binary but also import it into any 3rd party Go applications (see <a href="https://github.com/networkop/xdp-xconnect#usage" target="_blank">usage example</a>).</p>
+
+<h2 id="reading-and-interesting-references">Reading and Interesting References</h2>
+
+<p>Generic Theory:<br />
+<a href="https://github.com/xdp-project/xdp-tutorial" target="_blank">https://github.com/xdp-project/xdp-tutorial</a><br />
+<a href="https://docs.cilium.io/en/stable/bpf/" target="_blank">https://docs.cilium.io/en/stable/bpf/</a><br />
+<a href="https://qmonnet.github.io/whirl-offload/2016/09/01/dive-into-bpf/" target="_blank">https://qmonnet.github.io/whirl-offload/2016/09/01/dive-into-bpf/</a></p>
+
+<p>BCC and libbpf:<br />
+<a href="https://facebookmicrosites.github.io/bpf/blog/2020/02/20/bcc-to-libbpf-howto-guide.html" target="_blank">https://facebookmicrosites.github.io/bpf/blog/2020/02/20/bcc-to-libbpf-howto-guide.html</a><br />
+<a href="https://nakryiko.com/posts/libbpf-bootstrap/" target="_blank">https://nakryiko.com/posts/libbpf-bootstrap/</a><br />
+<a href="https://pingcap.com/blog/why-we-switched-from-bcc-to-libbpf-for-linux-bpf-performance-analysis" target="_blank">https://pingcap.com/blog/why-we-switched-from-bcc-to-libbpf-for-linux-bpf-performance-analysis</a><br />
+<a href="https://facebookmicrosites.github.io/bpf/blog/" target="_blank">https://facebookmicrosites.github.io/bpf/blog/</a></p>
+
+<p>eBPF/XDP performance:<br />
+<a href="https://www.netronome.com/blog/bpf-ebpf-xdp-and-bpfilter-what-are-these-things-and-what-do-they-mean-enterprise/" target="_blank">https://www.netronome.com/blog/bpf-ebpf-xdp-and-bpfilter-what-are-these-things-and-what-do-they-mean-enterprise/</a></p>
+
+<p>Linus Kernel Coding Style:<br />
+<a href="https://www.kernel.org/doc/html/v5.9/process/coding-style.html" target="_blank">https://www.kernel.org/doc/html/v5.9/process/coding-style.html</a></p>
+
+<p><code>libbpf-go</code> example programs:<br />
+<a href="https://github.com/takehaya/goxdp-template" target="_blank">https://github.com/takehaya/goxdp-template</a><br />
+<a href="https://github.com/hrntknr/nfNat" target="_blank">https://github.com/hrntknr/nfNat</a><br />
+<a href="https://github.com/takehaya/Vinbero" target="_blank">https://github.com/takehaya/Vinbero</a><br />
+<a href="https://github.com/tcfw/vpc" target="_blank">https://github.com/tcfw/vpc</a><br />
+<a href="https://github.com/florianl/tc-skeleton" target="_blank">https://github.com/florianl/tc-skeleton</a><br />
+<a href="https://github.com/cloudflare/rakelimit" target="_blank">https://github.com/cloudflare/rakelimit</a><br />
+<a href="https://github.com/b3a-dev/ebpf-geoip-demo" target="_blank">https://github.com/b3a-dev/ebpf-geoip-demo</a></p>
+
+<p><code>bpf2go</code>:<br />
+<a href="https://github.com/lmb/ship-bpf-with-go" target="_blank">https://github.com/lmb/ship-bpf-with-go</a><br />
+<a href="https://pkg.go.dev/github.com/cilium/ebpf/cmd/bpf2go" target="_blank">https://pkg.go.dev/github.com/cilium/ebpf/cmd/bpf2go</a></p>
+
+<p>XDP example programs:<br />
+<a href="https://github.com/cpmarvin/lnetd-ctl" target="_blank">https://github.com/cpmarvin/lnetd-ctl</a><br />
+<a href="https://gitlab.com/mwiget/crpd-l2tpv3-xdp" target="_blank">https://gitlab.com/mwiget/crpd-l2tpv3-xdp</a></p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ebpf">ebpf</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/go">go</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
