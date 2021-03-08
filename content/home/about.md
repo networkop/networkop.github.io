@@ -33,6 +33,12 @@ weight = 50
 
 # Who is this guy?
 
-Network Architect, CCIE with software engineering experience. I like solving complex problems and building solutions that span multiple layers of IT stack.
+I'm a network-focused infrastructure architect with expertise stretching from cloud design to software engineering. I've built numerous private clouds for Telcos and Enterprise customers and implemented custom functionality in various software projects. My areas of interest are:
 
-**All information and opinions in this blog are my own and do not reflect the views of my current, past of future employers**. Please use all provided code at your own peril.
+* Private cloud infrastructure networking - everything inside Kubernetes and OpenStack.
+* All aspects of infrastructure automation.
+* Network software engineering.
+
+If you have a problem that requires a deep understanding of modern networking stack (SDN, CNI, eBPF, Service Mesh) and/or integration of host-based and physical networking, you can reach out to me on LinkedIn or Twitter.
+
+**All information and opinions in this blog are my own and do not reflect the views of my current or past employers**. Please use all provided code at your own peril.
