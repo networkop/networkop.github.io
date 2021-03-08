@@ -1,6 +1,6 @@
 +++
 title = "Getting Started with eBPF and Go"
-date = 2021-03-03T00:00:00Z
+date = 2021-03-08T00:00:00Z
 categories = ["howto"]
 tags = ["ebpf", "go"]
 summary = "Building a Linux interface cross-connect application with Go and eBPF"
