@@ -105,7 +105,9 @@ The first few topologies I'd spun up and tested worked pretty well out of the bo
 
 At this point, it is worth mentioning that one of the hacks/workarounds I had to implement when building the image was stubbing out the `mstpd` (it wasn't able to take over the bridge's STP control plane). At first, I didn't think too much of it -- kernel was still running CSTP and the speed of convergence wasn't that big of an issue for me. However, as I was digging deeper, I realised that `clagd` must be communicating with `mstpd` in order to control the state of the peerlink VLAN interfaces (traffic is never forwarded over the peerlink under normal conditions). That fact alone meant that neither the standard kernel STP implementation nor [upstream mstpd](https://github.com/mstpd/mstpd) would ever be able to cooperate with `clagd` -- there's no standard for MLAG (although I suspect most implementations are written by the same set of people). My heart sank, at this stage I was ready to give up and admit that there's no way that one of the most widely deployed features (MLAG) would work inside a container. 
 
-However, there was one way to make Cumulus Linux work in a containerised environment and that would be to run it over a native Cumulus Kernel which, as I discovered later, was very [heavily patched](http://oss.cumulusnetworks.com/CumulusLinux-2.5.1/patches/kernel/). So, in theory, I could run tests on a beefy Cumulus VX VM with all services but docker turned off but that would be a big ask and not a nice UX I was hoping for...
+> It turned out that CL's version of `mstpd` is different from the one upstream and relies on a custom `bridge` kernel module in order to function properly. 
+
+However, there was _one_ way to make Cumulus Linux work in a containerised environment and that would be to run it over a native Cumulus Kernel which, as I discovered later, was very [heavily patched](http://oss.cumulusnetworks.com/CumulusLinux-2.5.1/patches/kernel/). So, in theory, I could run tests on a beefy Cumulus VX VM with all services but docker turned off but that would be a big ask and not a nice UX I was hoping for...
 
 ## Slope of Enlightenment
 
