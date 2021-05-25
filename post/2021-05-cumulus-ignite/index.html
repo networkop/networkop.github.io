@@ -405,7 +405,11 @@ topology:
 
 <p>At this point, it is worth mentioning that one of the hacks/workarounds I had to implement when building the image was stubbing out the <code>mstpd</code> (it wasn&rsquo;t able to take over the bridge&rsquo;s STP control plane). At first, I didn&rsquo;t think too much of it &ndash; kernel was still running CSTP and the speed of convergence wasn&rsquo;t that big of an issue for me. However, as I was digging deeper, I realised that <code>clagd</code> must be communicating with <code>mstpd</code> in order to control the state of the peerlink VLAN interfaces (traffic is never forwarded over the peerlink under normal conditions). That fact alone meant that neither the standard kernel STP implementation nor <a href="https://github.com/mstpd/mstpd" target="_blank">upstream mstpd</a> would ever be able to cooperate with <code>clagd</code> &ndash; there&rsquo;s no standard for MLAG (although I suspect most implementations are written by the same set of people). My heart sank, at this stage I was ready to give up and admit that there&rsquo;s no way that one of the most widely deployed features (MLAG) would work inside a container.</p>
 
-<p>However, there was one way to make Cumulus Linux work in a containerised environment and that would be to run it over a native Cumulus Kernel which, as I discovered later, was very <a href="http://oss.cumulusnetworks.com/CumulusLinux-2.5.1/patches/kernel/" target="_blank">heavily patched</a>. So, in theory, I could run tests on a beefy Cumulus VX VM with all services but docker turned off but that would be a big ask and not a nice UX I was hoping for&hellip;</p>
+<blockquote>
+<p>It turned out that CL&rsquo;s version of <code>mstpd</code> is different from the one upstream and relies on a custom <code>bridge</code> kernel module in order to function properly.</p>
+</blockquote>
+
+<p>However, there was <em>one</em> way to make Cumulus Linux work in a containerised environment and that would be to run it over a native Cumulus Kernel which, as I discovered later, was very <a href="http://oss.cumulusnetworks.com/CumulusLinux-2.5.1/patches/kernel/" target="_blank">heavily patched</a>. So, in theory, I could run tests on a beefy Cumulus VX VM with all services but docker turned off but that would be a big ask and not a nice UX I was hoping for&hellip;</p>
 
 <h2 id="slope-of-enlightenment">Slope of Enlightenment</h2>
 
