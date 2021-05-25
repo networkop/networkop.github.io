@@ -11,6 +11,196 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Containerising NVIDIA Cumulus Linux</title>
+      <link>https://networkop.co.uk/post/2021-05-cumulus-ignite/</link>
+      <pubDate>Tue, 25 May 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2021-05-cumulus-ignite/</guid>
+      <description>
+
+&lt;p&gt;In one of his &lt;a href=&#34;https://blog.ipspace.net/2021/04/katacoda-netsim-containerlab-frr.html?utm_source=atom_feed&#34; target=&#34;_blank&#34;&gt;recent posts&lt;/a&gt;, Ivan raises a question: &amp;ldquo;I can’t grasp why Cumulus releases a Vagrant box, but not a Docker container&amp;rdquo;. Coincidentally, only a few weeks before that I had &lt;a href=&#34;https://twitter.com/networkop1/status/1384175045950414848&#34; target=&#34;_blank&#34;&gt;managed&lt;/a&gt; to create a Cumulus Linux container image. Since then, I&amp;rsquo;ve done a lot of testing and discovered limitations of the pure containerised approach and how to overcome them while still retaining the container user experience. This post is a documentation of my journey from the early days of running Cumulus on Docker to the integration with containerlab and, finally, running Cumulus in microVMs backed by AWS&amp;rsquo;s Firecracker and Weavework&amp;rsquo;s Ignite.&lt;/p&gt;
+
+&lt;h2 id=&#34;innovation-trigger&#34;&gt;Innovation Trigger&lt;/h2&gt;
+
+&lt;p&gt;One of the main reason for running containerised infrastructure is the famous Docker UX. Containers existed for a very long time but they only became mainstream when docker released their container engine. The simplicity of a typical docker workflow (build, ship, run) made it accessible to a large number of not-so-technical users and was the key to its popularity.&lt;/p&gt;
+
+&lt;p&gt;Virtualised infrastructure, including networking operating systems, has mainly been distributed in a VM form-factor, retaining much of the look and feel of the real hardware for the software processes running on top. However it didn&amp;rsquo;t stop people from looking for a better and easier way to run and test it, some of the smartest people in the industry are always &lt;a href=&#34;https://twitter.com/ibuildthecloud/status/1362162684637061121&#34; target=&#34;_blank&#34;&gt;looking&lt;/a&gt; for an alternative to a traditional Libvirt/Vagrant experience.&lt;/p&gt;
+
+&lt;p&gt;While VM tooling has been pretty much stagnant for the last decade (think Vagrant), containers have amassed a huge ecosystem of tools and an active community around it. Specifically in the networking area, in the last few years we&amp;rsquo;ve seen commercial companies like &lt;a href=&#34;https://www.fastly.com/press/press-releases/fastly-achieves-100-tbps-edge-capacity-milestone&#34; target=&#34;_blank&#34;&gt;Tesuto&lt;/a&gt; and multiple open-source projects like &lt;a href=&#34;https://github.com/plajjan/vrnetlab&#34; target=&#34;_blank&#34;&gt;vrnetlab&lt;/a&gt;, &lt;a href=&#34;https://github.com/networkop/docker-topo&#34; target=&#34;_blank&#34;&gt;docker-topo&lt;/a&gt;, &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; and, most recently &lt;a href=&#34;https://containerlab.srlinux.dev/&#34; target=&#34;_blank&#34;&gt;containerlab&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;So when I joined Nvidia in April 2020, I thought it&amp;rsquo;d be a fun experiment for me to try to containerise Cumulus Linux and learn how the operating system works in the process.&lt;/p&gt;
+
+&lt;h2 id=&#34;peak-of-inflated-expectations&#34;&gt;Peak of Inflated Expectations&lt;/h2&gt;
+
+&lt;p&gt;Building a container image was the first and, as it turned out, the easiest problem to solve. Thanks to the Debian-based architecture of Cumulus Linux, I was able to build a complete container image with just a few lines:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-Dockerfile&#34;&gt;FROM debian:buster
+
+COPY data/packages packages
+COPY data/sources.list /etc/apt/sources.list
+COPY data/trusted.gpg /etc/apt/trusted.gpg
+RUN apt install --allow-downgrades -y $(cat packages)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;I extracted the list of installed packages and public APT repos from an existing Cumulus VX VM, copied them into a base &lt;code&gt;debian:buster&lt;/code&gt; image and ran &lt;code&gt;apt install&lt;/code&gt; &amp;ndash; that&amp;rsquo;s how easy it was. Obviously, the &lt;a href=&#34;https://github.com/networkop/cx/blob/main/Dockerfile&#34; target=&#34;_blank&#34;&gt;actual Dockerfile&lt;/a&gt; ended up being a lot longer, but the main work is done in just these 5 lines. The rest of the steps are just setting up the required 3rd party packages and implement various workarounds and hacks. Below is a simplified view of the resulting Cumulus image:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/cumulus-cx.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Once the image is built, it can be run with just a single command. Note the presence of  the &lt;code&gt;privileged&lt;/code&gt; flag, which is the easiest way to run systemd and provide NET_ADMIN and other capabilities required by Cumulus daemons:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;docker run -d --name cumulus --privileged networkop/cx:latest
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;A few seconds later, the entire Cumulus software stack is fully initialised and ready for action. Users can either start an interactive session or run ad-hoc commands to communicate with Cumulus daemons:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ docker exec cumulus net show system
+Hostname......... 5b870d5c3d31
+Build............ Cumulus Linux 4.3.0
+Uptime........... 13 days, 5:03:30.690000
+
+Model............ Cumulus VX
+Memory........... 12GB
+Disk............. 256GB
+Vendor Name...... Cumulus Networks
+Part Number...... 4.3.0
+Base MAC Address. 02:42:C0:A8:DF:02
+Serial Number.... 02:42:C0:A8:DF:02
+Product Name..... Containerised VX
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;All this seemed pretty cool but I still had doubts over the functionality of Cumulus dataplane on a general-purpose kernel. Most of the traditional networking vendors do not rely on native kernel dataplane and heavily modify or bypass it completely in order to implement all of the required NOS features. My secret hope was that Cumulus, being the Linux-native NOS, would somehow make it work with just a standard set of kernel features. The only way to find this out was to test.&lt;/p&gt;
+
+&lt;h2 id=&#34;building-a-test-lab&#34;&gt;Building a test lab&lt;/h2&gt;
+
+&lt;p&gt;I&amp;rsquo;ve decided that the best way to test is to re-implement the &lt;a href=&#34;https://gitlab.com/cumulus-consulting/goldenturtle/cldemo2&#34; target=&#34;_blank&#34;&gt;Cumulus Test Drive&lt;/a&gt; environment to make use of Ansible playbooks that come with it. Here&amp;rsquo;s a short snippet of containerlab&amp;rsquo;s topology definition matching the CTD&amp;rsquo;s &lt;a href=&#34;https://gitlab.com/cumulus-consulting/goldenturtle/cldemo2/-/blob/master/documentation/diagrams/cldemo-pod.png&#34; target=&#34;_blank&#34;&gt;topology&lt;/a&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;name: cldemo2-mini
+
+topology:
+  nodes:
+    leaf01:
+      kind: linux
+      image: networkop/cx:latest
+    leaf02:
+      kind: linux
+      image: networkop/cx:latest
+...
+
+  links:
+    - endpoints: [&amp;quot;leaf01:swp1&amp;quot;, &amp;quot;server01:eth1&amp;quot;]
+    - endpoints: [&amp;quot;leaf01:swp2&amp;quot;, &amp;quot;server02:eth1&amp;quot;]
+    - endpoints: [&amp;quot;leaf01:swp3&amp;quot;, &amp;quot;server03:eth1&amp;quot;]
+    - endpoints: [&amp;quot;leaf02:swp1&amp;quot;, &amp;quot;server01:eth2&amp;quot;]
+    - endpoints: [&amp;quot;leaf02:swp2&amp;quot;, &amp;quot;server02:eth2&amp;quot;]
+    - endpoints: [&amp;quot;leaf02:swp3&amp;quot;, &amp;quot;server03:eth2&amp;quot;]
+    - endpoints: [&amp;quot;leaf01:swp49&amp;quot;, &amp;quot;leaf02:swp49&amp;quot;]
+    - endpoints: [&amp;quot;leaf01:swp50&amp;quot;, &amp;quot;leaf02:swp50&amp;quot;]
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The entire lab can be spun up with a single command in under 20 seconds (on a 10th gen i7 in WSL2):&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ sudo containerlab deploy -t cldemo2.yaml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;At the end of the &lt;code&gt;deploy&lt;/code&gt; action, containerlab generates an Ansible inventory file which, with a few minor modifications, can be re-used for the Cumulus Ansible &lt;a href=&#34;https://gitlab.com/cumulus-consulting/goldenturtle/cumulus_ansible_modules&#34; target=&#34;_blank&#34;&gt;modules&lt;/a&gt;. At this stage, I was able to test any of the 4 available EVPN-based &lt;a href=&#34;https://gitlab.com/cumulus-consulting/goldenturtle/cumulus_ansible_modules#how-to-use&#34; target=&#34;_blank&#34;&gt;designs&lt;/a&gt;, swap them around with just a few commands and it all had taken me just a few hours to build. This is where my luck has run out&amp;hellip;&lt;/p&gt;
+
+&lt;h2 id=&#34;the-trough-of-disillusionment&#34;&gt;The Trough of Disillusionment&lt;/h2&gt;
+
+&lt;p&gt;The first few topologies I&amp;rsquo;d spun up and tested worked pretty well out of the box, however I did notice that my fans were spinning like crazy. Upon further examination, I had noticed that the &lt;code&gt;clagd&lt;/code&gt; (MLAG daemon) and &lt;code&gt;neighmgrd&lt;/code&gt; (ARP watchdog) were intermittently fighting to take over all available CPU threads while nothing was showing up in the logs. That&amp;rsquo;s when I decided to have a look at the peerlink, thankfully it was super easy to do &lt;code&gt;ip netns exec FOO tcpdump&lt;/code&gt; from my WSL2 VM. When I saw hundreds of lines flying on my screen in the next few seconds, I realised it was a L2 loop (it turned out all of the packets were ARP).&lt;/p&gt;
+
+&lt;p&gt;At this point, it is worth mentioning that one of the hacks/workarounds I had to implement when building the image was stubbing out the &lt;code&gt;mstpd&lt;/code&gt; (it wasn&amp;rsquo;t able to take over the bridge&amp;rsquo;s STP control plane). At first, I didn&amp;rsquo;t think too much of it &amp;ndash; kernel was still running CSTP and the speed of convergence wasn&amp;rsquo;t that big of an issue for me. However, as I was digging deeper, I realised that &lt;code&gt;clagd&lt;/code&gt; must be communicating with &lt;code&gt;mstpd&lt;/code&gt; in order to control the state of the peerlink VLAN interfaces (traffic is never forwarded over the peerlink under normal conditions). That fact alone meant that neither the standard kernel STP implementation nor &lt;a href=&#34;https://github.com/mstpd/mstpd&#34; target=&#34;_blank&#34;&gt;upstream mstpd&lt;/a&gt; would ever be able to cooperate with &lt;code&gt;clagd&lt;/code&gt; &amp;ndash; there&amp;rsquo;s no standard for MLAG (although I suspect most implementations are written by the same set of people). My heart sank, at this stage I was ready to give up and admit that there&amp;rsquo;s no way that one of the most widely deployed features (MLAG) would work inside a container.&lt;/p&gt;
+
+&lt;p&gt;However, there was one way to make Cumulus Linux work in a containerised environment and that would be to run it over a native Cumulus Kernel which, as I discovered later, was very &lt;a href=&#34;http://oss.cumulusnetworks.com/CumulusLinux-2.5.1/patches/kernel/&#34; target=&#34;_blank&#34;&gt;heavily patched&lt;/a&gt;. So, in theory, I could run tests on a beefy Cumulus VX VM with all services but docker turned off but that would be a big ask and not a nice UX I was hoping for&amp;hellip;&lt;/p&gt;
+
+&lt;h2 id=&#34;slope-of-enlightenment&#34;&gt;Slope of Enlightenment&lt;/h2&gt;
+
+&lt;p&gt;This is when I thought about the &lt;a href=&#34;https://firecracker-microvm.github.io/&#34; target=&#34;_blank&#34;&gt;Firecracker&lt;/a&gt; &amp;ndash; the lightweight VM manager released by AWS to run Lambda and Fargate services (&lt;a href=&#34;https://github.com/firecracker-microvm/firecracker/blob/main/CREDITS.md&#34; target=&#34;_blank&#34;&gt;originally&lt;/a&gt; based on the work of the Chromium OS team). I&amp;rsquo;d started looking at the potential candidates for FC VM orchestration and got very excited when I saw both &lt;a href=&#34;https://github.com/firecracker-microvm/firecracker-containerd/blob/f320d3636aee41661eb525b284ce6213f6c7a3d5/docs/networking.md&#34; target=&#34;_blank&#34;&gt;firecracker-containerd&lt;/a&gt; and &lt;a href=&#34;https://github.com/kata-containers/kata-containers/blob/2fc7f75724ac9e18e60f63dcc9aa395dc51c184d/docs/design/architecture.md#networking&#34; target=&#34;_blank&#34;&gt;kata-containers&lt;/a&gt; support multiple network interface with &lt;a href=&#34;https://man7.org/linux/man-pages/man8/tc-mirred.8.html&#34; target=&#34;_blank&#34;&gt;tc redirect&lt;/a&gt;, the same technology that&amp;rsquo;s used by containerlab to run &lt;a href=&#34;https://containerlab.srlinux.dev/manual/vrnetlab/&#34; target=&#34;_blank&#34;&gt;vrnetlab-based images&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;However, both of these candidates relied on &lt;a href=&#34;https://lwn.net/Articles/556550/&#34; target=&#34;_blank&#34;&gt;virtio VM Sockets&lt;/a&gt; as the communication channel with a VM, which just happened to be one of the features &lt;em&gt;disabled&lt;/em&gt; in Cumulus Linux kernel. So the next option I looked at was Weavework&amp;rsquo;s &lt;a href=&#34;https://github.com/weaveworks/ignite&#34; target=&#34;_blank&#34;&gt;Ignite&lt;/a&gt; and, to my surprise, it worked! I was able to boot the same container image using ignite CLI instead of Docker:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;sudo ignite run --runtime docker --name test --kernel-image networkop/kernel networkop/cx
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The kernel image is built from two layers borrowed from an existing Cumulus VX VM &amp;ndash; an uncompressed kernel image and the entire &lt;code&gt;/lib/modules&lt;/code&gt; directory containing loadable kernel modules. The resulting image layer stack looked like this:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/cumulus-fc.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Finally, I was able to test and confirm that all of the worked-around features that didn&amp;rsquo;t work in a pure container environment worked with ignite. This was a promising first step but there were still a number of key features missing in both containerlab and ignite that needed to be addressed next:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;In order to gracefully introduce ignite, containerlab&amp;rsquo;s code had to be refactored to support multiple container runtimes [&lt;a href=&#34;https://github.com/srl-labs/containerlab/pull/416&#34; target=&#34;_blank&#34;&gt;DONE&lt;/a&gt;]&lt;/li&gt;
+&lt;li&gt;In order to support custom interface naming, containerlab had to control the assignment of interface MAC addresses [&lt;a href=&#34;https://github.com/srl-labs/containerlab/pull/422&#34; target=&#34;_blank&#34;&gt;DONE&lt;/a&gt;]&lt;/li&gt;
+&lt;li&gt;Ignite needed to be extended to support multiple interfaces and stitch them with tc redirect [&lt;a href=&#34;https://github.com/weaveworks/ignite/pull/836&#34; target=&#34;_blank&#34;&gt;PR in progress&lt;/a&gt;]&lt;/li&gt;
+&lt;li&gt;A new &lt;code&gt;ignite&lt;/code&gt; runtime needs to be added to containerlab [&lt;a href=&#34;https://github.com/networkop/containerlab/tree/ignite&#34; target=&#34;_blank&#34;&gt;WIP&lt;/a&gt;]&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;One obvious question could be &amp;ndash; is any of this worth the effort? Personally, I had learned so much in the process that my ROI has made it well worth it. For others, I have tried to summarise some of the main reasons why anyone would use containerised Firecracker VMs vs traditional qemu-based VMs in the table below:&lt;/p&gt;
+
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Feature&lt;/th&gt;
+&lt;th&gt;Legacy VMs&lt;/th&gt;
+&lt;th&gt;Ignite VMs&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;UX&lt;/td&gt;
+&lt;td&gt;Complex &amp;ndash; Vagrant, Libvirt&lt;/td&gt;
+&lt;td&gt;Simple &amp;ndash; containerlab, ignite&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;API&lt;/td&gt;
+&lt;td&gt;Legacy, &lt;a href=&#34;https://github.com/qemu/qemu/blob/master/docs/interop/qmp-spec.txt&#34; target=&#34;_blank&#34;&gt;QMP&lt;/a&gt;&lt;/td&gt;
+&lt;td&gt;Modern, &lt;a href=&#34;https://github.com/firecracker-microvm/firecracker/blob/main/src/api_server/swagger/firecracker.yaml&#34; target=&#34;_blank&#34;&gt;OpenAPI&lt;/a&gt;&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;Images&lt;/td&gt;
+&lt;td&gt;&lt;a href=&#34;https://docs.openstack.org/image-guide/convert-images.html&#34; target=&#34;_blank&#34;&gt;Multiple formats&lt;/a&gt;, mutable&lt;/td&gt;
+&lt;td&gt;&lt;a href=&#34;https://github.com/opencontainers/image-spec&#34; target=&#34;_blank&#34;&gt;OCI-standard&lt;/a&gt;, immutable&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;Startup configuration&lt;/td&gt;
+&lt;td&gt;Ansible, interactive&lt;/td&gt;
+&lt;td&gt;Mounting files from host OS&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;Distribution&lt;/td&gt;
+&lt;td&gt;Individual file sharing&lt;/td&gt;
+&lt;td&gt;Container registries&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;Startup time&lt;/td&gt;
+&lt;td&gt;Tens of seconds&lt;/td&gt;
+&lt;td&gt;Seconds&lt;/td&gt;
+&lt;/tr&gt;
+
+&lt;tr&gt;
+&lt;td&gt;Scale-out&lt;/td&gt;
+&lt;td&gt;Complex and &lt;a href=&#34;https://www.vagrantup.com/docs/multi-machine&#34; target=&#34;_blank&#34;&gt;static&lt;/a&gt;&lt;/td&gt;
+&lt;td&gt;Standard and &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;dynamic&lt;/a&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+
+&lt;p&gt;In addition to this, Firecracker&amp;rsquo;s official website provides a list of &lt;a href=&#34;https://firecracker-microvm.github.io/#benefits&#34; target=&#34;_blank&#34;&gt;benefits&lt;/a&gt; and &lt;a href=&#34;https://firecracker-microvm.github.io/#faq&#34; target=&#34;_blank&#34;&gt;FAQ&lt;/a&gt; covering some of the differences with QEMU.&lt;/p&gt;
+
+&lt;h2 id=&#34;plateau-of-productivity&#34;&gt;Plateau of Productivity&lt;/h2&gt;
+
+&lt;p&gt;Although the final stage is still a fair way out, the good news is that I have a stable working prototype that can reliably build Cumulus-based labs so, hopefully, it&amp;rsquo;s only a matter of time before all of the PRs get merged and this functionality becomes available upstream. I also hope this work demonstrates the possibility for other NOSs to ship their virtualised versions as OCI images bundled together with their custom kernels.&lt;/p&gt;
+
+&lt;p&gt;In the meantime, if you&amp;rsquo;re interested, feel free to reach out to me and I&amp;rsquo;ll try to help you get started using containerised Cumulus Linux both on a single node with containerlab and, potentially, even use it for large-scale simulations on top of Kubernetes.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Getting Started with eBPF and Go</title>
       <link>https://networkop.co.uk/post/2021-03-ebpf-intro/</link>
       <pubDate>Mon, 08 Mar 2021 00:00:00 +0000</pubDate>
@@ -3087,417 +3277,6 @@ kubectl exec pod3 -- sudo ping -c 1 13.13.13.1
 &lt;h1 id=&#34;coming-up&#34;&gt;Coming up&lt;/h1&gt;
 
 &lt;p&gt;The process demonstrated above is quite rigid and requires a lot of manual effort to create a required topology inside a K8s cluster. In the next post, we&amp;rsquo;ll have a look at &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; - a simple tool that orchestrates most of the above steps - generates topology data and creates pods based on a simple YAML-based topology definition file.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Serverless SDN - Network Engineering Analysis of Appswitch</title>
-      <link>https://networkop.co.uk/post/2018-05-29-appswitch-sdn/</link>
-      <pubDate>Thu, 21 Jun 2018 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/post/2018-05-29-appswitch-sdn/</guid>
-      <description>
-
-&lt;p&gt;Virtual networking has been one of the hottest areas of research and development in recent years. Kubernetes alone has, at the time of writing, 20 different &lt;a href=&#34;https://kubernetes.io/docs/concepts/cluster-administration/networking/&#34; target=&#34;_blank&#34;&gt;networking plugins&lt;/a&gt;, some of which can be &lt;a href=&#34;https://github.com/projectcalico/canal&#34; target=&#34;_blank&#34;&gt;combined&lt;/a&gt; to build even more plugins. However, if we dig a bit deeper, most of these plugins and solutions are built out of two very simple constructs:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;a virtual switch - anything from a linux bridge through VPP and IOVisor to OVS&lt;/li&gt;
-&lt;li&gt;ACL/NAT - most commonly implemented as iptables, with anything from netfilter to eBPF under the hood&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Note1: for the purpose of this article I won&amp;rsquo;t consider service meshes as a network solution, although it clearly is one, simply because it operates higher than TCP/IP and ultimately still requires network plumbing to be in place&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;If those look familiar, you&amp;rsquo;re not mistaken, they are the &lt;strong&gt;same exact&lt;/strong&gt; things that were used to connect VMs together and enforce network security policies at the dawn of SDN era almost a decade ago. Although some of these technologies have gone a long way in both features and performance, they still treat containers the same way they treated VMs. There are a few exceptions that don&amp;rsquo;t involve the above constructs, like SR-IOV, macvlan/ipvlan and running containers in host namespace, however they represent a small fraction of corner case solutions and can be safely ignored for the purpose of this discussion. That&amp;rsquo;s why for networking folk it won&amp;rsquo;t be too big a mistake to think of containers as VMs, let&amp;rsquo;s see why:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/docker-vs-vm.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;At a high level both container and VM networking are exactly the same, doesn&amp;rsquo;t matter what plugin, what networking model (CNM/CNI), what vSwitch flavour or what offload technology you use. Any virtual workload must have a virtual patch cable connecting it to a vSwitch, which implements forwarding and security policies programmed by an SDN controller. These tenets have gone unchallenged since the early days of containers and this is how I, personally, always imagined a typical virtual networking solution would look like. Until I read about &lt;a href=&#34;https://apporbit.com/a-test-drive-of-appswitch-the-network-stack-from-the-future/&#34; target=&#34;_blank&#34;&gt;AppSwitch&lt;/a&gt; and got so excited I decided to sign up for a &lt;a href=&#34;https://apporbit.com/appswitch/&#34; target=&#34;_blank&#34;&gt;beta program&lt;/a&gt; just to take it apart and see how it works. But before I dive deep into its architecture, I need to provide some theoretical background and I&amp;rsquo;ll do that by zooming in on a part of the (Linux) networking stack that sits right above TCP/IP.&lt;/p&gt;
-
-&lt;h1 id=&#34;network-socket-api&#34;&gt;Network Socket API&lt;/h1&gt;
-
-&lt;p&gt;Let&amp;rsquo;s start our exploration by examining what happens when a TCP client wants to communicate with a TCP server on a remote host. The first thing that the client library does is it creates a socket by making a &lt;code&gt;socket()&lt;/code&gt; system call for a specific address family (local, IPv4, IPv6) and transport protocol (TCP, UDP). The returned value is a file descriptor that points to a socket. This file descriptor is used in all subsequent network calls.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;sockfd = socket(AF_INET, SOCK_STREAM, 0) /* Create an IPv4 TCP socket */
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Next the client issues a &lt;code&gt;connect()&lt;/code&gt; system call, where it passes the new socket file descriptor along with a pointer to &lt;code&gt;serv_addr&lt;/code&gt; data structures that contains the destination IP and port of the TCP server.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;connect(sockfd, &amp;amp;serv_addr, sizeof(serv_addr)) /* Returns 0 if connected */
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Behind the scenes the last call initiates a TCP 3-way handshake with the remote server and returns 0 if TCP sessions transitions to the &lt;strong&gt;Established&lt;/strong&gt; state.&lt;/p&gt;
-
-&lt;p&gt;Finally, when TCP session is established, the client interacts with the socket the same way it does with any normal file by calling &lt;code&gt;read()&lt;/code&gt; and &lt;code&gt;write()&lt;/code&gt; to receive and send data to the remote server.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;read(sockfd, buffer, strlen(buffer))  /* Returns the number of bytes read */
-write(sockfd, buffer, strlen(buffer)) /* Returns the number of bytes written */
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Below is a simplified diagram that shows the above syscalls and maps them to different stages of TCP connection. Note that only the layers relevant to the purpose of this discussion are shown. For a more comprehensive overview of Linux networking stack refer to &lt;a href=&#34;http://140.120.7.21/LinuxRef/Network/LinuxNetworkStack.html&#34; target=&#34;_blank&#34;&gt;1&lt;/a&gt;, &lt;a href=&#34;http://www.microhowto.info/howto/listen_for_and_accept_tcp_connections_in_c.html&#34; target=&#34;_blank&#34;&gt;2&lt;/a&gt; and &lt;a href=&#34;https://www.ibm.com/developerworks/aix/library/au-tcpsystemcalls/index.html&#34; target=&#34;_blank&#34;&gt;3&lt;/a&gt;.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/tcp-syscalls.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;On the server side the sequence of system calls is a little different. After a server creates a socket with the &lt;code&gt;socket()&lt;/code&gt; call, it tries to &lt;code&gt;bind()&lt;/code&gt; to a particular IP and port number of the host:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;bind(sockfd, &amp;amp;serv_addr, sizeof(serv_addr)) /* Returns 0 if successful */
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;In order to start accepting incoming TCP SYN requests, the socket needs to be marked as &lt;strong&gt;passive&lt;/strong&gt; by making a &lt;code&gt;listen()&lt;/code&gt; call, which also specifies the maximum size of a queue for pending TCP connections:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;listen(sockfd, SOMAXCONN) /* Returns 0 if successful */
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Once the TCP 3-way handshake with the client is complete and the connection transitions to the &lt;strong&gt;Established&lt;/strong&gt; state, it will be pulled off the queue by an &lt;code&gt;accept()&lt;/code&gt; call, running in an infinite loop, which returns a new &lt;strong&gt;connected&lt;/strong&gt; socket file descriptor back to the server.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-c&#34;&gt;newsockfd = accept(sockfd, &amp;amp;client_addr, &amp;amp;client_len) /* Create a new socket */
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The server application now proceeds to read and write data similar to the client side.&lt;/p&gt;
-
-&lt;h1 id=&#34;appswitch-high-level-architecture&#34;&gt;Appswitch high-level architecture&lt;/h1&gt;
-
-&lt;p&gt;Appswitch is a distributed virtual networking solution that intercepts application&amp;rsquo;s network events at the system call interface level, before they get to the TCP/IP stack of the host. This allows it to make routing decisions and enforce security policies without the need for vSwitches or iptables. The way it abstracts host&amp;rsquo;s TCP/IP stack (underlay) from the Appswitch-managed application IP address space (overlay) is not too much dissimilar from the way traditional routing protocols operate.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ax-overview.png&#34; alt=&#34;Appswitch architecture&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Just like a typical distributed routing protocol, Appswitch builds a database of all known local endpoint addresses at each node, distributes it to other members of a cluster with itself as the next-hop, calculates how to forward connection setup calls between local and remote endpoints and uses those results to steer network traffic between them. Sounds very much like something BGP/OSPF/IS-IS would do, doesn&amp;rsquo;t it? Let&amp;rsquo;s have a closer look at the actual elements involved, using the diagram from the original Appswitch &lt;a href=&#34;http://hci.stanford.edu/cstr/reports/2017-01.pdf&#34; target=&#34;_blank&#34;&gt;research paper&lt;/a&gt;:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ax-highlevel.png&#34; alt=&#34;Appswitch architecture&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;The first thing Appswitch does when it starts is neighbor discovery. The element responsible for this is a &lt;strong&gt;Service Router&lt;/strong&gt; which uses &lt;a href=&#34;https://www.serf.io/docs/internals/gossip.html&#34; target=&#34;_blank&#34;&gt;Serf&lt;/a&gt; to efficiently discover and disseminate information in a cluster of Appswitch nodes. Serf is Hashicorp&amp;rsquo;s implementation of a &lt;a href=&#34;https://pdfs.semanticscholar.org/8712/3307869ac84fc16122043a4a313604bd948f.pdf&#34; target=&#34;_blank&#34;&gt;gossip protocol&lt;/a&gt; - a cluster membership and communication protocol. Serf should be very easy to understand for those familiar with flood-and-learn behaviour of OSPF and IS-IS on broadcast multiaccess links, with the biggest distinction being that designated routers are chosen randomly and independently by each node of the link.&lt;/p&gt;
-
-&lt;p&gt;Whenever a new application is launched inside Appswitch, it gets moved to a dedicated network namespace, where a &lt;strong&gt;Trap Generator&lt;/strong&gt; listens for network system calls and forwards them to a &lt;strong&gt;Trap Handler&lt;/strong&gt; over a shared Unix domain socket. Together these two elements form the forwarding plane for network system calls. Every time an application issues a &lt;code&gt;socket()&lt;/code&gt; syscall, the trap generator forwards it to the trap handler, which in turn creates a socket in the host namespace and passes its reference all the way back to the calling application. Once the connection is established, all &lt;code&gt;read()&lt;/code&gt; and &lt;code&gt;write()&lt;/code&gt; syscalls will be made using the returned &lt;code&gt;sockfd&lt;/code&gt;, effectively achieving the same performance as if our application was running directly on host OS.&lt;/p&gt;
-
-&lt;p&gt;The central element in Appswitch architecture is a &lt;strong&gt;Service Table&lt;/strong&gt; - a distributed, eventually consistent database which stores mappings between running applications and their next-hop transport addresses. This information is used by the Trap Handler in &lt;code&gt;connect()&lt;/code&gt; syscall to build the &lt;code&gt;serv_addr&lt;/code&gt; data structure with the real IP and port of the target application. In a steady state each node in an Appswitch cluster will have the same view of this database and all updates to this database will be gossiped to other members of a cluster by a Service Router.&lt;/p&gt;
-
-&lt;h1 id=&#34;appswitch-detailed-overview&#34;&gt;Appswitch detailed overview&lt;/h1&gt;
-
-&lt;p&gt;Let&amp;rsquo;s have a closer look at what happens at different stages of Appswitch lifecycle.&lt;/p&gt;
-
-&lt;h2 id=&#34;1-installation-and-startup&#34;&gt;1. Installation and Startup&lt;/h2&gt;
-
-&lt;p&gt;At the time of writing Appswitch is being distributed as a docker container hosted in a private docker repository on docker hub (access provided based on request). It contains a single binary executable called &lt;code&gt;ax&lt;/code&gt; which needs to be started in PID and network namespaces of the host in order to be able to talk to host&amp;rsquo;s syscall interface and track application threads. By default, Appswitch attaches to the TCP/IP stack of the host in two ways:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;It starts management REST API and Serf processes that bind to ports 6664 and 7946.&lt;/li&gt;
-&lt;li&gt;It selects one of the host&amp;rsquo;s IP addresses and reserves a pool of ports (e.g. 40000-60000) that will be dynamically allocated to applications in response to &lt;code&gt;bind()&lt;/code&gt; and &lt;code&gt;connect()&lt;/code&gt; system calls.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;h2 id=&#34;2-joining-a-cluster&#34;&gt;2. Joining a cluster&lt;/h2&gt;
-
-&lt;p&gt;One of the first things a running Appswitch instance has to do is discover all members of a cluster. This is accomplished by providing an IP address of at least one node of an existing cluster as a startup parameter, which is then used to discover all other members. The information exchanged during neighbor discovery phase, which includes host IPs, names and roles, gets recorded in the Service Table and can be viewed with &lt;code&gt;ax get nodes&lt;/code&gt; command. The mechanism of neighbor discovery and monitoring inside a cluster is not Appswitch-specific so I won&amp;rsquo;t spend much time on it here, however I highly recommend reading at least the protocol overview on the official &lt;a href=&#34;https://www.serf.io/docs/internals/gossip.html&#34; target=&#34;_blank&#34;&gt;Serf website&lt;/a&gt;, as this is a very common approach in modern-day eventually consistent cluster architectures.&lt;/p&gt;
-
-&lt;h2 id=&#34;3-cluster-scale-out&#34;&gt;3. Cluster scale-out&lt;/h2&gt;
-
-&lt;p&gt;A cluster is a set of nodes running Appswitch daemons that can directly communicate with one another and all use Serf to monitor state of other cluster members. Like any other cluster protocol, Serf has its limitations and Appswitch has a very neat mechanism to allow services to scale beyond a single cluster boundary, e.g. between a LAN and a WAN, called Federation. In principle, it&amp;rsquo;s somewhat similar to hierarchical BGP RR design with route reflectors doing &lt;code&gt;next-hop self&lt;/code&gt;. A set of Appswitch nodes can be designated as Federation gateways, which allows them to propagate information about running applications between two different clusters. When doing so they change the IP/port information to point to themselves, which forces all inter-cluster traffic to go via one of these nodes.&lt;/p&gt;
-
-&lt;h2 id=&#34;4-registering-a-server-application&#34;&gt;4. Registering a server application&lt;/h2&gt;
-
-&lt;p&gt;Once Appswitch instance has joined a cluster, it&amp;rsquo;s ready to onboard its first application. Let&amp;rsquo;s start with a web server that needs to be accessible from other Appswitch-managed applications (East-West) and externally (North-South). When starting a server application, we need to provide a unique identifier that will be used by other endpoints to reach it. That identifier can be either an IP address (provided with &lt;code&gt;--ip&lt;/code&gt; argument) or a hostname (provided with &lt;code&gt;--name&lt;/code&gt; argument). If only hostname is specified, IP address will still be allocated behind the scenes and Appswitch will program its embedded DNS to make sure all other applications can reach our web server by its name.&lt;/p&gt;
-
-&lt;p&gt;Moments after it&amp;rsquo;s been started, the web server issues a &lt;code&gt;bind()&lt;/code&gt; syscall, specifying the IP/port it wants to bind to, which gets intercepted by the trap generator and forwarded to the trap handler. The latter generates another &lt;code&gt;bind()&lt;/code&gt; syscall, however the new &lt;code&gt;bind()&lt;/code&gt; has two notable differences:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;It contains the host IP and one of the reserved ports (40000 - 60000) specified at the startup&lt;/li&gt;
-&lt;li&gt;It&amp;rsquo;s destined towards a host&amp;rsquo;s syscall interface&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;The resulting mappings between the internal socket address of the web server, the overlay IP address assigned to it by the Appswitch and the &amp;ldquo;real&amp;rdquo; or underlay address of the host get recorded in the Service Table and gossiped to all other members of the cluster.&lt;/p&gt;
-
-&lt;h2 id=&#34;3-processing-client-requests&#34;&gt;3. Processing client requests&lt;/h2&gt;
-
-&lt;p&gt;Now let&amp;rsquo;s see what happens when another Appswitch application tries to connect to the previously started web server. The client may try to connect to the web server by its hostname, assuming the server was configured with one, in which case the DNS request will get handled by an embedded DNS server running on all Appswitch nodes, as a part of the same binary that runs service table and service router, and the client library will receive the overlay IP address of the web server.&lt;/p&gt;
-
-&lt;p&gt;As soon as the &lt;code&gt;connect()&lt;/code&gt; syscall gets intercepted by the Trap Generator and forwarded to the Trap Handler, the latter consults the local Service Table and finds an entry for the web server, which was previously broadcasted to all members of the cluster. This is also a point at which Appswitch performs security isolation and load balancing:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;p&gt;It checks whether security zone of a client matches the one of the server and only proceeds if they are the same. This allows users to split application into different security groups and enforce isolation between them without the need for any dataplane ACLs&lt;/p&gt;&lt;/li&gt;
-
-&lt;li&gt;&lt;p&gt;It also determines which exact server to include in the &lt;code&gt;connect()&lt;/code&gt; syscall, in case multiple servers have registered with the same IP or hostname. This provides a fully-distributed client-side load-balancing solution without the need for any middleware.&lt;/p&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Once all the checks have passed and a destination server has been determined, Trap Handler issues a &lt;code&gt;connect()&lt;/code&gt; syscall with the underlay IP and port of that server app. At the end of the 3-way TCP handshake the &lt;code&gt;connect()&lt;/code&gt; call returns 0 and the two applications continue to &lt;code&gt;read()&lt;/code&gt; and &lt;code&gt;write()&lt;/code&gt; using the sockfd provided by Appswitch, as if they were running directly in host network namespace.&lt;/p&gt;
-
-&lt;h2 id=&#34;4-ingress-forwarding&#34;&gt;4. Ingress forwarding&lt;/h2&gt;
-
-&lt;p&gt;When starting a server-side application, we have an option to make it available externally to clients outside of an Appswitch cluster, by mapping a server port to an arbitrary port of the host. This is accomplished with an &lt;code&gt;--expose INSIDE:OUTSIDE&lt;/code&gt; argument, which will map the &lt;strong&gt;INSIDE&lt;/strong&gt; application port to a specified &lt;strong&gt;OUTSIDE&lt;/strong&gt; port on the host. We can also simulate the behaviour of k8s &lt;strong&gt;NodePort&lt;/strong&gt; by changing this argument to &lt;code&gt;--expose INSIDE:0.0.0.0:OUTSIDE&lt;/code&gt;, which will expose the same port on ALL members of an Appswitch cluster.&lt;/p&gt;
-
-&lt;h2 id=&#34;5-egress-forwarding&#34;&gt;5. Egress forwarding&lt;/h2&gt;
-
-&lt;p&gt;All outbound client-side syscalls that don&amp;rsquo;t find a match in the local Service Table, will be forwarded to one of the Egress Gateway nodes. Any number of Appswitch instances can be designated as Egress Gateway nodes at startup, which makes them pick a random port from a reserved pool, broadcast their presence to the rest of the cluster and start listening for incoming connections from other members. When the client-side Trap Handler intercepts the &lt;code&gt;connect()&lt;/code&gt; syscall to an external service, it tweaks the address and sends it to one of the egress gateways instead. At the same time it communicates the real external service address to the egress gateway out-of-band. When the egress gateway receives the external service address, it will splice the two TCP sessions together connecting the Appswitch application to its intended external destination.&lt;/p&gt;
-
-&lt;h1 id=&#34;demo&#34;&gt;Demo&lt;/h1&gt;
-
-&lt;p&gt;Finally, the time has come for the proof of the pudding. To demonstrate how Appswitch works in real life I&amp;rsquo;ll use the famous Docker &lt;a href=&#34;https://github.com/dockersamples/example-voting-app&#34; target=&#34;_blank&#34;&gt;voting app&lt;/a&gt; - a simple application comprised of 5 (micro)services that all interact over standard APIs. To make it more realistic, I&amp;rsquo;ll split the voting app between two Docker hosts to demonstrate how different parts of the same application are able to communicate remotely, assisted by Appswitch. The following diagram shows how different application components are mapped to a pair docker hosts.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ax-voting.png&#34; alt=&#34;Appswitch demo&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Unlike the original voting app &lt;a href=&#34;https://github.com/dockersamples/example-voting-app/blob/master/architecture.png&#34; target=&#34;_blank&#34;&gt;diagram&lt;/a&gt; which shows the flow of data within the app, the arrows in the diagram above show the direction and destination of the initial TCP SYN, which will be important for the following explanation.&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Note that in the demo we&amp;rsquo;ll deploy all necessary components manually, using &lt;code&gt;docker-compose&lt;/code&gt; and &lt;code&gt;docker run&lt;/code&gt; commands, which doesn&amp;rsquo;t mean the same can&amp;rsquo;t be done by an orchestrator. One of the goals of this demo is to be easy to reproduce and understand and I felt like using k8s would make it more confusing and distract the reader from the main point. For demonstration of how to use Appswitch inside k8s environment refer to the official &lt;a href=&#34;http://appswitch.readthedocs.io/en/latest/integrations.html&#34; target=&#34;_blank&#34;&gt;integration manual&lt;/a&gt;.&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;h2 id=&#34;1-installation&#34;&gt;1. Installation&lt;/h2&gt;
-
-&lt;p&gt;In order to deploy all 5 components of this app, I&amp;rsquo;ll use two docker-compose files, which are based on the original &lt;a href=&#34;https://github.com/dockersamples/example-voting-app/blob/master/docker-compose.yml&#34; target=&#34;_blank&#34;&gt;docker-compose file&lt;/a&gt;, with a few modifications to make them work with Appswitch:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;The command argument is now prepended with &lt;code&gt;/usr/bin/ax run&lt;/code&gt;, which is an Appswitch wrapper that containts the Trap Generator to tracks the network system calls&lt;/li&gt;
-&lt;li&gt;Network mode is set to none - we won&amp;rsquo;t need &lt;strong&gt;any&lt;/strong&gt; network interface inside a Docker container whatsoever&lt;/li&gt;
-&lt;li&gt;Volumes now include three additional items:
-
-&lt;ul&gt;
-&lt;li&gt;/var/run/appswitch - a communication channel between a trap generator running inside a container and a trap handler running in the host namespace&lt;/li&gt;
-&lt;li&gt;/usr/bin/ax - an Appswitch binary made available inside a container&lt;/li&gt;
-&lt;li&gt;/etc/resolv.conf - overrides container DNS settings to redirect queries to an embedded Appswitch DNS service.&lt;/li&gt;
-&lt;/ul&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;These two docker-compose files are stored in my personal fork of the voting app and are the only thing that is different between my fork and the original repo. So the first step is to download the voting app:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;git clone https://github.com/networkop/example-voting-app.git ax; cd ax
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;To be able to run everything on a single laptop, I simulate docker hosts by running Docker daemon inside a Docker container, a pattern commonly known as docker-in-docker or &lt;a href=&#34;https://github.com/jpetazzo/dind&#34; target=&#34;_blank&#34;&gt;dind&lt;/a&gt;. Additionally I expose the Docker API ports of the two dind containers to be able to manage them from my host OS.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker run -d --privileged --name worker-1 --hostname=worker-1 \
--p 5000:5000 -p 12375:2375 \
--v /usr/local/bin/docker-compose:/usr/local/bin/docker-compose \
--v $(pwd):$(pwd) \
-docker:stable-dind
-
-docker run -d --privileged --name worker-2 --hostname=worker-2 \
--p 5001:5001 -p 22375:2375 \
--v /usr/local/bin/docker-compose:/usr/local/bin/docker-compose \
--v $(pwd):$(pwd) \
-docker:stable-dind
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;These two commands will create a simple two-node topology as shown below:&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/ax-dind.png&#34; alt=&#34;Appswitch dind&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Each docker host will have its own unique IP assigned to interface &lt;code&gt;eth0&lt;/code&gt; and will most likely have the same IP assigned to internal &lt;code&gt;docker0&lt;/code&gt; bridge. We can safely ignore the latter since docker bridge is not used by Appswitch, however we would need to know the IPs assigned to &lt;code&gt;eth0&lt;/code&gt; in order to be able to bootstrap the Serf cluster.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;export IP_1=$(docker inspect worker-1 -f &amp;quot;{{ .NetworkSettings.Networks.bridge.IPAddress }}&amp;quot;)
-export IP_2=$(docker inspect worker-2 -f &amp;quot;{{ .NetworkSettings.Networks.bridge.IPAddress }}&amp;quot;)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Next, on each node we need to start an Appswitch daemon and pass the above IPs as input parameters.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker --host=localhost:12375 run -d --name=ax \
---pid=host `# To identify and track application threads from host namespace` \
---net=host `# To make host network available for the application` \
---privileged `# To set seccomp filter` \
--v /usr/bin:/hostbin `# To install ax to /hostbin/` \
--v /var/run/appswitch:/var/run/appswitch `# To share the UNIX socket between app and ax daemon` \
--e AX_NODE_INTERFACE=${IP_1} `# Make sure the right IP is selected`\
--e AX_NEIGHBORS=${IP_2} `# IP of peer container`\
-docker.io/appswitch/ax `# Starting the main process`
-
-docker --host=localhost:22375 run -d --name=ax \
---pid=host `# To identify and track application threads from host namespace` \
---net=host `# To make host network available for the application` \
---privileged `# To set seccomp filter` \
--v /usr/bin:/hostbin `# To install ax to /hostbin/` \
--v /var/run/appswitch:/var/run/appswitch `# To share the UNIX socket between app and ax daemon` \
--e AX_NODE_INTERFACE=${IP_2} `# Make sure the right IP is selected`\
--e AX_NEIGHBORS=${IP_1} `# IP of peer container`\
-docker.io/appswitch/ax `# Starting the main process`
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At this point our Appswitch cluster should be bootstrapped and fully functional, which we can verify by listing its members from either one of the worker nodes:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker exec -it worker-1 ax get nodes
-    NAME     CLUSTER       IP      EXTERNALIP    ROLE     APPCOUNT  
-------------------------------------------------------------------
-  worker-1  appswitch  172.17.0.2              [compute]  0         
-  worker-2  appswitch  172.17.0.3              [compute]  0         
-
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Now the only thing that is left is to deploy our voting app using docker compose:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;docker-compose --host localhost:12375 --file ./docker-compose-1.yml up -d
-docker-compose --host localhost:22375 --file ./docker-compose-2.yml up -d
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;A few minutes later the voting side of the app should become available on &lt;a href=&#34;http://localhost:5000/&#34; target=&#34;_blank&#34;&gt;localhost:5000&lt;/a&gt;, while the results can be viewed on &lt;a href=&#34;http://localhost:5001/&#34; target=&#34;_blank&#34;&gt;localhost:5001&lt;/a&gt;.You can put in more votes for cats or dogs by using &amp;ldquo;a&amp;rdquo; or &amp;ldquo;b&amp;rdquo; in the following command:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;curl -sS -X POST --data &amp;quot;vote=a&amp;quot; http://localhost:5000 &amp;gt; /dev/null
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;2-verification&#34;&gt;2. Verification&lt;/h2&gt;
-
-&lt;p&gt;Now let&amp;rsquo;s examine how Appswitch has managed to establish connectivity between all components of our voting app. The two internal server-side components are DB and Redis, and all client-side apps (vote, worker and result) are expecting to connect to them  by using their respective hostnames - &lt;code&gt;db&lt;/code&gt; and &lt;code&gt;redis&lt;/code&gt;. Appswitch enables that by running an embedded DNS server which gets programmed with hostnames based on the &lt;code&gt;--name&lt;/code&gt; argument of &lt;code&gt;ax run&lt;/code&gt; command, as shown in the following snippet from the Redis service in docker-compose-1.yml:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;command: /usr/bin/ax run --name redis redis-server
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Embedded DNS server returns the overlay IP assigned to Redis, which will be used later by client-side apps in their syscalls. In our case we didn&amp;rsquo;t specify this IP explicitly, so Appswitch picked a random IP address which can be viewed with &lt;code&gt;ax get apps&lt;/code&gt; command:&lt;/p&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;Name&lt;/th&gt;
-&lt;th&gt;APPID&lt;/th&gt;
-&lt;th&gt;NODEID&lt;/th&gt;
-&lt;th&gt;CLUSTER&lt;/th&gt;
-&lt;th&gt;APPIP&lt;/th&gt;
-&lt;th&gt;DRIVER&lt;/th&gt;
-&lt;th&gt;LABELS&lt;/th&gt;
-&lt;th&gt;ZONES&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;redis&lt;/td&gt;
-&lt;td&gt;f00005bb&lt;/td&gt;
-&lt;td&gt;worker-2&lt;/td&gt;
-&lt;td&gt;appswitch&lt;/td&gt;
-&lt;td&gt;10.244.17.175&lt;/td&gt;
-&lt;td&gt;user&lt;/td&gt;
-&lt;td&gt;zone=default&lt;/td&gt;
-&lt;td&gt;[zone==default]&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;db&lt;/td&gt;
-&lt;td&gt;f00004cd&lt;/td&gt;
-&lt;td&gt;worker-1&lt;/td&gt;
-&lt;td&gt;appswitch&lt;/td&gt;
-&lt;td&gt;10.12.33.253&lt;/td&gt;
-&lt;td&gt;&lt;/td&gt;
-&lt;td&gt;zone=default&lt;/td&gt;
-&lt;td&gt;[zone==default]&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;p&gt;As soon as DB and Redis are fully initialised and issue a &lt;code&gt;listen()&lt;/code&gt; syscall, Appswitch broadcasts the overlay-underlay address mapping to all other members of a cluster, so that each node ends up with an identical view of this table:&lt;/p&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;Name&lt;/th&gt;
-&lt;th&gt;CLUSTER&lt;/th&gt;
-&lt;th&gt;APPID&lt;/th&gt;
-&lt;th&gt;PROTO&lt;/th&gt;
-&lt;th&gt;SERVICEADDR&lt;/th&gt;
-&lt;th&gt;IPV4ADDR&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;worker-2&lt;/td&gt;
-&lt;td&gt;appswitch&lt;/td&gt;
-&lt;td&gt;f00005b9&lt;/td&gt;
-&lt;td&gt;tcp&lt;/td&gt;
-&lt;td&gt;redis:6379&lt;/td&gt;
-&lt;td&gt;172.17.0.3:40000&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;worker-1&lt;/td&gt;
-&lt;td&gt;appswitch&lt;/td&gt;
-&lt;td&gt;f000056d&lt;/td&gt;
-&lt;td&gt;tcp&lt;/td&gt;
-&lt;td&gt;db:5432&lt;/td&gt;
-&lt;td&gt;172.17.0.2:40001&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;p&gt;Now, when a client-side app decides to establish a TCP session with &lt;code&gt;redis&lt;/code&gt; on port 6379, it tries to &lt;code&gt;connect()&lt;/code&gt; to &lt;code&gt;10.244.17.175:6379&lt;/code&gt;, which makes the Trap Handler issue a new &lt;code&gt;connect()&lt;/code&gt; to &lt;code&gt;172.17.0.3:40000&lt;/code&gt;, the real/underlay address of redis on worker-2 node.&lt;/p&gt;
-
-&lt;p&gt;At the same time we have two client-side apps that act as server-side apps for external connections - vote and result. Both of these apps were started with their internal http ports exposed, like in the following example from the vote service:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;command: /usr/bin/ax run --expose 80:5000 python app.py
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;When they attempt to &lt;code&gt;bind()&lt;/code&gt; to port 80, Appswitch will not try to use the dynamic port range and will try to bind to the port specified in the expose command instead:&lt;/p&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;Name&lt;/th&gt;
-&lt;th&gt;CLUSTER&lt;/th&gt;
-&lt;th&gt;APPID&lt;/th&gt;
-&lt;th&gt;PROTO&lt;/th&gt;
-&lt;th&gt;SERVICEADDR&lt;/th&gt;
-&lt;th&gt;IPV4ADDR&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;worker-1&lt;/td&gt;
-&lt;td&gt;appswitch&lt;/td&gt;
-&lt;td&gt;f00004cc&lt;/td&gt;
-&lt;td&gt;tcp&lt;/td&gt;
-&lt;td&gt;172.17.0.2:80&lt;/td&gt;
-&lt;td&gt;172.17.0.2:5000&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;worker-2&lt;/td&gt;
-&lt;td&gt;appswitch&lt;/td&gt;
-&lt;td&gt;f0000627&lt;/td&gt;
-&lt;td&gt;tcp&lt;/td&gt;
-&lt;td&gt;172.17.0.3:80&lt;/td&gt;
-&lt;td&gt;172.17.0.3:5001&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;p&gt;This port mapping will only make these ports available inside their respective docker hosts, which is why we&amp;rsquo;ve exposed ports 5000 and 5001 when starting dind containers earlier.&lt;/p&gt;
-
-&lt;table&gt;
-&lt;thead&gt;
-&lt;tr&gt;
-&lt;th&gt;CONTAINER ID&lt;/th&gt;
-&lt;th&gt;IMAGE&lt;/th&gt;
-&lt;th&gt;COMMAND&lt;/th&gt;
-&lt;th&gt;CREATED&lt;/th&gt;
-&lt;th&gt;STATUS&lt;/th&gt;
-&lt;th&gt;PORTS&lt;/th&gt;
-&lt;th&gt;NAMES&lt;/th&gt;
-&lt;/tr&gt;
-&lt;/thead&gt;
-
-&lt;tbody&gt;
-&lt;tr&gt;
-&lt;td&gt;303d5ae4d63d&lt;/td&gt;
-&lt;td&gt;docker:stable-dind&lt;/td&gt;
-&lt;td&gt;&amp;ldquo;dockerd-entrypoint.…&amp;rdquo;&lt;/td&gt;
-&lt;td&gt;12 hours ago&lt;/td&gt;
-&lt;td&gt;Up 7 hours&lt;/td&gt;
-&lt;td&gt;0.0.0.0:5001-&amp;gt;5001/tcp, 0.0.0.0:22375-&amp;gt;2375/tcp&lt;/td&gt;
-&lt;td&gt;worker-2&lt;/td&gt;
-&lt;/tr&gt;
-
-&lt;tr&gt;
-&lt;td&gt;2421e7556bc1&lt;/td&gt;
-&lt;td&gt;docker:stable-dind&lt;/td&gt;
-&lt;td&gt;&amp;ldquo;dockerd-entrypoint.…&amp;rdquo;&lt;/td&gt;
-&lt;td&gt;12 hours ago&lt;/td&gt;
-&lt;td&gt;Up 7 hours&lt;/td&gt;
-&lt;td&gt;0.0.0.0:5000-&amp;gt;5000/tcp, 0.0.0.0:12375-&amp;gt;2375/tcp&lt;/td&gt;
-&lt;td&gt;worker-1&lt;/td&gt;
-&lt;/tr&gt;
-&lt;/tbody&gt;
-&lt;/table&gt;
-
-&lt;p&gt;So a TCP SYN towards localhost:5000 will get PAT&amp;rsquo;ed by Docker-managed iptables of the Docker host, will hit the TCP/IP stack of the worker-1 node, which, once the handshake is complete, will issue an accept() syscall towards a Trap Handler and ultimately towards port 80 of the vote app.&lt;/p&gt;
-
-&lt;h1 id=&#34;outro&#34;&gt;Outro&lt;/h1&gt;
-
-&lt;p&gt;The reason why I called this article &amp;ldquo;Serverless SDN&amp;rdquo; is because I find this to be a rather fitting description of what Appswitch is. Just like serverless computing, which abstracts away the underlying OS and server management, Appswitch abstracts away the networking stack of the host and provides networking abstractions at a well-defined socket layer. Reading through the &lt;a href=&#34;https://appswitch.readthedocs.io/en/latest/index.html&#34; target=&#34;_blank&#34;&gt;official documentation&lt;/a&gt; and Appswitch &lt;a href=&#34;http://hci.stanford.edu/cstr/reports/2017-01.pdf&#34; target=&#34;_blank&#34;&gt;research paper&lt;/a&gt;, I can&amp;rsquo;t get rid of the thought that this is what container networking should have looked like in the first place - not linux bridges and veth pairs and not even macvlan and ipvlan devices. The original goal of containers was to encapsulate a single process and in majority of cases that single process does not need to have a full TCP/IP stack with its own interface, IP address, MAC address - all what it cares about is sending and receiving data - and this is exactly what Appswitch provides.&lt;/p&gt;
 </description>
     </item>
     

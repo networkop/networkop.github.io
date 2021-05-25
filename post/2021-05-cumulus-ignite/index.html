@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.35" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="In one of his recent posts, Ivan raises a question: &ldquo;I can’t grasp why Cumulus releases a Vagrant box, but not a Docker container&rdquo;. Coincidentally, only a few weeks before that I had managed to create a Cumulus Linux container image. Since then, I&rsquo;ve done a lot of testing and discovered limitations of the pure containerised approach and how to overcome them while still retaining the container user experience. This post is a documentation of my journey from the early days of running Cumulus on Docker to the integration with containerlab and, finally, running Cumulus in microVMs backed by AWS&rsquo;s Firecracker and Weavework&rsquo;s Ignite.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2021-05-cumulus-ignite/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2021-05-cumulus-ignite/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2021-05-cumulus-ignite/">
+  <meta property="og:title" content="Containerising NVIDIA Cumulus Linux | networkop">
+  <meta property="og:description" content="In one of his recent posts, Ivan raises a question: &ldquo;I can’t grasp why Cumulus releases a Vagrant box, but not a Docker container&rdquo;. Coincidentally, only a few weeks before that I had managed to create a Cumulus Linux container image. Since then, I&rsquo;ve done a lot of testing and discovered limitations of the pure containerised approach and how to overcome them while still retaining the container user experience. This post is a documentation of my journey from the early days of running Cumulus on Docker to the integration with containerlab and, finally, running Cumulus in microVMs backed by AWS&rsquo;s Firecracker and Weavework&rsquo;s Ignite.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2021-05-25T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2021-05-25T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image:src" content="https://networkop.co.uk/img/cumulus-cx.png"/>
+
+<meta name="twitter:title" content="Containerising NVIDIA Cumulus Linux"/>
+<meta name="twitter:description" content="Build and running containerised NVIDIA Cumulus Linux"/>
+
+
+  <title>Containerising NVIDIA Cumulus Linux | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Containerising NVIDIA Cumulus Linux</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2021-05-25 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      25 May 2021
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    9 min read
+  </span>
+  
+
+  
+  
+  <span class="middot-divider"></span>
+  <a href="https://networkop.co.uk/post/2021-05-cumulus-ignite/#disqus_thread"></a>
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/howto">howto</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Containerising%20NVIDIA%20Cumulus%20Linux&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-05-cumulus-ignite%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-05-cumulus-ignite%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-05-cumulus-ignite%2f&amp;title=Containerising%20NVIDIA%20Cumulus%20Linux"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Containerising%20NVIDIA%20Cumulus%20Linux&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2021-05-cumulus-ignite%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>In one of his <a href="https://blog.ipspace.net/2021/04/katacoda-netsim-containerlab-frr.html?utm_source=atom_feed" target="_blank">recent posts</a>, Ivan raises a question: &ldquo;I can’t grasp why Cumulus releases a Vagrant box, but not a Docker container&rdquo;. Coincidentally, only a few weeks before that I had <a href="https://twitter.com/networkop1/status/1384175045950414848" target="_blank">managed</a> to create a Cumulus Linux container image. Since then, I&rsquo;ve done a lot of testing and discovered limitations of the pure containerised approach and how to overcome them while still retaining the container user experience. This post is a documentation of my journey from the early days of running Cumulus on Docker to the integration with containerlab and, finally, running Cumulus in microVMs backed by AWS&rsquo;s Firecracker and Weavework&rsquo;s Ignite.</p>
+
+<h2 id="innovation-trigger">Innovation Trigger</h2>
+
+<p>One of the main reason for running containerised infrastructure is the famous Docker UX. Containers existed for a very long time but they only became mainstream when docker released their container engine. The simplicity of a typical docker workflow (build, ship, run) made it accessible to a large number of not-so-technical users and was the key to its popularity.</p>
+
+<p>Virtualised infrastructure, including networking operating systems, has mainly been distributed in a VM form-factor, retaining much of the look and feel of the real hardware for the software processes running on top. However it didn&rsquo;t stop people from looking for a better and easier way to run and test it, some of the smartest people in the industry are always <a href="https://twitter.com/ibuildthecloud/status/1362162684637061121" target="_blank">looking</a> for an alternative to a traditional Libvirt/Vagrant experience.</p>
+
+<p>While VM tooling has been pretty much stagnant for the last decade (think Vagrant), containers have amassed a huge ecosystem of tools and an active community around it. Specifically in the networking area, in the last few years we&rsquo;ve seen commercial companies like <a href="https://www.fastly.com/press/press-releases/fastly-achieves-100-tbps-edge-capacity-milestone" target="_blank">Tesuto</a> and multiple open-source projects like <a href="https://github.com/plajjan/vrnetlab" target="_blank">vrnetlab</a>, <a href="https://github.com/networkop/docker-topo" target="_blank">docker-topo</a>, <a href="https://github.com/networkop/k8s-topo" target="_blank">k8s-topo</a> and, most recently <a href="https://containerlab.srlinux.dev/" target="_blank">containerlab</a>.</p>
+
+<p>So when I joined Nvidia in April 2020, I thought it&rsquo;d be a fun experiment for me to try to containerise Cumulus Linux and learn how the operating system works in the process.</p>
+
+<h2 id="peak-of-inflated-expectations">Peak of Inflated Expectations</h2>
+
+<p>Building a container image was the first and, as it turned out, the easiest problem to solve. Thanks to the Debian-based architecture of Cumulus Linux, I was able to build a complete container image with just a few lines:</p>
+
+<pre><code class="language-Dockerfile">FROM debian:buster
+
+COPY data/packages packages
+COPY data/sources.list /etc/apt/sources.list
+COPY data/trusted.gpg /etc/apt/trusted.gpg
+RUN apt install --allow-downgrades -y $(cat packages)
+</code></pre>
+
+<p>I extracted the list of installed packages and public APT repos from an existing Cumulus VX VM, copied them into a base <code>debian:buster</code> image and ran <code>apt install</code> &ndash; that&rsquo;s how easy it was. Obviously, the <a href="https://github.com/networkop/cx/blob/main/Dockerfile" target="_blank">actual Dockerfile</a> ended up being a lot longer, but the main work is done in just these 5 lines. The rest of the steps are just setting up the required 3rd party packages and implement various workarounds and hacks. Below is a simplified view of the resulting Cumulus image:</p>
+
+<p><img src="/img/cumulus-cx.png" alt="" /></p>
+
+<p>Once the image is built, it can be run with just a single command. Note the presence of  the <code>privileged</code> flag, which is the easiest way to run systemd and provide NET_ADMIN and other capabilities required by Cumulus daemons:</p>
+
+<pre><code>docker run -d --name cumulus --privileged networkop/cx:latest
+</code></pre>
+
+<p>A few seconds later, the entire Cumulus software stack is fully initialised and ready for action. Users can either start an interactive session or run ad-hoc commands to communicate with Cumulus daemons:</p>
+
+<pre><code>$ docker exec cumulus net show system
+Hostname......... 5b870d5c3d31
+Build............ Cumulus Linux 4.3.0
+Uptime........... 13 days, 5:03:30.690000
+
+Model............ Cumulus VX
+Memory........... 12GB
+Disk............. 256GB
+Vendor Name...... Cumulus Networks
+Part Number...... 4.3.0
+Base MAC Address. 02:42:C0:A8:DF:02
+Serial Number.... 02:42:C0:A8:DF:02
+Product Name..... Containerised VX
+</code></pre>
+
+<p>All this seemed pretty cool but I still had doubts over the functionality of Cumulus dataplane on a general-purpose kernel. Most of the traditional networking vendors do not rely on native kernel dataplane and heavily modify or bypass it completely in order to implement all of the required NOS features. My secret hope was that Cumulus, being the Linux-native NOS, would somehow make it work with just a standard set of kernel features. The only way to find this out was to test.</p>
+
+<h2 id="building-a-test-lab">Building a test lab</h2>
+
+<p>I&rsquo;ve decided that the best way to test is to re-implement the <a href="https://gitlab.com/cumulus-consulting/goldenturtle/cldemo2" target="_blank">Cumulus Test Drive</a> environment to make use of Ansible playbooks that come with it. Here&rsquo;s a short snippet of containerlab&rsquo;s topology definition matching the CTD&rsquo;s <a href="https://gitlab.com/cumulus-consulting/goldenturtle/cldemo2/-/blob/master/documentation/diagrams/cldemo-pod.png" target="_blank">topology</a>:</p>
+
+<pre><code class="language-yaml">name: cldemo2-mini
+
+topology:
+  nodes:
+    leaf01:
+      kind: linux
+      image: networkop/cx:latest
+    leaf02:
+      kind: linux
+      image: networkop/cx:latest
+...
+
+  links:
+    - endpoints: [&quot;leaf01:swp1&quot;, &quot;server01:eth1&quot;]
+    - endpoints: [&quot;leaf01:swp2&quot;, &quot;server02:eth1&quot;]
+    - endpoints: [&quot;leaf01:swp3&quot;, &quot;server03:eth1&quot;]
+    - endpoints: [&quot;leaf02:swp1&quot;, &quot;server01:eth2&quot;]
+    - endpoints: [&quot;leaf02:swp2&quot;, &quot;server02:eth2&quot;]
+    - endpoints: [&quot;leaf02:swp3&quot;, &quot;server03:eth2&quot;]
+    - endpoints: [&quot;leaf01:swp49&quot;, &quot;leaf02:swp49&quot;]
+    - endpoints: [&quot;leaf01:swp50&quot;, &quot;leaf02:swp50&quot;]
+</code></pre>
+
+<p>The entire lab can be spun up with a single command in under 20 seconds (on a 10th gen i7 in WSL2):</p>
+
+<pre><code class="language-bash">$ sudo containerlab deploy -t cldemo2.yaml
+</code></pre>
+
+<p>At the end of the <code>deploy</code> action, containerlab generates an Ansible inventory file which, with a few minor modifications, can be re-used for the Cumulus Ansible <a href="https://gitlab.com/cumulus-consulting/goldenturtle/cumulus_ansible_modules" target="_blank">modules</a>. At this stage, I was able to test any of the 4 available EVPN-based <a href="https://gitlab.com/cumulus-consulting/goldenturtle/cumulus_ansible_modules#how-to-use" target="_blank">designs</a>, swap them around with just a few commands and it all had taken me just a few hours to build. This is where my luck has run out&hellip;</p>
+
+<h2 id="the-trough-of-disillusionment">The Trough of Disillusionment</h2>
+
+<p>The first few topologies I&rsquo;d spun up and tested worked pretty well out of the box, however I did notice that my fans were spinning like crazy. Upon further examination, I had noticed that the <code>clagd</code> (MLAG daemon) and <code>neighmgrd</code> (ARP watchdog) were intermittently fighting to take over all available CPU threads while nothing was showing up in the logs. That&rsquo;s when I decided to have a look at the peerlink, thankfully it was super easy to do <code>ip netns exec FOO tcpdump</code> from my WSL2 VM. When I saw hundreds of lines flying on my screen in the next few seconds, I realised it was a L2 loop (it turned out all of the packets were ARP).</p>
+
+<p>At this point, it is worth mentioning that one of the hacks/workarounds I had to implement when building the image was stubbing out the <code>mstpd</code> (it wasn&rsquo;t able to take over the bridge&rsquo;s STP control plane). At first, I didn&rsquo;t think too much of it &ndash; kernel was still running CSTP and the speed of convergence wasn&rsquo;t that big of an issue for me. However, as I was digging deeper, I realised that <code>clagd</code> must be communicating with <code>mstpd</code> in order to control the state of the peerlink VLAN interfaces (traffic is never forwarded over the peerlink under normal conditions). That fact alone meant that neither the standard kernel STP implementation nor <a href="https://github.com/mstpd/mstpd" target="_blank">upstream mstpd</a> would ever be able to cooperate with <code>clagd</code> &ndash; there&rsquo;s no standard for MLAG (although I suspect most implementations are written by the same set of people). My heart sank, at this stage I was ready to give up and admit that there&rsquo;s no way that one of the most widely deployed features (MLAG) would work inside a container.</p>
+
+<p>However, there was one way to make Cumulus Linux work in a containerised environment and that would be to run it over a native Cumulus Kernel which, as I discovered later, was very <a href="http://oss.cumulusnetworks.com/CumulusLinux-2.5.1/patches/kernel/" target="_blank">heavily patched</a>. So, in theory, I could run tests on a beefy Cumulus VX VM with all services but docker turned off but that would be a big ask and not a nice UX I was hoping for&hellip;</p>
+
+<h2 id="slope-of-enlightenment">Slope of Enlightenment</h2>
+
+<p>This is when I thought about the <a href="https://firecracker-microvm.github.io/" target="_blank">Firecracker</a> &ndash; the lightweight VM manager released by AWS to run Lambda and Fargate services (<a href="https://github.com/firecracker-microvm/firecracker/blob/main/CREDITS.md" target="_blank">originally</a> based on the work of the Chromium OS team). I&rsquo;d started looking at the potential candidates for FC VM orchestration and got very excited when I saw both <a href="https://github.com/firecracker-microvm/firecracker-containerd/blob/f320d3636aee41661eb525b284ce6213f6c7a3d5/docs/networking.md" target="_blank">firecracker-containerd</a> and <a href="https://github.com/kata-containers/kata-containers/blob/2fc7f75724ac9e18e60f63dcc9aa395dc51c184d/docs/design/architecture.md#networking" target="_blank">kata-containers</a> support multiple network interface with <a href="https://man7.org/linux/man-pages/man8/tc-mirred.8.html" target="_blank">tc redirect</a>, the same technology that&rsquo;s used by containerlab to run <a href="https://containerlab.srlinux.dev/manual/vrnetlab/" target="_blank">vrnetlab-based images</a>.</p>
+
+<p>However, both of these candidates relied on <a href="https://lwn.net/Articles/556550/" target="_blank">virtio VM Sockets</a> as the communication channel with a VM, which just happened to be one of the features <em>disabled</em> in Cumulus Linux kernel. So the next option I looked at was Weavework&rsquo;s <a href="https://github.com/weaveworks/ignite" target="_blank">Ignite</a> and, to my surprise, it worked! I was able to boot the same container image using ignite CLI instead of Docker:</p>
+
+<pre><code class="language-bash">sudo ignite run --runtime docker --name test --kernel-image networkop/kernel networkop/cx
+</code></pre>
+
+<p>The kernel image is built from two layers borrowed from an existing Cumulus VX VM &ndash; an uncompressed kernel image and the entire <code>/lib/modules</code> directory containing loadable kernel modules. The resulting image layer stack looked like this:</p>
+
+<p><img src="/img/cumulus-fc.png" alt="" /></p>
+
+<p>Finally, I was able to test and confirm that all of the worked-around features that didn&rsquo;t work in a pure container environment worked with ignite. This was a promising first step but there were still a number of key features missing in both containerlab and ignite that needed to be addressed next:</p>
+
+<ol>
+<li>In order to gracefully introduce ignite, containerlab&rsquo;s code had to be refactored to support multiple container runtimes [<a href="https://github.com/srl-labs/containerlab/pull/416" target="_blank">DONE</a>]</li>
+<li>In order to support custom interface naming, containerlab had to control the assignment of interface MAC addresses [<a href="https://github.com/srl-labs/containerlab/pull/422" target="_blank">DONE</a>]</li>
+<li>Ignite needed to be extended to support multiple interfaces and stitch them with tc redirect [<a href="https://github.com/weaveworks/ignite/pull/836" target="_blank">PR in progress</a>]</li>
+<li>A new <code>ignite</code> runtime needs to be added to containerlab [<a href="https://github.com/networkop/containerlab/tree/ignite" target="_blank">WIP</a>]</li>
+</ol>
+
+<p>One obvious question could be &ndash; is any of this worth the effort? Personally, I had learned so much in the process that my ROI has made it well worth it. For others, I have tried to summarise some of the main reasons why anyone would use containerised Firecracker VMs vs traditional qemu-based VMs in the table below:</p>
+
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Legacy VMs</th>
+<th>Ignite VMs</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>UX</td>
+<td>Complex &ndash; Vagrant, Libvirt</td>
+<td>Simple &ndash; containerlab, ignite</td>
+</tr>
+
+<tr>
+<td>API</td>
+<td>Legacy, <a href="https://github.com/qemu/qemu/blob/master/docs/interop/qmp-spec.txt" target="_blank">QMP</a></td>
+<td>Modern, <a href="https://github.com/firecracker-microvm/firecracker/blob/main/src/api_server/swagger/firecracker.yaml" target="_blank">OpenAPI</a></td>
+</tr>
+
+<tr>
+<td>Images</td>
+<td><a href="https://docs.openstack.org/image-guide/convert-images.html" target="_blank">Multiple formats</a>, mutable</td>
+<td><a href="https://github.com/opencontainers/image-spec" target="_blank">OCI-standard</a>, immutable</td>
+</tr>
+
+<tr>
+<td>Startup configuration</td>
+<td>Ansible, interactive</td>
+<td>Mounting files from host OS</td>
+</tr>
+
+<tr>
+<td>Distribution</td>
+<td>Individual file sharing</td>
+<td>Container registries</td>
+</tr>
+
+<tr>
+<td>Startup time</td>
+<td>Tens of seconds</td>
+<td>Seconds</td>
+</tr>
+
+<tr>
+<td>Scale-out</td>
+<td>Complex and <a href="https://www.vagrantup.com/docs/multi-machine" target="_blank">static</a></td>
+<td>Standard and <a href="https://github.com/networkop/k8s-topo" target="_blank">dynamic</a></td>
+</tr>
+</tbody>
+</table>
+
+<p>In addition to this, Firecracker&rsquo;s official website provides a list of <a href="https://firecracker-microvm.github.io/#benefits" target="_blank">benefits</a> and <a href="https://firecracker-microvm.github.io/#faq" target="_blank">FAQ</a> covering some of the differences with QEMU.</p>
+
+<h2 id="plateau-of-productivity">Plateau of Productivity</h2>
+
+<p>Although the final stage is still a fair way out, the good news is that I have a stable working prototype that can reliably build Cumulus-based labs so, hopefully, it&rsquo;s only a matter of time before all of the PRs get merged and this functionality becomes available upstream. I also hope this work demonstrates the possibility for other NOSs to ship their virtualised versions as OCI images bundled together with their custom kernels.</p>
+
+<p>In the meantime, if you&rsquo;re interested, feel free to reach out to me and I&rsquo;ll try to help you get started using containerised Cumulus Linux both on a single node with containerlab and, potentially, even use it for large-scale simulations on top of Kubernetes.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/cumulus">cumulus</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/docker">docker</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2018-05-29-appswitch-sdn/">Serverless SDN - Network Engineering Analysis of Appswitch</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  
+<section id="comments">
+  <div id="disqus_thread"></div>
+<script>
+    var disqus_config = function () {
+    
+    
+    
+    };
+    (function() {
+        if (["localhost", "127.0.0.1"].indexOf(window.location.hostname) != -1) {
+            document.getElementById('disqus_thread').innerHTML = 'Disqus comments not available by default when the website is previewed locally.';
+            return;
+        }
+        var d = document, s = d.createElement('script'); s.async = true;
+        s.src = '//' + "networkop" + '.disqus.com/embed.js';
+        s.setAttribute('data-timestamp', +new Date());
+        (d.head || d.body).appendChild(s);
+    })();
+</script>
+<noscript>Please enable JavaScript to view the <a href="https://disqus.com/?ref_noscript">comments powered by Disqus.</a></noscript>
+<a href="https://disqus.com" class="dsq-brlink">comments powered by <span class="logo-disqus">Disqus</span></a>
+</section>
+
+
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2018 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+    <script id="dsq-count-scr" src="//networkop.disqus.com/count.js" async></script>
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
