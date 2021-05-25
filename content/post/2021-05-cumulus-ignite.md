@@ -1,10 +1,10 @@
 +++
-title = "Containerising Cumulus Linux"
-date = 2021-05-10T00:00:00Z
+title = "Containerising NVIDIA Cumulus Linux"
+date = 2021-05-25T00:00:00Z
 categories = ["howto"]
 tags = ["cumulus", "docker"]
-summary = "Build and running containerised Cumulus Linux"
-description = "Build and running containerised Cumulus Linux"
+summary = "Build and running containerised NVIDIA Cumulus Linux"
+description = "Build and running containerised NVIDIA Cumulus Linux"
 images = ["/img/cumulus-cx.png"]
 +++
 
@@ -103,13 +103,13 @@ At the end of the `deploy` action, containerlab generates an Ansible inventory f
 
 The first few topologies I'd spun up and tested worked pretty well out of the box, however I did notice that my fans were spinning like crazy. Upon further examination, I had noticed that the `clagd` (MLAG daemon) and `neighmgrd` (ARP watchdog) were intermittently fighting to take over all available CPU threads while nothing was showing up in the logs. That's when I decided to have a look at the peerlink, thankfully it was super easy to do `ip netns exec FOO tcpdump` from my WSL2 VM. When I saw hundreds of lines flying on my screen in the next few seconds, I realised it was a L2 loop (it turned out all of the packets were ARP). 
 
-At this point, it is worth mentioning that one of the hacks/workarounds I had to implement when building the image was stubbing out the `mstpd` (it wasn't able to take over the bridge's STP control plane). At first, I didn't think too much of it -- kernel was still running CSTP and the speed of convergence wasn't that big of an issue for me. However, as I was digging deeper, I realised that `clagd` must be communicating with `mstpd` in order to control the state of the peerlink VLAN interfaces (traffic is never forwarded over the peerlink under normal conditions). That fact alone meant that neither the standard kernel STP implementation nor [upstream mstpd](https://github.com/mstpd/mstpd) would ever be able to cooperate with `clagd` -- there's no standard for MLAG, although I suspect most implementations are written by the same set of people. My heart sank, at this stage I was ready to give up and admit that there's no way that one of the most widely deployed features (MLAG) would work inside a container. 
+At this point, it is worth mentioning that one of the hacks/workarounds I had to implement when building the image was stubbing out the `mstpd` (it wasn't able to take over the bridge's STP control plane). At first, I didn't think too much of it -- kernel was still running CSTP and the speed of convergence wasn't that big of an issue for me. However, as I was digging deeper, I realised that `clagd` must be communicating with `mstpd` in order to control the state of the peerlink VLAN interfaces (traffic is never forwarded over the peerlink under normal conditions). That fact alone meant that neither the standard kernel STP implementation nor [upstream mstpd](https://github.com/mstpd/mstpd) would ever be able to cooperate with `clagd` -- there's no standard for MLAG (although I suspect most implementations are written by the same set of people). My heart sank, at this stage I was ready to give up and admit that there's no way that one of the most widely deployed features (MLAG) would work inside a container. 
 
-However, there was a way to make Cumulus Linux work in a containerised environment and that would be to run it over a native Cumulus Kernel which, as I discovered later, was very [heavily patched](http://oss.cumulusnetworks.com/CumulusLinux-2.5.1/patches/kernel/). So, in theory, I could run tests on a beefy Cumulus VX VM with all services but docker turned off but that would be a big ask and not a nice UX I was hoping for...
+However, there was one way to make Cumulus Linux work in a containerised environment and that would be to run it over a native Cumulus Kernel which, as I discovered later, was very [heavily patched](http://oss.cumulusnetworks.com/CumulusLinux-2.5.1/patches/kernel/). So, in theory, I could run tests on a beefy Cumulus VX VM with all services but docker turned off but that would be a big ask and not a nice UX I was hoping for...
 
 ## Slope of Enlightenment
 
-This is when I thought about the [Firecracker](https://firecracker-microvm.github.io/) -- the lightweight VM manager released by AWS to run Lambda and Fargate services ([originally](https://github.com/firecracker-microvm/firecracker/blob/main/CREDITS.md ) based on the work of the Chromium OS team). I'd started looking at the potential candidates for FC VM orchestrators and got very excited when I saw both [firecracker-containerd](https://github.com/firecracker-microvm/firecracker-containerd/blob/f320d3636aee41661eb525b284ce6213f6c7a3d5/docs/networking.md) and [kata-containers](https://github.com/kata-containers/kata-containers/blob/2fc7f75724ac9e18e60f63dcc9aa395dc51c184d/docs/design/architecture.md#networking) support multiple network interface with [tc redirect](https://man7.org/linux/man-pages/man8/tc-mirred.8.html), the same technology that's used by containerlab to run [vrnetlab-based images](https://containerlab.srlinux.dev/manual/vrnetlab/). 
+This is when I thought about the [Firecracker](https://firecracker-microvm.github.io/) -- the lightweight VM manager released by AWS to run Lambda and Fargate services ([originally](https://github.com/firecracker-microvm/firecracker/blob/main/CREDITS.md ) based on the work of the Chromium OS team). I'd started looking at the potential candidates for FC VM orchestration and got very excited when I saw both [firecracker-containerd](https://github.com/firecracker-microvm/firecracker-containerd/blob/f320d3636aee41661eb525b284ce6213f6c7a3d5/docs/networking.md) and [kata-containers](https://github.com/kata-containers/kata-containers/blob/2fc7f75724ac9e18e60f63dcc9aa395dc51c184d/docs/design/architecture.md#networking) support multiple network interface with [tc redirect](https://man7.org/linux/man-pages/man8/tc-mirred.8.html), the same technology that's used by containerlab to run [vrnetlab-based images](https://containerlab.srlinux.dev/manual/vrnetlab/). 
 
 
 However, both of these candidates relied on [virtio VM Sockets](https://lwn.net/Articles/556550/) as the communication channel with a VM, which just happened to be one of the features _disabled_ in Cumulus Linux kernel. So the next option I looked at was Weavework's [Ignite](https://github.com/weaveworks/ignite) and, to my surprise, it worked! I was able to boot the same container image using ignite CLI instead of Docker:
@@ -142,6 +142,7 @@ One obvious question could be -- is any of this worth the effort? Personally, I 
 | Startup time | Tens of seconds | Seconds |
 | Scale-out | Complex and [static](https://www.vagrantup.com/docs/multi-machine) | Standard and [dynamic](https://github.com/networkop/k8s-topo) |
 
+In addition to this, Firecracker's official website provides a list of [benefits](https://firecracker-microvm.github.io/#benefits) and [FAQ](https://firecracker-microvm.github.io/#faq) covering some of the differences with QEMU.
 
 ## Plateau of Productivity
 
