@@ -18,7 +18,7 @@ Virtualised infrastructure, including networking operating systems, has mainly b
 
 While VM tooling has been pretty much stagnant for the last decade (think Vagrant), containers have amassed a huge ecosystem of tools and an active community around it. Specifically in the networking area, in the last few years we've seen commercial companies like [Tesuto](https://www.fastly.com/press/press-releases/fastly-achieves-100-tbps-edge-capacity-milestone) and multiple open-source projects like [vrnetlab](https://github.com/plajjan/vrnetlab), [docker-topo](https://github.com/networkop/docker-topo), [k8s-topo](https://github.com/networkop/k8s-topo) and, most recently [containerlab](https://containerlab.srlinux.dev/).
 
-So when I joined Nvidia in April 2020, I thought it'd be a fun experiment for me to try to containerise Cumulus Linux and learn how the operating system works in the process.
+So when I joined Nvidia in April 2021, I thought it'd be a fun experiment for me to try to containerise Cumulus Linux and learn how the operating system works in the process.
 
 ## Peak of Inflated Expectations
 
