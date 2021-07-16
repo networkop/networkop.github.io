@@ -246,7 +246,7 @@
   
   <span class="middot-divider"></span>
   <span class="article-reading-time">
-    9 min read
+    10 min read
   </span>
   
 
@@ -372,10 +372,10 @@ topology:
   nodes:
     leaf01:
       kind: linux
-      image: networkop/cx:latest
+      image: networkop/cx:4.3.0
     leaf02:
       kind: linux
-      image: networkop/cx:latest
+      image: networkop/cx:4.3.0
 ...
 
   links:
@@ -426,8 +426,8 @@ topology:
 <ol>
 <li>In order to gracefully introduce ignite, containerlab&rsquo;s code had to be refactored to support multiple container runtimes [<a href="https://github.com/srl-labs/containerlab/pull/416" target="_blank">DONE</a>]</li>
 <li>In order to support custom interface naming, containerlab had to control the assignment of interface MAC addresses [<a href="https://github.com/srl-labs/containerlab/pull/422" target="_blank">DONE</a>]</li>
-<li>Ignite needed to be extended to support multiple interfaces and stitch them with tc redirect [<a href="https://github.com/weaveworks/ignite/pull/836" target="_blank">PR in progress</a>]</li>
-<li>A new <code>ignite</code> runtime needs to be added to containerlab [<a href="https://github.com/networkop/containerlab/tree/ignite" target="_blank">WIP</a>]</li>
+<li>Ignite needed to be extended to support multiple interfaces and stitch them with tc redirect [<a href="https://github.com/weaveworks/ignite/pull/836" target="_blank">PR is merged</a>]</li>
+<li>A new <code>ignite</code> runtime needs to be added to containerlab [<a href="https://containerlab.srlinux.dev/rn/0.15/" target="_blank">DONE</a>]</li>
 </ol>
 
 <p>One obvious question could be &ndash; is any of this worth the effort? Personally, I had learned so much in the process that my ROI has made it well worth it. For others, I have tried to summarise some of the main reasons why anyone would use containerised Firecracker VMs vs traditional qemu-based VMs in the table below:</p>
@@ -493,6 +493,15 @@ topology:
 <p>Although the final stage is still a fair way out, the good news is that I have a stable working prototype that can reliably build Cumulus-based labs so, hopefully, it&rsquo;s only a matter of time before all of the PRs get merged and this functionality becomes available upstream. I also hope this work demonstrates the possibility for other NOSs to ship their virtualised versions as OCI images bundled together with their custom kernels.</p>
 
 <p>In the meantime, if you&rsquo;re interested, feel free to reach out to me and I&rsquo;ll try to help you get started using containerised Cumulus Linux both on a single node with containerlab and, potentially, even use it for large-scale simulations on top of Kubernetes.</p>
+
+<h2 id="july-updates">July Updates</h2>
+
+<p>Although it took me a lot longer than I anticipated, I&rsquo;ve managed to merge all of my changes upstream:</p>
+
+<ul>
+<li>Ignite <a href="https://github.com/weaveworks/ignite/pull/836" target="_blank">now supports</a> connecting arbitrary number of extra interfaces defined in VM&rsquo;s <a href="https://github.com/weaveworks/ignite/blob/main/pkg/constants/vm.go#L45" target="_blank">annotations</a>. This opens up possibilities beyond the original network simulation use case, allowing Firecracker micro-VMs to transparently interconnect with any interfaces on the host (e.g. via SR-IOV CNI).<br /></li>
+<li>Containerlab release <a href="https://containerlab.srlinux.dev/rn/0.15/" target="_blank">0.15</a> now includes a special <code>cvx</code> node that spins up a containerised Cumulus Linux which can be integrated with any number of the <a href="https://containerlab.srlinux.dev/manual/kinds/kinds/" target="_blank">supported nodes</a> for multi-vendor labs and interop testing. I&rsquo;ve also included a number of labs with different configurations covering everything from the basics of Cumulus Linux operation (<a href="https://containerlab.srlinux.dev/lab-examples/cvx03/" target="_blank">CTD</a>) all the way to <a href="https://containerlab.srlinux.dev/lab-examples/cvx04/" target="_blank">advanced scenarios</a> like symmetric EVPN with MLAG and MLAG-free multi-homing.</li>
+</ul>
 
       </div>
 

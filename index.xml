@@ -80,10 +80,10 @@ topology:
   nodes:
     leaf01:
       kind: linux
-      image: networkop/cx:latest
+      image: networkop/cx:4.3.0
     leaf02:
       kind: linux
-      image: networkop/cx:latest
+      image: networkop/cx:4.3.0
 ...
 
   links:
@@ -134,8 +134,8 @@ topology:
 &lt;ol&gt;
 &lt;li&gt;In order to gracefully introduce ignite, containerlab&amp;rsquo;s code had to be refactored to support multiple container runtimes [&lt;a href=&#34;https://github.com/srl-labs/containerlab/pull/416&#34; target=&#34;_blank&#34;&gt;DONE&lt;/a&gt;]&lt;/li&gt;
 &lt;li&gt;In order to support custom interface naming, containerlab had to control the assignment of interface MAC addresses [&lt;a href=&#34;https://github.com/srl-labs/containerlab/pull/422&#34; target=&#34;_blank&#34;&gt;DONE&lt;/a&gt;]&lt;/li&gt;
-&lt;li&gt;Ignite needed to be extended to support multiple interfaces and stitch them with tc redirect [&lt;a href=&#34;https://github.com/weaveworks/ignite/pull/836&#34; target=&#34;_blank&#34;&gt;PR in progress&lt;/a&gt;]&lt;/li&gt;
-&lt;li&gt;A new &lt;code&gt;ignite&lt;/code&gt; runtime needs to be added to containerlab [&lt;a href=&#34;https://github.com/networkop/containerlab/tree/ignite&#34; target=&#34;_blank&#34;&gt;WIP&lt;/a&gt;]&lt;/li&gt;
+&lt;li&gt;Ignite needed to be extended to support multiple interfaces and stitch them with tc redirect [&lt;a href=&#34;https://github.com/weaveworks/ignite/pull/836&#34; target=&#34;_blank&#34;&gt;PR is merged&lt;/a&gt;]&lt;/li&gt;
+&lt;li&gt;A new &lt;code&gt;ignite&lt;/code&gt; runtime needs to be added to containerlab [&lt;a href=&#34;https://containerlab.srlinux.dev/rn/0.15/&#34; target=&#34;_blank&#34;&gt;DONE&lt;/a&gt;]&lt;/li&gt;
 &lt;/ol&gt;
 
 &lt;p&gt;One obvious question could be &amp;ndash; is any of this worth the effort? Personally, I had learned so much in the process that my ROI has made it well worth it. For others, I have tried to summarise some of the main reasons why anyone would use containerised Firecracker VMs vs traditional qemu-based VMs in the table below:&lt;/p&gt;
@@ -201,6 +201,15 @@ topology:
 &lt;p&gt;Although the final stage is still a fair way out, the good news is that I have a stable working prototype that can reliably build Cumulus-based labs so, hopefully, it&amp;rsquo;s only a matter of time before all of the PRs get merged and this functionality becomes available upstream. I also hope this work demonstrates the possibility for other NOSs to ship their virtualised versions as OCI images bundled together with their custom kernels.&lt;/p&gt;
 
 &lt;p&gt;In the meantime, if you&amp;rsquo;re interested, feel free to reach out to me and I&amp;rsquo;ll try to help you get started using containerised Cumulus Linux both on a single node with containerlab and, potentially, even use it for large-scale simulations on top of Kubernetes.&lt;/p&gt;
+
+&lt;h2 id=&#34;july-updates&#34;&gt;July Updates&lt;/h2&gt;
+
+&lt;p&gt;Although it took me a lot longer than I anticipated, I&amp;rsquo;ve managed to merge all of my changes upstream:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Ignite &lt;a href=&#34;https://github.com/weaveworks/ignite/pull/836&#34; target=&#34;_blank&#34;&gt;now supports&lt;/a&gt; connecting arbitrary number of extra interfaces defined in VM&amp;rsquo;s &lt;a href=&#34;https://github.com/weaveworks/ignite/blob/main/pkg/constants/vm.go#L45&#34; target=&#34;_blank&#34;&gt;annotations&lt;/a&gt;. This opens up possibilities beyond the original network simulation use case, allowing Firecracker micro-VMs to transparently interconnect with any interfaces on the host (e.g. via SR-IOV CNI).&lt;br /&gt;&lt;/li&gt;
+&lt;li&gt;Containerlab release &lt;a href=&#34;https://containerlab.srlinux.dev/rn/0.15/&#34; target=&#34;_blank&#34;&gt;0.15&lt;/a&gt; now includes a special &lt;code&gt;cvx&lt;/code&gt; node that spins up a containerised Cumulus Linux which can be integrated with any number of the &lt;a href=&#34;https://containerlab.srlinux.dev/manual/kinds/kinds/&#34; target=&#34;_blank&#34;&gt;supported nodes&lt;/a&gt; for multi-vendor labs and interop testing. I&amp;rsquo;ve also included a number of labs with different configurations covering everything from the basics of Cumulus Linux operation (&lt;a href=&#34;https://containerlab.srlinux.dev/lab-examples/cvx03/&#34; target=&#34;_blank&#34;&gt;CTD&lt;/a&gt;) all the way to &lt;a href=&#34;https://containerlab.srlinux.dev/lab-examples/cvx04/&#34; target=&#34;_blank&#34;&gt;advanced scenarios&lt;/a&gt; like symmetric EVPN with MLAG and MLAG-free multi-homing.&lt;/li&gt;
+&lt;/ul&gt;
 </description>
     </item>
     
