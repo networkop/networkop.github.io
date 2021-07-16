@@ -74,10 +74,10 @@ topology:
   nodes:
     leaf01:
       kind: linux
-      image: networkop/cx:latest
+      image: networkop/cx:4.3.0
     leaf02:
       kind: linux
-      image: networkop/cx:latest
+      image: networkop/cx:4.3.0
 ...
 
   links:
@@ -128,8 +128,8 @@ Finally, I was able to test and confirm that all of the worked-around features t
 
 1. In order to gracefully introduce ignite, containerlab's code had to be refactored to support multiple container runtimes [[DONE](https://github.com/srl-labs/containerlab/pull/416)]
 2. In order to support custom interface naming, containerlab had to control the assignment of interface MAC addresses [[DONE](https://github.com/srl-labs/containerlab/pull/422)]
-3. Ignite needed to be extended to support multiple interfaces and stitch them with tc redirect [[PR in progress](https://github.com/weaveworks/ignite/pull/836)]
-4. A new `ignite` runtime needs to be added to containerlab [[WIP](https://github.com/networkop/containerlab/tree/ignite)]
+3. Ignite needed to be extended to support multiple interfaces and stitch them with tc redirect [[PR is merged](https://github.com/weaveworks/ignite/pull/836)]
+4. A new `ignite` runtime needs to be added to containerlab [[DONE](https://containerlab.srlinux.dev/rn/0.15/)]
 
 One obvious question could be -- is any of this worth the effort? Personally, I had learned so much in the process that my ROI has made it well worth it. For others, I have tried to summarise some of the main reasons why anyone would use containerised Firecracker VMs vs traditional qemu-based VMs in the table below:
 
@@ -152,4 +152,10 @@ Although the final stage is still a fair way out, the good news is that I have a
 
 In the meantime, if you're interested, feel free to reach out to me and I'll try to help you get started using containerised Cumulus Linux both on a single node with containerlab and, potentially, even use it for large-scale simulations on top of Kubernetes. 
 
+## July Updates
+
+Although it took me a lot longer than I anticipated, I've managed to merge all of my changes upstream:
+
+* Ignite [now supports](https://github.com/weaveworks/ignite/pull/836) connecting arbitrary number of extra interfaces defined in VM's [annotations](https://github.com/weaveworks/ignite/blob/main/pkg/constants/vm.go#L45). This opens up possibilities beyond the original network simulation use case, allowing Firecracker micro-VMs to transparently interconnect with any interfaces on the host (e.g. via SR-IOV CNI).  
+* Containerlab release [0.15](https://containerlab.srlinux.dev/rn/0.15/) now includes a special `cvx` node that spins up a containerised Cumulus Linux which can be integrated with any number of the [supported nodes](https://containerlab.srlinux.dev/manual/kinds/kinds/) for multi-vendor labs and interop testing. I've also included a number of labs with different configurations covering everything from the basics of Cumulus Linux operation ([CTD](https://containerlab.srlinux.dev/lab-examples/cvx03/)) all the way to [advanced scenarios](https://containerlab.srlinux.dev/lab-examples/cvx04/) like symmetric EVPN with MLAG and MLAG-free multi-homing.
 
