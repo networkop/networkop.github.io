@@ -8,7 +8,7 @@ description = "Introducing CUE for network automation"
 images = ["/img/cue-networking.svg"]
 +++
 
-In the past few years, network automation has made its way from a new and fancy way of configuring devices to a well-recognized industry practice. What started as a series of "hello world" examples has evolved into an entire discipline with books, professional certifications and dedicated career paths. It's safe to say that today, most large-scale networks (>100 devices) are at least deployed (day 0) and sometimes managed (day 1+) using an automated workflow. However, at the heart of these workflows are the same exact principles and tools that we used in the early days. Of course, these tools have evolved and matured but they still have the same scope and limitations. Very often, these limitations are only becoming obvious once we hit a certain scale or complexity, which makes it even more difficult to replace them. The easiest option is to accept and work around them, forcing the square peg down the round hole. In this post I'd like to propose an alternative approach to what I'd consider "traditional" network automation practices by shifting the focus from "driving the CLI" to management of data. 
+In the past few years, network automation has made its way from a new and fancy way of configuring devices to a well-recognized industry practice. What started as a series of "hello world" examples has evolved into an entire discipline with books, professional certifications and dedicated career paths. It's safe to say that today, most large-scale networks (>100 devices) are at least deployed (day 0) and sometimes managed (day 1+) using an automated workflow. However, at the heart of these workflows are the same exact principles and tools that we used in the early days. Of course, these tools have evolved and matured but they still have the same scope and limitations. Very often, these limitations are only becoming obvious once we hit a certain scale or complexity, which makes it even more difficult to replace them. The easiest option is to accept and work around them, forcing the square peg down the round hole. In this post I'd like to propose an alternative approach to what I'd consider "traditional" network automation practices by shifting the focus from "driving the CLI" to management of data. I believe that this adjustment will enable us to build automation workflows that are much more robust and scalable and there are emerging tools and practices that were designed to address exactly that.
 
 ## Evolution of Network Configuration Management
 
@@ -27,39 +27,88 @@ The same argument can be applied to the YANG-based APIs, that _were_ design for 
 
 ## Automation Tools
 
-I want to frame the discussion of automation tools in the context of the [configuration complexity clock](http://mikehadlow.blogspot.com/2012/05/configuration-complexity-clock.html). The main premise of this theory is that the process of finding the right level of abstraction for configuration values is cyclical. Here's my free interpretation of the original story, translated into the network configuration management reality:
+I want to frame the discussion of automation tools in the context of the [configuration complexity clock](http://mikehadlow.blogspot.com/2012/05/configuration-complexity-clock.html). The main premise of this theory is that the process of finding the right level of abstraction for configuration values is cyclical. Here's my free interpretation of the original story, translated into the network automation reality:
 
-* **00:00**: We need to configure a network but don't have time for proper planning, so we have all configurable values hard-coded in flat-text configuration files and simply push them down to network devices.
+* **00:00**: We need to configure a network but don't have time for proper planning, so we have all configurable values hard-coded in flat-text configuration files and simply push them to network devices.
 * **03:00**: We realise that some parts of the network need to change, so we extract some of the hard-coded values, simplify them and make them configurable.
 * **06:00**: The size of the configurable values continues to grow and we start building guardrails to prevent typical configuration mistakes and guarantee value uniqueness across the environment. We create a schema to validate input data and may even expose it via a GUI.
 * **09:00**: At some point the guard rails, schemas and policy engines start being a hurdle and we decide to consolidate all of them in a single framework, driven by its own DSL. Quickly realising that the framework can not meet all our requirements, we start extending it with custom code.
 * **12:00**: Now we have all our policies embedded in custom framework extensions and values hard-coded in the DSL, the network management process looks not much different from where we started. 
 
-Looking outside of networking, at a wider infrastructure space, we can see similar trends playing out :
+Strictly speaking, this is more of a fable than a theory. It shows what a constant strive for improvement can do to an application's user interface. If you read the original arctile, the author says that very few organisations go all the way around the clock, which means the majority settle somewhere in between. If we look at the current state of network automation, we can see a confirmation of that -- *majority* of the network operators settle on one of the following two options:
 
+* Everything is done with a DSL (Ansible + Jinja)
+* Everything is done with a general-purpose programming language (Python)
 
-* Application configuration management went from static files to automation frameworks (Chef, Puppet) and finally settled on container images with static files mounted over volumes.  
-* Cloud infrastracture management went from CLI-driven API calls to DSL frameworks (Terraform), back to general purpose programming (CDK, Pulumi).  
+Similar to the choice of their preferred hardware vendor, the choice between the above two options can be almost religious to some people. There are engineers who wouldn't want to come close to Ansible and there are those who shove all the logic into Ansible DSL, ignoring the exponentially-increasing complexity. The most important point is that both groups seems to have settled on their choice and accepted the caveats and limitations resulting from their decisions. So far, I have not seen any attempts to upset this status quo by exploring and explaining alternative options.
 
-Coming back to network configuration management, we seem to see the industry settled on two extremes. I'll be very blunt:
-
-  
-* Everything is done with Ansible.  
-* Everything is done with Python.  
-
-The author of the configuration complexity clock article cautions us against rushing into DSL (especially from rolling your own DSL) and also suggests that at a low-enough scale simpler solutions may be the best option. I would agree with him. If you think that you get enough out of your current automation solution, you don't feel like you're swimming against the tide all the time and you're confident that when you move on the next person will be able to pick up and continue your work and without re-write everything from scratch, then you don't need to change. However, you should always remember that you could do better. You could create a solution that is faster, more robust to failures and easier to understand and extended. This is why I want to show an alternative 
+The author of the configuration complexity clock article cautions us against making rash decisions (especially from rolling your own DSL) and also suggests that at a low-enough scale simpler solutions may be the best option. I would agree with him. If you think that you get enough out of your current automation solution -- you don't feel like you're swimming against the tide all the time and you're confident that when you move on, the next person will be able to pick up and continue your work and without re-write everything from scratch -- then you don't need to change. However, I'd like to show you that you can do better. You can create a solution that is faster, more robust to failures and easier to understand and extended. Like with anything new, there's a price you have to pay, by learning and changing your automation workflows, but the ultimate benefit may very well be worth it.
 
 ## Introducing CUE
 
-Compare and contrast infrastructure management before (logging into a box/server, changing the config, restarting the service) and today (send an API call and poll for status updates)
+[CUE](https://cuelang.org/) or cuelang was built to manage configuration data which, as we've seen above, is one of the most critical parts of advanced network automation workflows. CUE tries to strike a balance between the simplicity of a DSL and the effeciency of a general-purpose programming language. Visually, it looks very similar to JSON (it is a superset of JSON) with a relaxed grammer, e.g. you can leave comments and don't have to quote strings. This is an example of a CUE syntax that defines a set of BGP configuration values:
 
-CUE was built to manage configuration data., which, as we've seen above, is one of the most critical parts of network automation workflows.
+```yaml
+bgp: {
+  asn: 65123
+  router_id: "192.0.2.1"
+  neighbors: {
+    swp51: {
+      unnumbered: true
+      remote_as:  "external"
+    }
+    swp52: {
+      unnumbered: true
+      remote_as:  "external"
+    }
+  }
+}
+```
 
-The two biggest selling points:
+CUE can evaluate the above code snippet and output the data in YAML or JSON format, which we can either pass to a text template (e.g. Jinja) to generate a semi-structured device configuration or send it as-is to a remote device, in case it supports a schema-based structured input.
 
-* Static typing of all data.
-* Powerful data templating and generation capabilities.
+One of the two strongest qualities of CUE for network automation workflows (in my opinion) is **static data typing**. While we can work with the free-form data defined above, we can easily create a simple schema that would ensure that both the shape of the `bgp` struct and the type of all its values are exactly what we'd expect. Here's the most straight-forward way of doing this -- we define another data structure with the same name, CUE will unify them and validate the values above are correct:
 
----
+```yaml
+bgp: {
+  asn: int
+  router_id: net.IPv4 & string
+  neighbors: [Name=_]: {
+    interface:  Name
+    unnumbered: bool | *true
+    remote_as:  string
+  }
+}
+```
 
-My first blogposts about network automation date back to 2015. Back then I was talking about how to use Ansible for network configuration templating and how to hack Ansible to implement custom functionality via modules. In the 7 years that have passed, Ansible has gained a lot of popularity and is now considered one of the standard tools in many network automation workflows. At the same time, we had seen a number of proprietary network automation solutions, all fighting for the same piece of the pie with variable rate of success. 
+In the above example we see how we mix static typing with constraints (`router_id` is a string that is also a valid IPv4 address) and global defaults (default value for `unnumbered` is `true`). Now we can safely add or remove additional types and constraints as our data evolves, relying on CUE to validate the final configuration values.
+
+Another big selling point of CUE is its powerful **data templating and generation** capabilities. CUE natively supports value interpolation, conditional fields and `for` loops which allows us generate larger data set from smaller, more concise inputs. When evaluated, the short CUE snippet below will extend the list of neighbors we defined in the first code example.
+
+```yaml
+uplinks: ["swp53", "swp54"]
+
+bgp: neighbors: {
+  for uplink in uplinks {
+    "\(uplink)": {
+      remote_as: "external"
+    }
+  }
+}
+```
+
+You can find with the above code examples in the CUE playground ([link](https://cuelang.org/play/?id=hdnfcc0dAVF#cue@export@cue)) and experiment by changing the values and observing the result, for example:
+
+* Change the `asn` field to a string instead of an integer
+* Try adding a couple of new values to the `uplink` list
+* Change the `router_id` field to contain an invalid IPv4 address
+* In the drop-down menu at the top of the page, change the output to JSON or YAML
+
+With the examples above, we're just scratching the surface of what CUE is capable of. Things I haven't covered here include packaging and import support, integration with OpenAPI, YAML, JSON and Go, and the versatible support for scripting, allowing us to orchestrate the interaction with remote API endpoints. I'll try to cover these and other interesting features in the following blogposts. The goal of the current article is mainly to whet your appetite and this is what you can expect next:
+
+* Input data validation
+* Data transformation
+* Templating and data generation
+* Using CUE for YANG-based API
+* Performance comparison 
+
