@@ -54,10 +54,12 @@ bgp: {
   router_id: "192.0.2.1"
   neighbors: {
     swp51: {
+      interface:  swp51
       unnumbered: true
       remote_as:  "external"
     }
     swp52: {
+      interface:  swp52
       unnumbered: true
       remote_as:  "external"
     }
@@ -65,25 +67,24 @@ bgp: {
 }
 ```
 
-CUE can evaluate the above code snippet and output the data in YAML or JSON format, which we can either pass to a text template (e.g. Jinja) to generate a semi-structured device configuration or send it as-is to a remote device, in case it supports a schema-based structured input.
+The main idea is that you write all your configuration values, constraints and code generation rules in CUE code. It becomes your new source of truth and can later output values in YAML or JSON format, which you can either pass to a text template (e.g. Jinja) to generate a semi-structured device configuration or send it as-is to a remote device, in case it supports a schema-based structured input.
 
 One of the two strongest qualities of CUE for network automation workflows (in my opinion) is **static data typing**. While we can work with the free-form data defined above, we can easily create a simple schema that would ensure that both the shape of the `bgp` struct and the type of all its values are exactly what we'd expect. Here's the most straight-forward way of doing this -- we define another data structure with the same name, CUE will unify them and validate the values above are correct:
 
 ```yaml
 bgp: {
-  asn: int
+  asn:       int
   router_id: net.IPv4 & string
-  neighbors: [Name=_]: {
-    interface:  Name
+  neighbors: [=~"^swp"]: {
     unnumbered: bool | *true
-    remote_as:  string
+    remote_as:  int | "external" | "internal"
   }
 }
 ```
 
-In the above example we see how we mix static typing with constraints (`router_id` is a string that is also a valid IPv4 address) and global defaults (default value for `unnumbered` is `true`). Now we can safely add or remove additional types and constraints as our data evolves, relying on CUE to validate the final configuration values.
+In the above example we see how we mix static typing with constraints (`router_id` is a string that is also a valid IPv4 address), defaults (default value for `unnumbered` is `true`) and regex matching (only apply the constraints and defaults to neighbors starting with `swp`). Now we can safely add or remove additional types and constraints as our data evolves, relying on CUE to generate the correct configuration values.
 
-Another big selling point of CUE is its powerful **data templating and generation** capabilities. CUE natively supports value interpolation, conditional fields and `for` loops which allows us generate larger data set from smaller, more concise inputs. When evaluated, the short CUE snippet below will extend the list of neighbors we defined in the first code example.
+Another big selling point of CUE is its powerful **data templating and generation** capabilities. CUE natively supports value interpolation, conditional fields and `for` loops which allows us generate larger data set from smaller, more concise inputs. When evaluated, this short CUE snippet will extend the list of neighbors we defined in the first code example.
 
 ```yaml
 uplinks: ["swp53", "swp54"]
@@ -97,18 +98,21 @@ bgp: neighbors: {
 }
 ```
 
-You can find with the above code examples in the CUE playground ([link](https://cuelang.org/play/?id=hdnfcc0dAVF#cue@export@cue)) and experiment by changing the values and observing the result, for example:
+You can find with the above code examples in the CUE playground ([link](https://cuelang.org/play/?id=K3a6l6IHJzT#cue@export@cue)) and experiment by changing the values and observing the result, for example:
 
 * Change the `asn` field to a string instead of an integer
-* Try adding a couple of new values to the `uplink` list
+* Try adding a couple of new values to the `uplink` list, including the one that doesn't start with `swp`
 * Change the `router_id` field to contain an invalid IPv4 address
 * In the drop-down menu at the top of the page, change the output to JSON or YAML
 
-With the examples above, we're just scratching the surface of what CUE is capable of. Things I haven't covered here include packaging and import support, integration with OpenAPI, YAML, JSON and Go, and the versatible support for scripting, allowing us to orchestrate the interaction with remote API endpoints. I'll try to cover these and other interesting features in the following blogposts. The goal of the current article is mainly to whet your appetite and this is what you can expect next:
+With the examples above, we're just scratching the surface of what CUE is capable of. Things I haven't covered here include packaging and import support, integration with OpenAPI, YAML, JSON and Go, and the versatible support for scripting, allowing us to orchestrate the interaction with remote API endpoints. The goal of the current article is mainly to whet your appetite but I'll try to cover these and other interesting features in the following blogposts. I will show how to use CUE to augment your existing automation workflows by:
 
-* Input data validation
-* Data transformation
-* Templating and data generation
+* Adding static type validation for input data
+* Simplifying data transformation between different levels of configuration abstraction 
+* Improving templating and config generation with CUE
 * Using CUE for YANG-based API
-* Performance comparison 
+* Orchestrating API interactions with remote devices
+
+
+I'll finish off by doing a performance comparison between CUE and 
 
