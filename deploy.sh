@@ -10,7 +10,7 @@ rm -rf public/
 git submodule add --force -b master git@github.com:networkop/networkop.github.io.git public
 
 # Build the project.
-hugo -t academic # if using a theme, replace with `hugo -t <YOURTHEME>`
+hugo-0.52-extended -t academic # if using a theme, replace with `hugo -t <YOURTHEME>`
 
 # Go To Public folder
 cd public
