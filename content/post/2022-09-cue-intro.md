@@ -117,7 +117,7 @@ You can find the above code examples in the CUE playground ([link](https://cuela
 * Change the `router_id` field to contain an invalid IPv4 address
 * In the drop-down menu at the top of the page, change the output to JSON or YAML
 
-With the examples above, we're just scratching the surface of what CUE is capable of. Things I haven't covered here include module packaging, integration with OpenAPI, YAML, JSON and Go, and the built-in support for external network calls. The goal of the current article is mainly to whet your appetite but I'll try to cover these and other interesting features in the following blog posts. Here's what you can expect to learn from the upcoming material:
+With the examples above, we're just scratching the surface of what CUE is capable of. Things I haven't covered here include module packaging, integration with OpenAPI, YAML, JSON and Go, and the built-in support for external network calls. The goal of the current article is mainly to whet your appetite but I'll try to cover these and other interesting features in the following blog posts. Here's what you can expect to find about in the upcoming material:
 
 * Augment your existing Ansible-based automation workflow with CUE 
 * How to use CUE for YANG-based APIs
