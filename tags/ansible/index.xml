@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes" ?>
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>Ansible on networkop</title>
+    <title>ansible on networkop</title>
     <link>https://networkop.co.uk/tags/ansible/</link>
-    <description>Recent content in Ansible on networkop</description>
+    <description>Recent content in ansible on networkop</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <copyright>&amp;copy; Michael Kashin 2018</copyright>
+    <copyright>&amp;copy; Michael Kashin 2021</copyright>
     <lastBuildDate>Fri, 13 Nov 2015 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://networkop.co.uk/tags/ansible/index.xml" rel="self" type="application/rss+xml" />
@@ -18,7 +18,8 @@
       <pubDate>Fri, 13 Nov 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/11/13/automating-flexvpn-config/</guid>
-      <description>In this post I&amp;rsquo;ll show how to automatically build configuration files for Hubs and Spokes in FlexVPN network topology</description>
+      <description>In this post I will also introduce two concepts that are frequently used in software development world - DRY and &amp;ldquo;Convention over Configuration&amp;rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on Packetpushers.
+FlexVPN network overview FlexVPN topology will consist of two FlexVPN &amp;ldquo;clouds&amp;rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds.</description>
     </item>
     
     <item>
@@ -27,7 +28,8 @@
       <pubDate>Thu, 03 Sep 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/09/03/automating-bgp-config/</guid>
-      <description>In this post we&amp;rsquo;ll have a look at how to automate a typical BGP setup</description>
+      <description>This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.
+Requirements and assumptions The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link.</description>
     </item>
     
     <item>
@@ -36,7 +38,9 @@
       <pubDate>Wed, 26 Aug 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/</guid>
-      <description>This post will demonstrate how to automate the build of a typical enterprise branch network consisting of a pair of WAN routers, a core switch and 3 access layer switches. I will show how to create the initial bootstrap configuration and enable basic routing with OSPF</description>
+      <description>Prerequisites It is assumed that by this time all detailed network design information is known including interfaces numbers, VLANs, IP addresses and LAGs. This information will be used as an input to configuration automation scripts.
+The inventory file is updated with a new branch-2 group
+[branch-2] BR2-CORE ansible_ssh_host=10.0.3.1 BR2-WAN1 ansible_ssh_host=10.0.3.2 BR2-WAN2 ansible_ssh_host=10.0.3.3 BR2-AS01 ansible_ssh_host=10.0.3.130 BR2-AS02 ansible_ssh_host=10.0.3.131 BR2-AS03 ansible_ssh_host=10.0.3.132  Creating device bootstrap configuration A lot of times when building a new network it is required to create a bootstrap config that would have some basic AAA configuration along with the layer 2 and layer 3 links configuration.</description>
     </item>
     
     <item>
@@ -45,7 +49,8 @@
       <pubDate>Fri, 14 Aug 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/08/14/automating-legacy-networks/</guid>
-      <description>In this post I&amp;rsquo;ll show how to take an already established network, pull out some of the common configuration pieces and put them all into a standard Ansible environment</description>
+      <description>A lot of configuration files referenced throughout this post will be omitted for the sake of brevity, however all of them can be found in my github repository.
+Legacy network overview The network I&amp;rsquo;m using for demonstration is a cut-down version of a typical enterprise network. At this point of time it consists of a branch office network and a central DC network interconnected via redundant WAN links. The branch office consists of a main computer room hosting all core network devices and interconnecting with access switches on each of the office floors.</description>
     </item>
     
     <item>
@@ -54,7 +59,7 @@
       <pubDate>Fri, 07 Aug 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/08/07/configuration-automation/</guid>
-      <description>This post will give a brief overview of network configuration automation, describe its challenges and benefits and will set off a series of posts showing how to automate a configuration of a typical enterprise network</description>
+      <description>Automating Network Configuration Automation and programmability steadily make their way into a networking domain. The idea was born in application development world where makefiles served a role of automated installation scripts. It later spread into application testing and deployment so now hardly anyone does these two things by hand. Next in line were the operating systems largely thanks to the raising popularity of PaaS solutions. Until recently network configuration has been the prerogative of us, network engineers.</description>
     </item>
     
     <item>
@@ -63,7 +68,7 @@
       <pubDate>Fri, 17 Jul 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/07/17/tdd-quickstart/</guid>
-      <description>This post gives a quick overview of how to use network Test Driven Development framework. As an example I&amp;rsquo;ll use a simplified version of a typical enterprise network with a Data Centre/HQ and a Branch office. A new branch is being added and the task is to configure routing for that branch using a TDD approach. First we&amp;rsquo;ll devise a set of TDD scenarios to be tested and then, going through each one of them, modify routing to make sure those scenarios don&amp;rsquo;t fail (a so-called red-green-refactor approach)</description>
+      <description>Network overview Let&amp;rsquo;s assume you&amp;rsquo;re working in a proverbial Acme Inc. It has a Data Centre hosting all centralised services and a single office branch (Branch #1). Sites are interconnected using active/backup WAN links. The company decides to expand and adds a new office in a city nearby. In additional to standard dual WAN links it&amp;rsquo;s possible to buy a cheap and high throughput backdoor link between the two branches.</description>
     </item>
     
     <item>
@@ -72,7 +77,7 @@
       <pubDate>Fri, 10 Jul 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/07/10/test-verification/</guid>
-      <description>Writing a custom Ansible module to verify TDD scenarios</description>
+      <description>Now that Ansible has done all the information gathering for us it&amp;rsquo;s time to finally make use of it. In this post I will show how to use Ansible to run traceroutes from and to the hosts defined in a test scenario and perform verification of the results of those tests. Should any of those tests fail, Ansible will provide a meaningful description of what exactly failed and why. While doing all this I&amp;rsquo;ll introduce a couple of new Ansible features like conditional looping and interactive prompts.</description>
     </item>
     
     <item>
@@ -81,7 +86,7 @@
       <pubDate>Fri, 03 Jul 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/07/03/parser-modules/</guid>
-      <description>IP Address Information Collection With Custom Ansible Modules</description>
+      <description>Ansible has a very neat feature called &amp;ldquo;fact gathering&amp;rdquo;, which collects useful information from hosts prior to executing any of the tasks and makes this information available for use within those tasks. Unfortunately, this also relies on Python being available on the remote machine which doesn&amp;rsquo;t work for Cisco IOS. In this post I&amp;rsquo;ll show how to write a simple module which will collect IP address information from remote devices and store it in global variable for future use.</description>
     </item>
     
     <item>
@@ -90,7 +95,7 @@
       <pubDate>Mon, 22 Jun 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/06/24/ansible-intro/</guid>
-      <description>Ansible quickstart guide for Cisco IOS</description>
+      <description>Ansible is well-known for it&amp;rsquo;s low entry threshold. All what&amp;rsquo;s required to get started is just one inventory file. However Cisco IOS devices require special considerations. Passwordless SSH RSA-based authentication is still a novelty and in most cases users are authenticated based on their passwords. Another problem is the lack of Python execution environment on IOS devices, which seriously limits the choice of Ansible modules that can be used. In this post I will show how to setup Ansible environment to control Cisco IOS devices</description>
     </item>
     
     <item>
@@ -99,7 +104,8 @@
       <pubDate>Wed, 17 Jun 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/06/17/dev-env-setup/</guid>
-      <description>Setting up development and test environments</description>
+      <description>Before we proceed with TDD framework build it is important to have the development environment setup. In our case it will consist of two major components:
+ Network Simulation Environment Ansible Development Environment  To simplify things I will run both of these environments on the same Virtual Machine. For network simulation I will use UnetLab, a wonderful product developed by Andrea Dainese. Currently, UnetLab is distributed as an OVA package and is available for free download on the website.</description>
     </item>
     
     <item>
@@ -108,7 +114,7 @@
       <pubDate>Mon, 15 Jun 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/06/15/simple-tdd-framework/</guid>
-      <description>In the following series of posts I will show how to build a simple Test-Driven Development framework for Cisco devices. This framework will allow a network engineer to define traffic patterns in a human-readable format and automatically check if those assumption hold. It will be built as a series of Ansible modules and playbooks. The idea is to show an example of how programming can be used by network engineers even now, before all devices acquire their own APIs as well as introduce some well-known programming paradigms and best practices to network engineers thereby making a small step towards networking nirvana a.k.a. SDN. The reader is assumed to have only a basic networking, linux and python programming skills</description>
+      <description>Before we begin (optional section) Before we go on, I&amp;rsquo;d like to put a little disclaimer about terms being used in this post. TDD, and its counterpart BDD, are well-known and accepted practices in development world. Both rely on the assumption that tests will be written before the code and will drive code development. This seemingly unnatural approach became extremely popular with the advent of Agile and is still being widely used, specifically in web development.</description>
     </item>
     
   </channel>

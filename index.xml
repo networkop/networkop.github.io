@@ -11,6 +11,137 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Network Automation with CUE - Introduction</title>
+      <link>https://networkop.co.uk/post/2022-10-cue-intro/</link>
+      <pubDate>Thu, 27 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2022-10-cue-intro/</guid>
+      <description>
+
+&lt;p&gt;In the past few years, network automation has made its way from a new and fancy way of configuring devices to a well-recognized industry practice. What started as a series of &amp;ldquo;hello world&amp;rdquo; examples has evolved into an entire discipline with books, professional certifications and dedicated career paths. It&amp;rsquo;s safe to say that today, most large-scale networks (&amp;gt;100 devices) are at least deployed (day 0) and sometimes managed (day 1+) using an automated workflow. However, at the heart of these workflows are the same exact principles and tools that were used in the early days. Of course, these tools have evolved and matured but they still have the same scope and limitations. Very often, these limitations are only becoming obvious once we hit a certain scale or complexity, which makes it even more difficult to replace them. The easiest option is to accept and work around them, forcing the square peg down the round hole. In this post, I&amp;rsquo;d like to propose an alternative approach to what I&amp;rsquo;d consider &amp;ldquo;traditional&amp;rdquo; network automation practices by shifting the focus from &amp;ldquo;driving the CLI&amp;rdquo; to the management of data. I believe that this adjustment will enable us to build automation workflows that are much more robust and scalable and there are emerging tools and practices that were designed to address exactly that.&lt;/p&gt;
+
+&lt;h2 id=&#34;evolution-of-network-configuration-management&#34;&gt;Evolution of Network Configuration Management&lt;/h2&gt;
+
+&lt;p&gt;In order to understand why data management is important, we need to have a closer look at what constitutes a typical network automation workflow. The most basic process starts by combining a device data model, represented by a free-form data structure (e.g. YAML), with a text template (e.g. Jinja) to produce the desired device configuration. This configuration is then passed to a function that implements the underlying transport protocol (e.g. netmiko), which applies the desired changes. Some of these steps can be abstracted away by automation frameworks (e.g. Ansible) but largely the process still looks the same under the hood. This is what you can see on the left-hand side of the following diagram:&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/cue-evolution.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;While the basic workflow may work well for the initial network configuration, it is rarely suitable for ongoing operations due to its inherent verbosity. The natural reaction to that is to create another layer of abstraction that hides common design conventions, configuration defaults and computable attributes behind a terse high-level data model, as depicted by the &amp;ldquo;intermediate workflow&amp;rdquo; in the above diagram. This high-level data model simplifies the end-user experience of interacting with the automation workflow, but it comes at the expense of additional complexity hidden in the high-to-low-level translation logic.&lt;/p&gt;
+
+&lt;p&gt;Finally, some physical networks have decided to replicate the self-service cloud experience by allowing some parts of their state to be managed dynamically. One simple example is to allow a compute team to manage the VLAN assignment on the downlink network ports. This meant that a single, flat-text data structure is no longer enough to store the high-level configuration intent, and we split it across multiple (preferably) non-overlapping sources of truth, visualized by the &amp;ldquo;advanced workflow&amp;rdquo; in the above diagram.&lt;/p&gt;
+
+&lt;p&gt;If you look at the above diagram, you might notice one theme that emerges and evolves together with the complexity of automation workflows. It is the ever-increasing focus on data. Thanks to the growing number of templates, we started caring less about individual vendor configuration dialects and more about how to source, structure and combine input configuration values. I would argue that these input values have become the new API, since the old APIs (&amp;ldquo;industry-standard&amp;rdquo; CLI) were not built for automation and eventually got abstracted away by libraries like scrapli or netmiko and a ton of (mostly) Jinja templates.&lt;/p&gt;
+
+&lt;p&gt;The same argument can be applied to the YANG-based APIs, which &lt;em&gt;were&lt;/em&gt; designed for machine-to-machine communication and are slowly but steadily getting more traction. Those APIs are often abstracted away by software platforms, like OpenDaylight or Tail-f NSO, or libraries, like &lt;a href=&#34;https://github.com/openconfig/ygot&#34; target=&#34;_blank&#34;&gt;ygot&lt;/a&gt;, and operational tasks are, once again, reduced to the management of input data.&lt;/p&gt;
+
+&lt;h2 id=&#34;automation-tools&#34;&gt;Automation Tools&lt;/h2&gt;
+
+&lt;p&gt;I want to frame the discussion of automation tools in the context of the &lt;a href=&#34;http://mikehadlow.blogspot.com/2012/05/configuration-complexity-clock.html&#34; target=&#34;_blank&#34;&gt;configuration complexity clock&lt;/a&gt;. The main premise of this theory is that the process of finding the right level of abstraction for configuration values is cyclical. Here&amp;rsquo;s my free interpretation of the original story, translated into the network automation reality:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;00:00&lt;/strong&gt;: We need to configure a network but don&amp;rsquo;t have time for proper planning, so we have all configurable values hard-coded in flat-text configuration files and simply push them to network devices.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;03:00&lt;/strong&gt;: We realise that some parts of the network need to change, so we extract some of the hard-coded values, simplify them and make them configurable.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;06:00&lt;/strong&gt;: The size of the configurable values continues to grow and we start building guardrails to prevent typical configuration mistakes and guarantee value uniqueness across the environment. We create a schema to validate input data and may even expose it via a GUI.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;09:00&lt;/strong&gt;: At some point the guard rails, schemas and policy engines start being a hurdle and we decide to consolidate all of them in a single framework, driven by its own DSL. Quickly realising that the framework can not meet all our requirements, we start extending it with custom code.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;12:00&lt;/strong&gt;: Now we have all our policies embedded in custom framework extensions and values hard-coded in the DSL, the network management process looks not much different from where we started.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Strictly speaking, this is more of a fable than a theory. It shows what a constant strive for improvement can do to an application&amp;rsquo;s user interface. If you read the original article, the author says that very few organisations go all the way around the clock, which means the majority settle somewhere in between. If we look at the current state of network automation, we can see a confirmation of that &amp;ndash; &lt;em&gt;majority&lt;/em&gt; of the network operators settle on one of the following two options:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Everything is done with a DSL (Ansible + Jinja)&lt;/li&gt;
+&lt;li&gt;Everything is done with a general-purpose programming language (Python)&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;Similar to the choice of their preferred hardware vendor, the choice between the above two options can be almost religious to some people. There are engineers who wouldn&amp;rsquo;t want to come close to Ansible and there are those who shove all the logic into Ansible DSL, ignoring the exponentially-increasing complexity. The most important point is that both groups seem to have settled on their choice and accepted the caveats and limitations resulting from their decisions. So far, I have not seen any attempts to upset this status quo by exploring and explaining alternative options.&lt;/p&gt;
+
+&lt;p&gt;The author of the configuration complexity clock article cautions us against making rash decisions (especially from rolling your own DSL) and also suggests that at a low-enough scale simpler solutions may be the best option. I would agree with him. If you think that you get enough out of your current automation solution &amp;ndash; you don&amp;rsquo;t feel like you&amp;rsquo;re swimming against the tide all the time and you&amp;rsquo;re confident that when you move on, the next person will be able to pick up and continue your work and without re-write everything from scratch &amp;ndash; then you don&amp;rsquo;t need to change. However, I&amp;rsquo;d like to show you that you can do better. You can create a solution that is faster, more robust to failures and easier to understand and extend. Like with anything new, there&amp;rsquo;s a price you have to pay, by learning and changing your automation workflows, but the ultimate benefit may very well be worth it.&lt;/p&gt;
+
+&lt;h2 id=&#34;introducing-cue&#34;&gt;Introducing CUE&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href=&#34;https://cuelang.org/&#34; target=&#34;_blank&#34;&gt;CUE&lt;/a&gt; or cuelang was built to manage configuration data which, as we&amp;rsquo;ve seen above, is one of the most critical parts of advanced network automation workflows. CUE tries to strike a balance between the simplicity of a DSL and the efficiency of a general-purpose programming language. Visually, it looks very similar to JSON (it is a superset of JSON) with a relaxed grammar, e.g. you can leave comments and don&amp;rsquo;t have to quote strings. This is an example of a CUE syntax that defines a set of BGP configuration values:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;bgp: {
+  asn: 65123
+  router_id: &amp;quot;192.0.2.1&amp;quot;
+  neighbors: {
+    swp51: {
+      unnumbered: true
+      remote_as:  &amp;quot;external&amp;quot;
+    }
+    swp52: {
+      unnumbered: true
+      remote_as:  &amp;quot;external&amp;quot;
+    }
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The main idea is that you write all your configuration values, constraints and code generation rules in CUE code. It becomes your new source of truth and can later output values in YAML or JSON format, which you can either pass to a text template (e.g. Jinja) to generate a semi-structured configuration or send as-is to a remote device (in case it supports structured input).&lt;/p&gt;
+
+&lt;p&gt;One of the two strongest qualities of CUE for network automation workflows (in my opinion) is &lt;strong&gt;static data typing&lt;/strong&gt;. While we can work with the free-form data defined above, we can easily create a simple schema that would ensure that both the shape of the &lt;code&gt;bgp&lt;/code&gt; struct and the type of all its values are exactly what we&amp;rsquo;d expect. Here&amp;rsquo;s the most straightforward way of doing this &amp;ndash; we define another data structure with the same name, CUE will unify them and validate the values above are correct:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;bgp: {
+  asn:       int
+  router_id: net.IPv4 &amp;amp; string
+  neighbors: [=~&amp;quot;^swp&amp;quot;]: {
+    unnumbered: bool | *true
+    remote_as:  int | &amp;quot;external&amp;quot; | &amp;quot;internal&amp;quot;
+  }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;In the above example, we mix static typing (&lt;code&gt;asn&lt;/code&gt; value must be an integer) with constraints (&lt;code&gt;router_id&lt;/code&gt; is a string that is also a valid IPv4 address), defaults (default value for &lt;code&gt;unnumbered&lt;/code&gt; is &lt;code&gt;true&lt;/code&gt;) and regex matching (only apply the constraints and defaults to neighbors starting with &lt;code&gt;swp&lt;/code&gt;). Now we can safely add or remove additional types and constraints as our data evolves, relying on CUE to produce the correct configuration values.&lt;/p&gt;
+
+&lt;p&gt;Another big selling point of CUE is its powerful &lt;strong&gt;data templating and generation&lt;/strong&gt; capabilities. CUE natively supports value interpolation, conditional fields and &lt;code&gt;for&lt;/code&gt; loops which allow us to generate larger data sets from smaller, more concise inputs. In addition, you can import helper packages from CUE&amp;rsquo;s &lt;a href=&#34;https://cuetorials.com/overview/standard-library/&#34; target=&#34;_blank&#34;&gt;standard library&lt;/a&gt; to perform common data operations. The following contrived example demonstrates the use of field comprehension (the &lt;code&gt;for&lt;/code&gt; loop), local variables (the &lt;code&gt;let&lt;/code&gt; keyword), conditionals and two helper packages from the standard library:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;import (
+  &amp;quot;strings&amp;quot;
+  &amp;quot;strconv&amp;quot;
+)
+
+uplinks: [&amp;quot;swp53&amp;quot;, &amp;quot;swp54&amp;quot;]
+
+bgp: neighbors: {
+  for uplink in uplinks {
+    let parts = strings.SplitAfter(uplink, &amp;quot;swp&amp;quot;)
+
+    if len(parts) &amp;gt; 1 {
+      let intfNum = strconv.ParseInt(parts[1], 10, 32)
+
+      if intfNum &amp;gt;= 50 {
+        &amp;quot;\(uplink)&amp;quot;: {
+          remote_as: &amp;quot;external&amp;quot;
+        }
+      }
+    }
+  }
+}
+
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You can find the above code examples in the CUE playground (&lt;a href=&#34;https://cuelang.org/play/?id=Cn_VFwc2oZb#cue@export@cue&#34; target=&#34;_blank&#34;&gt;link&lt;/a&gt;) and experiment by changing the values and observing the result, for example:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Change the &lt;code&gt;asn&lt;/code&gt; field to a string instead of an integer&lt;/li&gt;
+&lt;li&gt;Try adding a couple of new values to the &lt;code&gt;uplink&lt;/code&gt; list, e.g. &lt;code&gt;swp50&lt;/code&gt;, &lt;code&gt;swp49&lt;/code&gt;&lt;/li&gt;
+&lt;li&gt;Change the &lt;code&gt;router_id&lt;/code&gt; field to contain an invalid IPv4 address&lt;/li&gt;
+&lt;li&gt;In the drop-down menu at the top of the page, change the output to JSON or YAML&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;With the examples above, we&amp;rsquo;re just scratching the surface of what CUE is capable of. Things I haven&amp;rsquo;t covered here include module packaging, integration with OpenAPI, YAML, JSON and Go, and the built-in support for external network calls. The goal of the current article is mainly to whet your appetite but I&amp;rsquo;ll try to cover these and other interesting features in the following blog posts. Here&amp;rsquo;s what you can expect to find about in the upcoming material:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Augment your existing Ansible-based automation workflow with CUE&lt;/li&gt;
+&lt;li&gt;How to use CUE for YANG-based APIs&lt;/li&gt;
+&lt;li&gt;Orchestrate API interactions with remote devices&lt;/li&gt;
+&lt;li&gt;Reducing configuration boilerplate&lt;/li&gt;
+&lt;li&gt;Performance comparison of CUE vs Ansible&lt;/li&gt;
+&lt;/ul&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Containerising NVIDIA Cumulus Linux</title>
       <link>https://networkop.co.uk/post/2021-05-cumulus-ignite/</link>
       <pubDate>Tue, 25 May 2021 00:00:00 +0000</pubDate>
@@ -2983,313 +3114,6 @@ Total number of links generated: 249
 &lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
 
 &lt;p&gt;For a very long time, when building real-life virtual network topologies, we had to compromise on the number of real network devices that can be simulated. This led to topology simplification and often resulted in parts of the real network topologies either missed or collapsed into a single virtual device. With k8s-topo and meshnet CNI plugin, we can now build one-to-one replicas of physical network topologies of any size and complexity, without sacrificing the level of detail.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Large-scale network simulations in Kubernetes, Part 1 - Building a CNI plugin</title>
-      <link>https://networkop.co.uk/post/2018-11-k8s-topo-p1/</link>
-      <pubDate>Fri, 02 Nov 2018 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/post/2018-11-k8s-topo-p1/</guid>
-      <description>
-
-&lt;p&gt;Building virtualised network topologies has been one of the best ways to learn new technologies and to test new designs before implementing them on a production network. There are plenty of tools that can help build arbitrary network topologies, some with an interactive GUI (e.g. &lt;a href=&#34;https://www.gns3.com/&#34; target=&#34;_blank&#34;&gt;GNS3&lt;/a&gt; or &lt;a href=&#34;http://eve-ng.net/&#34; target=&#34;_blank&#34;&gt;EVE-NG/Unetlab&lt;/a&gt;) and some &amp;ldquo;headless&amp;rdquo;, with text-based configuration files (e.g. &lt;a href=&#34;https://github.com/plajjan/vrnetlab&#34; target=&#34;_blank&#34;&gt;vrnetlab&lt;/a&gt; or &lt;a href=&#34;https://github.com/CumulusNetworks/topology_converter&#34; target=&#34;_blank&#34;&gt;topology-converter&lt;/a&gt;). All of these tools work by spinning up multiple instances of virtual devices and interconnecting them according to a user-defined topology.&lt;/p&gt;
-
-&lt;h1 id=&#34;problem-statement&#34;&gt;Problem statement&lt;/h1&gt;
-
-&lt;p&gt;Most of these tools were primarily designed to work on a single host. This may work well for a relatively small topology but may become a problem as the number of virtual devices grows. Let&amp;rsquo;s take Juniper vMX as an example. From the official hardware requirements &lt;a href=&#34;https://www.juniper.net/documentation/en_US/vmx14.1/topics/reference/general/vmx-hw-sw-minimums.html&#34; target=&#34;_blank&#34;&gt;page&lt;/a&gt;, the smallest vMX instance will require:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;2 VMs - one for control and one for data plane&lt;/li&gt;
-&lt;li&gt;2 vCPUs - one for each of the VMs&lt;/li&gt;
-&lt;li&gt;8 GB of RAM - 2GB for VCP and 6GB for VFP&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;This does not include the resources consumed by the underlying hypervisor, which can easily eat up another vCPU + 2GB of RAM. It&amp;rsquo;s easy to imagine how quickly we can hit the upper limit of devices in a single topology if we can only use a single hypervisor host. Admittedly, vMX is one of the most resource-hungry virtual routers and using other vendor&amp;rsquo;s virtual devices may increase that upper limit. However, if the requirement is to simulate topologies with 100+ devices, no single server will be able to cope with the required load and a potential resource contention may lead to instabilities and various software bugs manifesting themselves in places we don&amp;rsquo;t expect.&lt;/p&gt;
-
-&lt;h1 id=&#34;exploring-possible-solutions&#34;&gt;Exploring possible solutions&lt;/h1&gt;
-
-&lt;p&gt;Ideally, in large-scale simulations, we&amp;rsquo;d want to spread the devices across multiple hosts and interconnect them so that, from the device perspective, it&amp;rsquo;d look like they are still running on the same host. To take it a step further, we&amp;rsquo;d want the virtual links to be simple point-to-point L2 segments, without any bridges in between, so that we don&amp;rsquo;t have to deal with issues when virtual bridges consume or block some of the &amp;ldquo;unexpected&amp;rdquo; traffic, e.g. LACP/STP on &lt;a href=&#34;https://patchwork.ozlabs.org/patch/819153/&#34; target=&#34;_blank&#34;&gt;Linux bridges&lt;/a&gt;.&lt;/p&gt;
-
-&lt;h2 id=&#34;containers-vs-vms&#34;&gt;Containers vs VMs&lt;/h2&gt;
-
-&lt;p&gt;It&amp;rsquo;s possible to build multi-host VM topologies on top of a private cloud like solution like OpenStack or VMware. The operational overhead involved would be minimal as all the scheduling and network plumbing should be taken care of by virtual infrastructure manager. However this approach has several disadvantages:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;In order to not depend on the underlay, all inter-VM links would need to be implemented as overlay (VMware would require NSX)&lt;br /&gt;&lt;/li&gt;
-&lt;li&gt;VMs would still be interconnected via virtual switches&lt;br /&gt;&lt;/li&gt;
-&lt;li&gt;Life-cycle management of virtual topologies is not trivial, e.g. VMware requires DRS, OpenStack requires masakari&lt;br /&gt;&lt;/li&gt;
-&lt;li&gt;Injecting of additional data into VMs (e.g. configuration files) requires guest OS awareness and configuration (e.g. locating and mounting of a new partition)&lt;br /&gt;&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;In contrast, containers provide an easy way to mount volumes inside a container&amp;rsquo;s filesystem, have plenty of options for resource scheduling and orchestrators and are substantially more lightweight and customizable. As a bonus, we get a unified way to package, distribute and manage lifecycle of our containers, independent from the underlying OS.&lt;/p&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Note: AFAIK only Arista and Juniper build docker container images for their devices (cEOS and cSRX). However it is possible to run any VM-based network device inside a docker container, with many examples and makefiles available on &lt;a href=&#34;https://github.com/plajjan/vrnetlab&#34; target=&#34;_blank&#34;&gt;virtnetlab&lt;/a&gt;.&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;h2 id=&#34;kubernetes-vs-swarm&#34;&gt;Kubernetes vs Swarm&lt;/h2&gt;
-
-&lt;p&gt;If we focus on Docker, the two most popular options for container orchestration would be Kubernetes and Swarm. Swarm is a Docker&amp;rsquo;s native container orchestration tool, it requires less customisation out of the box and has a simpler data model. The primary disadvantages of using Swarm for network simulations are:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;a href=&#34;https://github.com/moby/moby/issues/24862&#34; target=&#34;_blank&#34;&gt;Lack of support&lt;/a&gt; for privileged containers (network admin (CAP_NET_ADMIN) capabilities may be required by virtualised network devices)&lt;/li&gt;
-&lt;li&gt;Unpredictable network interface &lt;a href=&#34;https://github.com/moby/moby/issues/25181&#34; target=&#34;_blank&#34;&gt;naming and order&lt;/a&gt; inside the container&lt;/li&gt;
-&lt;li&gt;Docker&amp;rsquo;s main networking plugin libnetwork is &lt;a href=&#34;https://kubernetes.io/blog/2016/01/why-kubernetes-doesnt-use-libnetwork/&#34; target=&#34;_blank&#34;&gt;opinionated&lt;/a&gt; and difficult to extend or modify&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;On the other hand, the approach chosen by K8s provides an easier way to modify the default behaviour of a network plugin or to create a completely new implementation. However, K8s itself imposes several requirements on CNI plugins:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;All containers can communicate with all other containers without NAT&lt;/li&gt;
-&lt;li&gt;All nodes can communicate with all containers (and vice-versa) without NAT&lt;/li&gt;
-&lt;li&gt;The IP that a container sees itself as is the same IP that others see it as&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;The above also implies that communication between the containers happens at L3, which means that no container should make any assumptions about the underlying L2 transport, i.e. not use any L2 protocols(apart from ARP). Another corollary of the above requirements is that every container only has a single IP and hence a single interface, which, together with the previous L2 limitation, makes network simulations in K8s nearly impossible.&lt;/p&gt;
-
-&lt;h2 id=&#34;multus-vs-diy&#34;&gt;Multus vs DIY&lt;/h2&gt;
-
-&lt;p&gt;There are multiple solutions that solve the problem of a single network interface per container/pod - CNI-Genie, Knitter and &lt;a href=&#34;https://github.com/intel/multus-cni&#34; target=&#34;_blank&#34;&gt;Multus&lt;/a&gt; CNI. All of them were primarily designed for containerised VNF use cases, with the assumption that connectivity would still be provided by one of the existing plugins, which still leaves us with a number of issues:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;We have to be transparent to the underlay, so we can&amp;rsquo;t use plugins that interact with the underlay (e.g. macvlan, calico)&lt;/li&gt;
-&lt;li&gt;Most of the CNI plugins only provide L3 connectivity between pods (e.g. flannel, ovn, calico)&lt;/li&gt;
-&lt;li&gt;The few plugins that do provide L2 overlays (e.g contiv, weave) do not support multiple interfaces and still use virtual bridges underneath&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Perhaps it would have been possible to hack one of the plugins to do what I wanted but I felt like it&amp;rsquo;d be easier to build a specialised CNI plugin to do just what I want and nothing more. As I&amp;rsquo;ve mentioned previously, developing a simple CNI plugin is not that difficult, especially if you have a clearly defined use case, which is why I&amp;rsquo;ve built &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet&lt;/a&gt; - a CNI plugin to build arbitrary network topologies out of point-to-point links.&lt;/p&gt;
-
-&lt;h1 id=&#34;cni-plugin-overview&#34;&gt;CNI plugin overview&lt;/h1&gt;
-
-&lt;p&gt;At a very high level, every CNI plugin is just a binary and a configuration file installed on K8s worker nodes. When a pod is scheduled to run on a particular node, a local node agent (kubelet) calls a CNI binary and passes all the necessary information to it. That CNI binary connects and configures network interfaces and returns the result back to kubelet. The information is passed to CNI binary in two ways - through environment variables and CNI configuration file. This is how a CNI &lt;strong&gt;ADD&lt;/strong&gt; call &lt;a href=&#34;https://www.cncf.io/wp-content/uploads/2017/11/Introduction-to-CNI-2.pdf#page=7&#34; target=&#34;_blank&#34;&gt;may&lt;/a&gt; look like:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;CNI_COMMAND=ADD \
-CNI_CONTAINERID=$id \
-CNI_NETNS=/proc/$pid/ns/net \
-CNI_ARGS=K8S_POD_NAMESPACE=$namepsace;K8S_POD_NAME=$name
-/opt/cni/bin/my-plugin &amp;lt; /etc/cni/net.d/my-config
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The runtime parameters get passed to the plugin as environment variables and CNI configuration file gets passed to stdin. The CNI binary runs to completion and is expected to return the configured network settings back to the caller. The format of input and output, as well as environment variables, are documented in a CNI &lt;a href=&#34;https://github.com/containernetworking/cni/blob/master/SPEC.md&#34; target=&#34;_blank&#34;&gt;specification document&lt;/a&gt;.&lt;/p&gt;
-
-&lt;p&gt;There are plenty of other resources that cover CNI plugin development in much greater detail, I would recommend reading at least these four:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;&lt;a href=&#34;https://schd.ws/hosted_files/kccnceu18/64/Kubernetes-and-the-CNI-Kubecon-218.pdf&#34; target=&#34;_blank&#34;&gt;CNI plugins best practices&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;https://www.altoros.com/blog/kubernetes-networking-writing-your-own-simple-cni-plug-in-with-bash/&#34; target=&#34;_blank&#34;&gt;Writing a sample CNI plugin in bash&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;http://logingood.github.io/kubernetes/cni/2016/05/14/netns-and-cni.html&#34; target=&#34;_blank&#34;&gt;EVPN CNI plugin&lt;/a&gt;&lt;/li&gt;
-&lt;li&gt;&lt;a href=&#34;http://dougbtv.com/nfvpe/2017/06/22/cni-tutorial/&#34; target=&#34;_blank&#34;&gt;Workflow for writing CNI plugins&lt;/a&gt;&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;h1 id=&#34;meshnet-cni-architecture&#34;&gt;Meshnet CNI architecture&lt;/h1&gt;
-
-&lt;p&gt;The goal of &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet&lt;/a&gt; plugin is to interconnect pods via direct point-to-point links according to some user-defined topology.  To do that, the plugin uses two types of links:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;veth&lt;/strong&gt; - to interconnect pods running on the same node&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;vxlan&lt;/strong&gt; - to interconnect pods running on different nodes&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;One thing to note is that point-to-point links are connected directly between pods, without any software bridges in between, which makes the design a lot simpler and provides a cleaner abstraction of a physical connection between network devices.&lt;/p&gt;
-
-&lt;p&gt;The plugin consists of three main components:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;&lt;strong&gt;etcd&lt;/strong&gt; - a private cluster storing topology information and runtime pod metadata (e.g. pod IP address and NetNS fd)&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;meshnet&lt;/strong&gt; - a CNI binary called by kubelet, responsible for pod&amp;rsquo;s network configuration&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;meshnetd&lt;/strong&gt; - a daemon responsible for Vxlan link configuration updates&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;Just like Multus, meshnet has the concept of master/default plugin, which sets up the first interface of the pod. This interface is setup by one of the existing plugins (e.g. bridge or flannel) and is used for pod&amp;rsquo;s external connectivity. The rest of the interfaces are setup according to a topology information stored in etcd.&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/meshnet-arch.png&#34; alt=&#34;Meshnet Architecture&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Although the original idea of a CNI plugin was to have a single stateless binary, most of the time there&amp;rsquo;s a need to maintain some runtime state (e.g. ip routes, ip allocations etc.), which is why a lot of CNI plugins have daemons. In our case, daemon&amp;rsquo;s role is to ensure Vxlan link configurations are correct across different hosts. Using the above diagram as an example, if pod-2 comes up after pod-3, there must be a way of signalling the (node-1) VTEP IP to the remote node (node-2) and making sure that the Vxlan link on node-2 is moved into pod-3&amp;rsquo;s namespace. This is accomplished by meshnet binary issuing an HTTP PUT request to the remote node&amp;rsquo;s daemon with all the required Vxlan link attributes attached as a payload.&lt;/p&gt;
-
-&lt;h1 id=&#34;meshnet-design-walkthrough&#34;&gt;Meshnet design walkthrough&lt;/h1&gt;
-
-&lt;p&gt;One of the assumptions I made in the design is that topology information is uploaded into the etcd cluster before we spin up the first pod. I&amp;rsquo;ll focus on how exactly this can be done in the next post but for now, let&amp;rsquo;s assume that it&amp;rsquo;s is already there. This information needs to be structured in a very specific way and must cover every interface of every pod. The presence of this information in etcd tells meshnet binary what p2p interfaces (if any) need to be setup for the pod. Below is a sample definition of a link from pod2 to pod3:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;{ &amp;quot;uid&amp;quot;:          21,
-  &amp;quot;peer_pod&amp;quot;:     &amp;quot;pod3&amp;quot;,
-  &amp;quot;local_intf&amp;quot;:   &amp;quot;eth2&amp;quot;,
-  &amp;quot;local_ip&amp;quot;:     &amp;quot;23.23.23.2/24&amp;quot;,
-  &amp;quot;peer_intf&amp;quot;:    &amp;quot;eth2&amp;quot;,
-  &amp;quot;peer_ip&amp;quot;:      &amp;quot;23.23.23.3/24&amp;quot; }
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Meshnet binary is written in go and, like many other CNI plugins, contains a common skeleton code which parses input arguments and variables. Most of the plugin logic goes into &lt;code&gt;cmdAdd&lt;/code&gt; and &lt;code&gt;cmdDel&lt;/code&gt; functions that get called automatically when CNI binary is invoked by kubelet.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;import (
-    &amp;quot;github.com/containernetworking/cni/pkg/skel&amp;quot;
-    &amp;quot;github.com/containernetworking/cni/pkg/types&amp;quot;
-)
-func cmdAdd(args *skel.CmdArgs) error {
-    // Parsing cni .conf file
-    n, err := loadConf(args.StdinData)
-    // Parsing CNI_ARGS environment variable
-    cniArgs := k8sArgs{}
-    types.LoadArgs(args.Args, &amp;amp;cniArgs)
-}
-func main() {
-	skel.PluginMain(cmdAdd, cmdGet, cmdDel, version.All, &amp;quot;TODO&amp;quot;)
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;One of the first things that happen in a &lt;code&gt;cmdAdd&lt;/code&gt; function is a &lt;code&gt;DelegateAdd&lt;/code&gt; call to let the master plugin setup the first interface of the pod. Master plugin configuration is extracted from the &lt;code&gt;delegate&lt;/code&gt; field of the meshnet CNI configuration file.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func cmdAdd(args *skel.CmdArgs) error {
-    ...
-    r, err := delegateAdd(ctx, n.Delegate, args.IfName)
-    ...
-}
-func delegateAdd(ctx context.Context, netconf map[string]interface{}, 
-                  intfName string) 
-                 (types.Result, error) {
-	...
-    result, err = invoke.DelegateAdd(ctx, netconf[&amp;quot;type&amp;quot;].(string), netconfBytes, nil)
-    ...
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;When master plugin is finished, we upload current pod&amp;rsquo;s runtime metadata to etcd. This is required so that peer pods can find and connect to our pod when needed. Specifically, they would need VTEP IP for remote vxlan links and namespace file descriptor for local veth links.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;func (pod *podMeta) setPodAlive(ctx context.Context, kv clientv3.KV, 
-                                 netNS, srcIP string) error {
-
-	srcIPKey := fmt.Sprintf(&amp;quot;/%s/src_ip&amp;quot;, pod.Name)
-	_, err := kv.Put(ctx, srcIPKey, srcIP)
-
-	NetNSKey := fmt.Sprintf(&amp;quot;/%s/net_ns&amp;quot;, pod.Name)
-	_, err = kv.Put(ctx, NetNSKey, netNS)
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;At this stage, we&amp;rsquo;re ready to setup pod&amp;rsquo;s links. Instead of manipulating netlink directly, I&amp;rsquo;m using &lt;a href=&#34;https://github.com/redhat-nfvpe/koko&#34; target=&#34;_blank&#34;&gt;koko&lt;/a&gt; - a high-level library that creates veth and vxlan links for containers. The simplified logic of what happens at this stage is summarised in the following code snippet:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt; // Iterate over each link of the local pod
-for _, link := range *localPod.Links { 
-
-    // Download peer pod&#39;s runtime metadata
-    peerPod := &amp;amp;podMeta{Name: link.PeerPod}
-    peerPod.getPodMetadata(ctx, kv)
-
-    if peerPod.isAlive() { // If SrcIP and NetNS keys are set
-
-        if peerPod.SrcIP == localPod.SrcIP { // If we&#39;re on the same host
-
-            koko.MakeVeth(*myVeth, *peerVeth)
-
-        } else  { // If we&#39;re on different hosts
-
-            koko.MakeVxLan(*myVeth, *vxlan)
-            putRequest(remoteUrl, bytes.NewBuffer(jsonPayload))
-
-        }
-    } else {
-        // skip and continue
-    }
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;We start by downloading metadata for each pod that we have a link to and check if it has already come up. The value of &lt;code&gt;peerPod.SrcIP&lt;/code&gt; determines whether we&amp;rsquo;re on the same node and need to setup a veth link or on different nodes and we need to setup a vxlan tunnel between them. The latter is done in two steps - first, a local Vxlan link is setup and moved to a pod&amp;rsquo;s namespace, followed by an HTTP PUT sent to the remote node&amp;rsquo;s meshnet daemon to setup a similar link on the other end.&lt;/p&gt;
-
-&lt;h1 id=&#34;meshnet-cni-demo&#34;&gt;Meshnet CNI demo&lt;/h1&gt;
-
-&lt;p&gt;The easiest way to walk through this demo is by running it inside a docker:dind container, with a few additional packages installed on top of it:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;docker run --rm -it --privileged docker:dind sh
-# /usr/local/bin/dockerd-entrypoint.sh &amp;amp;
-# apk add --no-cache jq sudo wget git bash curl
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/meshnet-demo.png&#34; alt=&#34;Meshnet Architecture&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;In this demo, we&amp;rsquo;ll build a simple triangle 3-node topology as shown in the figure above. We start by cloning the meshnet &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;Github repository&lt;/a&gt;&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;git clone https://github.com/networkop/meshnet-cni.git &amp;amp;&amp;amp; cd meshnet-cni
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Next, create a local 3-node K8s cluster using &lt;a href=&#34;https://github.com/kubernetes-sigs/kubeadm-dind-cluster&#34; target=&#34;_blank&#34;&gt;kubeadm-dind-cluster&lt;/a&gt;, which uses docker-in-docker to simulate individual k8s nodes.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;wget https://raw.githubusercontent.com/kubernetes-sigs/kubeadm-dind-cluster/master/fixed/dind-cluster-v1.11.sh 
-chmod +x ./dind-cluster-v1.11.sh 
-./dind-cluster-v1.11.sh up
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The last command may take a few minutes to download all the required images. Once the K8s cluster is ready, we can start by deploying the private etcd cluster&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;export PATH=&amp;quot;$HOME/.kubeadm-dind-cluster:$PATH&amp;quot;
-kubectl create -f utils/etcd.yml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The &lt;code&gt;./tests&lt;/code&gt; directory already contains link databases for our 3-node test topology, ready to be uploaded to etcd:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ETCD_HOST=$(kubectl get service etcd-client -o json |  jq -r &#39;.spec.clusterIP&#39;)
-ENDPOINTS=$ETCD_HOST:2379
-
-echo &amp;quot;Copying JSON files to kube-master&amp;quot;
-sudo cp tests/*.json /var/lib/docker/volumes/kubeadm-dind-kube-master/_data/
-
-echo &amp;quot;Copying etcdctl to kube-master&amp;quot;
-sudo cp utils/etcdctl /var/lib/docker/volumes/kubeadm-dind-kube-master/_data/
-docker exec kube-master cp /dind/etcdctl /usr/local/bin/
-
-for pod in pod1 pod2 pod3
-do
-    # First cleanup any existing state
-    docker exec -it kube-master sh -c &amp;quot;ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS del --prefix=true \&amp;quot;/$pod\&amp;quot;&amp;quot;
-
-    # Next Update the links database
-    docker exec -it kube-master sh -c &amp;quot;cat /dind/$pod.json | ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS put /$pod/links&amp;quot;
-
-    # Print the contents of links databse
-    docker exec -it kube-master sh -c &amp;quot;ETCDCTL_API=3 etcdctl --endpoints=$ENDPOINTS get --prefix=true \&amp;quot;/$pod\&amp;quot;&amp;quot;
-
-done
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The final missing piece is the meshnet daemonset, which installs the binary, configuration file and the meshnet daemon on every node.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl create -f kube-meshnet.yml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The only thing that&amp;rsquo;s required now is the master plugin configuration update. Since different K8s clusters can use a different plugins, the configuration file installed by the daemonset contains a dummy value which needs to be overwritten. In our case, the kubeadm-dind-cluster we&amp;rsquo;ve installed should use a default &lt;code&gt;bridge&lt;/code&gt; plugin which can be merged into our meshnet configuration file like this:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;ETCD_HOST=$(kubectl get service etcd-client -o json |  jq -r &#39;.spec.clusterIP&#39;)
-for container in kube-master kube-node-1 kube-node-2
-do
-    # Merge the default CNI plugin with meshnet
-    docker exec $container bash -c &amp;quot;jq  -s &#39;.[1].delegate = (.[0]|del(.cniVersion))&#39; /etc/cni/net.d/cni.conf /etc/cni/net.d/meshnet.conf  | jq .[1] &amp;gt; /etc/cni/net.d/00-meshnet.conf&amp;quot;
-    docker exec $container bash -c &amp;quot;sed -i &#39;s/ETCD_HOST/$ETCD_HOST/&#39; /etc/cni/net.d/00-meshnet.conf&amp;quot;
-done
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Now meshnet CNI plugin is installed and configured and everything&amp;rsquo;s ready for us to create our test topology.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;cat tests/2node.yml | kubectl create -f -
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The following command will verify that the topology has been created and confirm that pods are scheduled to the correct nodes:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl --namespace=default get pods -o wide  |  grep pod
-pod1    1/1 Running 0   1m  10.244.2.7  kube-node-1
-pod2    1/1 Running 0   1m  10.244.2.6  kube-node-1
-pod3    1/1 Running 0   1m  10.244.3.5  kube-node-2
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Finally, we can do a simple ping test to verify that we have connectivity between all 3 pods:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;kubectl exec pod1 -- sudo ping -c 1 12.12.12.2
-kubectl exec pod2 -- sudo ping -c 1 23.23.23.3
-kubectl exec pod3 -- sudo ping -c 1 13.13.13.1
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;coming-up&#34;&gt;Coming up&lt;/h1&gt;
-
-&lt;p&gt;The process demonstrated above is quite rigid and requires a lot of manual effort to create a required topology inside a K8s cluster. In the next post, we&amp;rsquo;ll have a look at &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; - a simple tool that orchestrates most of the above steps - generates topology data and creates pods based on a simple YAML-based topology definition file.&lt;/p&gt;
 </description>
     </item>
     

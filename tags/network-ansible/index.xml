@@ -6,7 +6,7 @@
     <description>Recent content in network-ansible on networkop</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <copyright>&amp;copy; Michael Kashin 2018</copyright>
+    <copyright>&amp;copy; Michael Kashin 2021</copyright>
     <lastBuildDate>Fri, 13 Nov 2015 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://networkop.co.uk/tags/network-ansible/index.xml" rel="self" type="application/rss+xml" />
@@ -18,7 +18,8 @@
       <pubDate>Fri, 13 Nov 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/11/13/automating-flexvpn-config/</guid>
-      <description>In this post I&amp;rsquo;ll show how to automatically build configuration files for Hubs and Spokes in FlexVPN network topology</description>
+      <description>In this post I will also introduce two concepts that are frequently used in software development world - DRY and &amp;ldquo;Convention over Configuration&amp;rdquo;. This post is a precursor to the upcoming FlexVPN configuration post on Packetpushers.
+FlexVPN network overview FlexVPN topology will consist of two FlexVPN &amp;ldquo;clouds&amp;rdquo;. Each cloud has a Hub router and multiple Spokes. Each Spoke is connected to each of the two Hubs thereby participating in both FlexVPN clouds.</description>
     </item>
     
     <item>
@@ -27,7 +28,8 @@
       <pubDate>Thu, 03 Sep 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/09/03/automating-bgp-config/</guid>
-      <description>In this post we&amp;rsquo;ll have a look at how to automate a typical BGP setup</description>
+      <description>This is where configuration may get particularly messy especially in presence of backdoor links and complex routing failover policies. However, as I will show, it is still possible to create a standard set of routing manipulation policies and selectively apply them to the required adjacencies to achieve the desired effect.
+Requirements and assumptions The new office network is designed with several layers of WAN redundancy. Primary WAN link is the preferred option to reach all other WAN destination except for the Main office which is connected via a dedicated high-throughput link.</description>
     </item>
     
     <item>
@@ -36,7 +38,9 @@
       <pubDate>Wed, 26 Aug 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/08/26/automating-network-build-p1/</guid>
-      <description>This post will demonstrate how to automate the build of a typical enterprise branch network consisting of a pair of WAN routers, a core switch and 3 access layer switches. I will show how to create the initial bootstrap configuration and enable basic routing with OSPF</description>
+      <description>Prerequisites It is assumed that by this time all detailed network design information is known including interfaces numbers, VLANs, IP addresses and LAGs. This information will be used as an input to configuration automation scripts.
+The inventory file is updated with a new branch-2 group
+[branch-2] BR2-CORE ansible_ssh_host=10.0.3.1 BR2-WAN1 ansible_ssh_host=10.0.3.2 BR2-WAN2 ansible_ssh_host=10.0.3.3 BR2-AS01 ansible_ssh_host=10.0.3.130 BR2-AS02 ansible_ssh_host=10.0.3.131 BR2-AS03 ansible_ssh_host=10.0.3.132  Creating device bootstrap configuration A lot of times when building a new network it is required to create a bootstrap config that would have some basic AAA configuration along with the layer 2 and layer 3 links configuration.</description>
     </item>
     
     <item>
@@ -45,7 +49,8 @@
       <pubDate>Fri, 14 Aug 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/08/14/automating-legacy-networks/</guid>
-      <description>In this post I&amp;rsquo;ll show how to take an already established network, pull out some of the common configuration pieces and put them all into a standard Ansible environment</description>
+      <description>A lot of configuration files referenced throughout this post will be omitted for the sake of brevity, however all of them can be found in my github repository.
+Legacy network overview The network I&amp;rsquo;m using for demonstration is a cut-down version of a typical enterprise network. At this point of time it consists of a branch office network and a central DC network interconnected via redundant WAN links. The branch office consists of a main computer room hosting all core network devices and interconnecting with access switches on each of the office floors.</description>
     </item>
     
     <item>
@@ -54,7 +59,7 @@
       <pubDate>Fri, 07 Aug 2015 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2015/08/07/configuration-automation/</guid>
-      <description>This post will give a brief overview of network configuration automation, describe its challenges and benefits and will set off a series of posts showing how to automate a configuration of a typical enterprise network</description>
+      <description>Automating Network Configuration Automation and programmability steadily make their way into a networking domain. The idea was born in application development world where makefiles served a role of automated installation scripts. It later spread into application testing and deployment so now hardly anyone does these two things by hand. Next in line were the operating systems largely thanks to the raising popularity of PaaS solutions. Until recently network configuration has been the prerogative of us, network engineers.</description>
     </item>
     
   </channel>

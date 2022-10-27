@@ -6,7 +6,7 @@
     <description>Recent content in network-ci on networkop</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <copyright>&amp;copy; Michael Kashin 2018</copyright>
+    <copyright>&amp;copy; Michael Kashin 2021</copyright>
     <lastBuildDate>Thu, 17 Jan 2019 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://networkop.co.uk/tags/network-ci/index.xml" rel="self" type="application/rss+xml" />
@@ -18,7 +18,7 @@
       <pubDate>Thu, 17 Jan 2019 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/post/2019-01-k8s-vrnetlab/</guid>
-      <description>Using meshnet-cni and k8s-topo together with vrnetlab</description>
+      <description>In the previous post I&amp;rsquo;ve demonstrated how to build virtual network topologies on top of Kubernetes with the help of meshnet-cni plugin. As an example, I&amp;rsquo;ve shown topologies with 50 cEOS instances and 250 Quagga nodes. In both of these examples virtual network devices were running natively inside Docker containers, meaning they were running as (a set of) processes directly attached to the TCP/IP stack of the network namespace provided by the k8s pod.</description>
     </item>
     
     <item>
@@ -27,7 +27,8 @@
       <pubDate>Sat, 01 Dec 2018 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/post/2018-11-k8s-topo-p2/</guid>
-      <description>Using k8s-topo - network topology orchestration tool for kubernetes</description>
+      <description>In the previous post I&amp;rsquo;ve demonstrated a special-purpose CNI plugin for network simulations inside kubernetes called meshnet. I&amp;rsquo;ve shown how relatively easy it is to build a simple 3-node topology spread across multiple kubernetes nodes. However, when it comes to real-life large-scale topology simulations, using meshnet &amp;ldquo;as is&amp;rdquo; becomes problematic due to the following reasons:
+ Uploading topology information into etcd requires a lot of manual effort. Any customisation like startup configuration injection or exposure of internal ports is still a manual process.</description>
     </item>
     
     <item>
@@ -36,7 +37,7 @@
       <pubDate>Fri, 02 Nov 2018 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/post/2018-11-k8s-topo-p1/</guid>
-      <description>Architecture and design of meshnet CNI - a plugin to create arbitrary virtual network topologies</description>
+      <description>Building virtualised network topologies has been one of the best ways to learn new technologies and to test new designs before implementing them on a production network. There are plenty of tools that can help build arbitrary network topologies, some with an interactive GUI (e.g. GNS3 or EVE-NG/Unetlab) and some &amp;ldquo;headless&amp;rdquo;, with text-based configuration files (e.g. vrnetlab or topology-converter). All of these tools work by spinning up multiple instances of virtual devices and interconnecting them according to a user-defined topology.</description>
     </item>
     
     <item>
@@ -45,7 +46,8 @@
       <pubDate>Sat, 03 Mar 2018 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/post/2018-03-03-docker-multinet/</guid>
-      <description>Exploring the problem of and solution to the random interface attachment order inside multi-network Docker containers</description>
+      <description>UPDATE: It appears that the issue described in this post has been fixed or at least it doesn&amp;rsquo;t manifest itself the same way it did back in 2018. Therefore, please treat this article purely as a historical record.
+ Whether we like it or not, the era of DevOps is upon us, fellow network engineers, and with it come opportunities to approach and solve common networking problems in new, innovative ways.</description>
     </item>
     
     <item>
@@ -54,7 +56,7 @@
       <pubDate>Wed, 23 Mar 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/03/03/network-ci-demo-large/</guid>
-      <description>The final post in a series demonstrates how to use the &lt;strong&gt;network-ci&lt;/strong&gt; tools to safely replace a core routing protocol inside a small Active/Standby Data Centre</description>
+      <description>Current network overview Let&amp;rsquo;s start by taking a high-level look at our DC network routing topology. The core routing protocol is OSPF, it is responsible for distributing routing information between the Core and WAN layers of the network. WAN layer consists of two MPLS L3VPN services running BGP as PE-CE protocol and two DMVPN Hubs running EIGRP. All WAN layer devices perform mutual redistribution between the respective WAN protocol and OSPF.</description>
     </item>
     
     <item>
@@ -63,7 +65,10 @@
       <pubDate>Thu, 03 Mar 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/03/03/network-ci-demo-small/</guid>
-      <description>In this post I&amp;rsquo;ll demonstrate how to use the network-ci tools to automate the build, test and upgrade of a small 4-node network topology</description>
+      <description>Demo network overview The network consists of 4 nodes interconnected via point-to-point links and running EIGRP as a routing protocol.
+To create a local development environment you can clone my repository and reset it to work with your own Github account using git remote set-url origin https://github.com/USERNAME/OTHERREPOSITORY.git command.
+Local development environment contains the following files describing the modelled topology:
+ Configuration files for each node under the ./config directory Network topology in .</description>
     </item>
     
     <item>
@@ -72,7 +77,7 @@
       <pubDate>Thu, 25 Feb 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/02/25/network-ci-dev-setup/</guid>
-      <description>Traditionally, the first post in the series describes how to setup a development environment. This time I&amp;rsquo;ll do it DevOps-style. I&amp;rsquo;ll show how to use Packer to automatically create and configure a VM with UNetLab and Jenkins pre-installed.</description>
+      <description>Packer intro Packer is a tool that can automatically create virtual machines for different hypervisors and cloud platforms. The goal is to produce identically configured VMs for either VirtualBox, VMWare, Amazon or Google clouds based on a single template file. If you&amp;rsquo;re familiar with Vagrant, then you can also use Packer to create custom Vagrant boxes. In our case, however, we&amp;rsquo;re only concerned about VMWare since it&amp;rsquo;s the only type-2 hypervisor that supports nested hardware virtualisation (e.</description>
     </item>
     
     <item>
@@ -81,7 +86,7 @@
       <pubDate>Fri, 19 Feb 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/02/19/network-ci-intro/</guid>
-      <description>In this series of posts I&amp;rsquo;ll introduce the tools I&amp;rsquo;ve been using for network development and how they can be used with automation servers like Jenkins for network continuous integration and delivery</description>
+      <description>CI/CD vs ITIL How do you implement changes in your network? In today&amp;rsquo;s world there&amp;rsquo;s 95% chance that you have to write up an RFC, submit it at least a week before the planned implementation date, go through at least one CAB meeting and only then, assuming it got approved, can you implement it. But the most important question is &amp;lsquo;how do you test&amp;rsquo;? Do you simply content yourself with a few pings or do you make sure all main routes are in place?</description>
     </item>
     
   </channel>

@@ -6,11 +6,40 @@
     <description>Recent content in k8s on networkop</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <copyright>&amp;copy; Michael Kashin 2018</copyright>
-    <lastBuildDate>Sun, 03 May 2020 00:00:00 +0000</lastBuildDate>
+    <copyright>&amp;copy; Michael Kashin 2021</copyright>
+    <lastBuildDate>Fri, 14 Aug 2020 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://networkop.co.uk/tags/k8s/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>Self-hosted external DNS resolver for Kubernetes</title>
+      <link>https://networkop.co.uk/post/2020-08-k8s-gateway/</link>
+      <pubDate>Fri, 14 Aug 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-08-k8s-gateway/</guid>
+      <description>There comes a time in the life of every Kubernetes cluster when internal resources (pods, deployments) need to be exposed to the outside world. Doing so from a pure IP connectivity perspective is relatively easy as most of the constructs come baked-in (e.g. NodePort-type Services) or can be enabled with an off-the-shelf add-on (e.g. Ingress and LoadBalancer controllers). In this post, we&amp;rsquo;ll focus on one crucial piece of network connectivity which glues together the dynamically-allocated external IP with a static customer-defined hostname — a DNS.</description>
+    </item>
+    
+    <item>
+      <title>Anatomy of the &#34;kubernetes.default&#34;</title>
+      <link>https://networkop.co.uk/post/2020-06-kubernetes-default/</link>
+      <pubDate>Mon, 29 Jun 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-06-kubernetes-default/</guid>
+      <description>Every Kubernetes cluster is provisioned with a special service that provides a way for internal applications to talk to the API server. However, unlike the rest of the components that get spun up by default, you won&amp;rsquo;t find the definition of this service in any of the static manifests and this is just one of the many things that make this service unique.
+The Special One To make sure we&amp;rsquo;re on the same page, I&amp;rsquo;m talking about this:</description>
+    </item>
+    
+    <item>
+      <title>Solving the Ingress Mystery Puzzle</title>
+      <link>https://networkop.co.uk/post/2020-06-ingress-puzzle/</link>
+      <pubDate>Sat, 13 Jun 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-06-ingress-puzzle/</guid>
+      <description>Last week I posted a tweet about a Kubernetes networking puzzle. In this post, we&amp;rsquo;ll go over the details of this puzzle and uncover the true cause and motive of the misbehaving ingress.
+Puzzle recap Imagine you have a Kubernetes cluster with three namespaces, each with its own namespace-scoped ingress controller. You&amp;rsquo;ve created an ingress in each namespace that exposes a simple web application. You&amp;rsquo;ve checked one of them, made sure it works and moved on to other things.</description>
+    </item>
     
     <item>
       <title>Getting Started with Cluster API using Docker</title>
@@ -18,7 +47,7 @@
       <pubDate>Sun, 03 May 2020 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/post/2020-05-cluster-api-intro/</guid>
-      <description>Using Cluster API with Docker Infrastructure Provider</description>
+      <description>Cluster API (CAPI) is a relatively new project aimed at deploying Kubernetes clusters using a declarative API (think YAML). The official documentation (a.k.a. the Cluster API book), does a very good job explaining the main concepts and goals of the project. I always find that one of the best ways to explore new technology is to see how it works locally, on my laptop, and Cluster API has a special &amp;ldquo;Docker&amp;rdquo; infrastructure provider (CAPD) specifically for that.</description>
     </item>
     
     <item>
@@ -27,7 +56,7 @@
       <pubDate>Fri, 24 Jan 2020 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/post/2020-01-nsm-topo/</guid>
-      <description>Using Network Service Mesh as a mechanism for large scale network simulations with k8s-topo</description>
+      <description>In September 2019 I had the honour to present at Open Networking Summit in Antwerp. My talk was about meshnet CNI plugin, k8s-topo orchestrator and how to use them for large-scale network simulations in Kubernetes. During the same conference, I attended a talk about Network Service Mesh and its new kernel-based forwarding dataplane which had a lot of similarities with the work that I&amp;rsquo;ve done for meshnet. Having had a chat with the presenters, we&amp;rsquo;ve decided that it would be interesting to try and implement a meshnet-like functionality with NSM.</description>
     </item>
     
   </channel>

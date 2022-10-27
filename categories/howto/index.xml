@@ -6,11 +6,66 @@
     <description>Recent content in howto on networkop</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <copyright>&amp;copy; Michael Kashin 2018</copyright>
-    <lastBuildDate>Sun, 03 May 2020 00:00:00 +0000</lastBuildDate>
+    <copyright>&amp;copy; Michael Kashin 2021</copyright>
+    <lastBuildDate>Thu, 27 Oct 2022 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://networkop.co.uk/categories/howto/index.xml" rel="self" type="application/rss+xml" />
     
+    
+    <item>
+      <title>Network Automation with CUE - Introduction</title>
+      <link>https://networkop.co.uk/post/2022-10-cue-intro/</link>
+      <pubDate>Thu, 27 Oct 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2022-10-cue-intro/</guid>
+      <description>In the past few years, network automation has made its way from a new and fancy way of configuring devices to a well-recognized industry practice. What started as a series of &amp;ldquo;hello world&amp;rdquo; examples has evolved into an entire discipline with books, professional certifications and dedicated career paths. It&amp;rsquo;s safe to say that today, most large-scale networks (&amp;gt;100 devices) are at least deployed (day 0) and sometimes managed (day 1+) using an automated workflow.</description>
+    </item>
+    
+    <item>
+      <title>Containerising NVIDIA Cumulus Linux</title>
+      <link>https://networkop.co.uk/post/2021-05-cumulus-ignite/</link>
+      <pubDate>Tue, 25 May 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2021-05-cumulus-ignite/</guid>
+      <description>In one of his recent posts, Ivan raises a question: &amp;ldquo;I can’t grasp why Cumulus releases a Vagrant box, but not a Docker container&amp;rdquo;. Coincidentally, only a few weeks before that I had managed to create a Cumulus Linux container image. Since then, I&amp;rsquo;ve done a lot of testing and discovered limitations of the pure containerised approach and how to overcome them while still retaining the container user experience. This post is a documentation of my journey from the early days of running Cumulus on Docker to the integration with containerlab and, finally, running Cumulus in microVMs backed by AWS&amp;rsquo;s Firecracker and Weavework&amp;rsquo;s Ignite.</description>
+    </item>
+    
+    <item>
+      <title>Getting Started with eBPF and Go</title>
+      <link>https://networkop.co.uk/post/2021-03-ebpf-intro/</link>
+      <pubDate>Mon, 08 Mar 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2021-03-ebpf-intro/</guid>
+      <description>eBPF has a thriving ecosystem with a plethora of educational resources both on the subject of eBPF itself and its various application, including XDP. Where it becomes confusing is when it comes to the choice of libraries and tools to interact with and orchestrate eBPF. Here you have to select between a Python-based BCC framework, C-based libbpf and a range of Go-based libraries from Dropbox, Cilium, Aqua and Calico. Another important area that is often overlooked is the &amp;ldquo;productionisation&amp;rdquo; of the eBPF code, i.</description>
+    </item>
+    
+    <item>
+      <title>Building your own SD-WAN with Envoy and Wireguard</title>
+      <link>https://networkop.co.uk/post/2021-02-diy-sdwan/</link>
+      <pubDate>Sat, 13 Feb 2021 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2021-02-diy-sdwan/</guid>
+      <description>When using a personal VPN at home, one of the biggest problems I&amp;rsquo;ve faced was the inability to access public streaming services. I don&amp;rsquo;t care about watching Netflix from another country, I just want to be able to use my local internet connection for this kind of traffic while still encrypting everything else. This problem is commonly known in network engineering as &amp;ldquo;local internet breakout&amp;rdquo; and is often implemented at remote branch/edge sites to save costs of transporting SaaS traffic (e.</description>
+    </item>
+    
+    <item>
+      <title>Self-hosted external DNS resolver for Kubernetes</title>
+      <link>https://networkop.co.uk/post/2020-08-k8s-gateway/</link>
+      <pubDate>Fri, 14 Aug 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-08-k8s-gateway/</guid>
+      <description>There comes a time in the life of every Kubernetes cluster when internal resources (pods, deployments) need to be exposed to the outside world. Doing so from a pure IP connectivity perspective is relatively easy as most of the constructs come baked-in (e.g. NodePort-type Services) or can be enabled with an off-the-shelf add-on (e.g. Ingress and LoadBalancer controllers). In this post, we&amp;rsquo;ll focus on one crucial piece of network connectivity which glues together the dynamically-allocated external IP with a static customer-defined hostname — a DNS.</description>
+    </item>
+    
+    <item>
+      <title>Anatomy of the &#34;kubernetes.default&#34;</title>
+      <link>https://networkop.co.uk/post/2020-06-kubernetes-default/</link>
+      <pubDate>Mon, 29 Jun 2020 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2020-06-kubernetes-default/</guid>
+      <description>Every Kubernetes cluster is provisioned with a special service that provides a way for internal applications to talk to the API server. However, unlike the rest of the components that get spun up by default, you won&amp;rsquo;t find the definition of this service in any of the static manifests and this is just one of the many things that make this service unique.
+The Special One To make sure we&amp;rsquo;re on the same page, I&amp;rsquo;m talking about this:</description>
+    </item>
     
     <item>
       <title>Getting Started with Cluster API using Docker</title>
@@ -18,7 +73,7 @@
       <pubDate>Sun, 03 May 2020 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/post/2020-05-cluster-api-intro/</guid>
-      <description>Using Cluster API with Docker Infrastructure Provider</description>
+      <description>Cluster API (CAPI) is a relatively new project aimed at deploying Kubernetes clusters using a declarative API (think YAML). The official documentation (a.k.a. the Cluster API book), does a very good job explaining the main concepts and goals of the project. I always find that one of the best ways to explore new technology is to see how it works locally, on my laptop, and Cluster API has a special &amp;ldquo;Docker&amp;rdquo; infrastructure provider (CAPD) specifically for that.</description>
     </item>
     
   </channel>

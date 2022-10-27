@@ -6,7 +6,7 @@
     <description>Recent content in SDN on networkop</description>
     <generator>Hugo -- gohugo.io</generator>
     <language>en-us</language>
-    <copyright>&amp;copy; Michael Kashin 2018</copyright>
+    <copyright>&amp;copy; Michael Kashin 2021</copyright>
     <lastBuildDate>Thu, 21 Jun 2018 00:00:00 +0000</lastBuildDate>
     
 	<atom:link href="https://networkop.co.uk/categories/sdn/index.xml" rel="self" type="application/rss+xml" />
@@ -18,7 +18,8 @@
       <pubDate>Thu, 21 Jun 2018 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/post/2018-05-29-appswitch-sdn/</guid>
-      <description>Network engineering analysis of one of the most unorthodox networking solutions for containers</description>
+      <description>Virtual networking has been one of the hottest areas of research and development in recent years. Kubernetes alone has, at the time of writing, 20 different networking plugins, some of which can be combined to build even more plugins. However, if we dig a bit deeper, most of these plugins and solutions are built out of two very simple constructs:
+ a virtual switch - anything from a linux bridge through VPP and IOVisor to OVS ACL/NAT - most commonly implemented as iptables, with anything from netfilter to eBPF under the hood   Note1: for the purpose of this article I won&amp;rsquo;t consider service meshes as a network solution, although it clearly is one, simply because it operates higher than TCP/IP and ultimately still requires network plumbing to be in place</description>
     </item>
     
     <item>
@@ -27,7 +28,7 @@
       <pubDate>Tue, 02 Jan 2018 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2018/01/02/os-contrail/</guid>
-      <description>In this post I&amp;rsquo;ll show how to build a dockerized OpenStack and OpenContrail lab, integrate it with Juniper MX80 DC-GW and demonstrate one of Contrail&amp;rsquo;s most interesting and unique features called BGP-as-a-Service</description>
+      <description>Continuing on the trend started in my previous post about OpenDaylight, I&amp;rsquo;ll move on to the next open-source product that uses BGP VPNs for optimal North-South traffic forwarding. OpenContrail is one of the most popular SDN solutions for OpenStack. It was one of the first hybrid SDN solutions, offering both pure overlay and overlay/underlay integration. It is the default SDN platform of choice for Mirantis Cloud Platform, it has multiple large-scale deployments in companies like Workday and AT&amp;amp;T.</description>
     </item>
     
     <item>
@@ -36,7 +37,7 @@
       <pubDate>Fri, 15 Dec 2017 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2017/12/15/os-odl-netvirt/</guid>
-      <description>In this post I&amp;rsquo;ll demonstrate how to build a simple OpenStack lab with OpenDaylight-managed virtual networking and integrate it with a Cisco IOS-XE data centre gateway using EVPN</description>
+      <description>For the last 5 years OpenStack has been the training ground for a lot of emerging DC SDN solutions. OpenStack integration use case was one of the most compelling and easiest to implement thanks to the limited and suboptimal implementation of the native networking stack. Today, in 2017, features like L2 population, local ARP responder, L2 gateway integration, distributed routing and service function chaining have all become available in vanilla OpenStack and don&amp;rsquo;t require a proprietary SDN controller anymore.</description>
     </item>
     
     <item>
@@ -45,7 +46,7 @@
       <pubDate>Thu, 23 Nov 2017 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2017/11/23/os-nfv-mano/</guid>
-      <description>In this post I&amp;rsquo;ll have a brief look at the NFV MANO framework developed by ETSI and create a simple vIDS network service using Tacker</description>
+      <description>In the ongoing hysteria surrounding all things SDN, one important thing gets often overlooked. You don&amp;rsquo;t build SDN for its own sake. SDN is just a little cog in a big machine called &amp;ldquo;cloud&amp;rdquo;. To take it even further, I would argue that the best SDN solution is the one that you don&amp;rsquo;t know even exists. Despite what the big vendors tell you, operators are not supposed to interact with SDN interface, be it GUI or CLI.</description>
     </item>
     
     <item>
@@ -54,7 +55,7 @@
       <pubDate>Fri, 15 Sep 2017 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2017/09/15/os-sfc-skydive/</guid>
-      <description>In this post I’ll show how to configure Neutron’s service function chaining, troubleshoot it with Skydive and how SFC is implemented in OVS forwarding pipeline</description>
+      <description>SFC is another SDN feature that for a long time only used to be available in proprietary SDN solutions and that has recently become available in vanilla OpenStack. It serves as another proof that proprietary SDN solutions are losing the competitive edge, especially for Telco SDN/NFV use cases. Hopefully, by the end of this series of posts I&amp;rsquo;ll manage do demonstrate how to build a complete open-source solution that has feature parity (in terms of major networking features) with all the major proprietary data centre SDN platforms.</description>
     </item>
     
     <item>
@@ -63,7 +64,7 @@
       <pubDate>Fri, 08 Sep 2017 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2017/09/08/os-lab-docker/</guid>
-      <description>I&amp;rsquo;m returning to my OpenStack SDN series to explore some of the new platform features like service function chaining, network service orchestration, intent-based networking and dynamic WAN routing. To kick things off I&amp;rsquo;m going to demonstrate my new fully-containerized OpenStack Lab that I&amp;rsquo;ve built using an OpenStack project called Kolla</description>
+      <description>For quite a long time installation and deployment have been deemed as major barriers for OpenStack adoption. The classic &amp;ldquo;install everything manually&amp;rdquo; approach could only work in small production or lab environments and the ever increasing number of project under the &amp;ldquo;Big Tent&amp;rdquo; made service-by-service installation infeasible. This led to the rise of automated installers that over time evolved from a simple collection of scripts to container management systems.</description>
     </item>
     
     <item>
@@ -72,7 +73,7 @@
       <pubDate>Sat, 10 Dec 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/12/10/ovn-part2/</guid>
-      <description>In this post we will see how OVN implements virtual networks for OpenStack. The structure of this post is such that starting from the highest level of networking abstraction we will delve deeper into implementation details with each subsequent section. The biggest emphasis will be on how networking data model gets transformed into a set of logical flows, which eventually become OpenFlow flows. The final section will introduce a new overlay protocol GENEVE and explain why VXLAN no longer satisfies the needs of an overlay protocol.</description>
+      <description>Table of Contents  OpenStack - virtual network topology OVN Northbound DB - logical network topology OVN Southbound DB - logical flows  L2 datapath L3 datapath  OVN Controller - OpenFlow flows Physical network - GENEVE overlay Conclusion   OpenStack - virtual network topology In the previous post we have installed OpenStack and created a simple virtual topology as shown below. In OpenStack&amp;rsquo;s data model this topology consists of the following elements:</description>
     </item>
     
     <item>
@@ -81,7 +82,7 @@
       <pubDate>Sun, 27 Nov 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/11/27/ovn-part1/</guid>
-      <description>This is a first of a two-post series dedicated to project OVN. In this post I&amp;rsquo;ll show how to build, install and configure OVN to work with a 3-node RDO OpenStack lab</description>
+      <description>Vanilla OpenStack networking has many functional, performance and scaling limitations. Projects like L2 population, local ARP responder, L2 Gateway and DVR were conceived to address those issues. However good a job these projects do, they still remain a collection of separate projects, each with its own limitations, configuration options and sets of dependencies. That led to an effort outside of OpenStack to develop a special-purpose OVS-only SDN controller that would address those issues in a centralised and consistent manner.</description>
     </item>
     
     <item>
@@ -90,7 +91,7 @@
       <pubDate>Thu, 13 Oct 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/10/13/os-dvr/</guid>
-      <description>In this post we&amp;rsquo;ll explore how DVR is implemented in OpenStack Neutron and what are some of its benefits and shortcomings</description>
+      <description>Table of Contents  Virtual topology overview Virtual topology setup non-DVR traffic flow Enabling DVR DVR East-West traffic flow External connectivity  Case 1 - Overload NAT (VM2 with no FIP) Case 2 - Static NAT (VM1 with FIP)  DVR Pros and Cons   To be honest I was a little hesitant to write this post because the topic of Neutron&amp;rsquo;s DVR has already been exhaustively covered by many, including Assaf Muller, Eran Gampel and in the official OpenStack networking guide.</description>
     </item>
     
     <item>
@@ -99,7 +100,7 @@
       <pubDate>Fri, 09 Sep 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/09/09/os-lab-p2/</guid>
-      <description>In this post we&amp;rsquo;ll use Chef, unnumbered BGP and Cumulus VX to build a massively scalable &amp;lsquo;Lapukhov&amp;rsquo; Leaf-Spine data centre</description>
+      <description>In the last post we&amp;rsquo;ve seen how to use Chef to automate the build of a 3-node OpenStack cloud. The only thing remaining is to build an underlay network supporting communication between the nodes, which is what we&amp;rsquo;re going to do next. The build process will, again, be relatively simple and will include only a few manual steps, but before we get there let me go over some of the decisions and assumptions I&amp;rsquo;ve made in my network design.</description>
     </item>
     
     <item>
@@ -108,7 +109,7 @@
       <pubDate>Fri, 26 Aug 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/08/26/os-lab-p1/</guid>
-      <description>In this post we will explore what&amp;rsquo;s required to perform a zero-touch deployment of an OpenStack cloud. We&amp;rsquo;ll get a 3-node lab up and running inside UNetLab with just a few commands</description>
+      <description>Now that I&amp;rsquo;m finally beginning to settle down at my new place of residence I can start spending more time on research and blogging. I have left off right before I was about to start exploring the native OpenStack distributed virtual routing function. However as I&amp;rsquo;d started rebuilding my OpenStack lab from scratch I realised that I was doing a lot of repetitive tasks which can be easily automated. Couple that with the fact that I needed to learn Chef for my new work and you&amp;rsquo;ve got this blogpost describing a few Chef cookbooks (similar to Ansible&amp;rsquo;s playbook) automating all those manual steps described in my earlier blogposts 1 and 2.</description>
     </item>
     
     <item>
@@ -117,7 +118,8 @@
       <pubDate>Sat, 21 May 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/05/21/neutron-l2gw/</guid>
-      <description>One of the basic function of any data centre network is the ability to communicate with baremetal servers. In this post we&amp;rsquo;ll see how Neutron L2 Gateway plugin can be used to configure a Cumulus VX switch for VXLAN-VLAN bridging.</description>
+      <description>Since I have all my OpenStack environment running inside UNetLab, it makes it really easy for me to extend my L3 fabric with a switch from another vendor. In my previous posts I&amp;rsquo;ve used Cisco and Arista switches to build a 4-leaf 2-spine CLOS fabric. For this task I&amp;rsquo;ve decided to use a Cumulus VX switch which I&amp;rsquo;ve downloaded and imported into my lab.
+To simulate the baremetal server (10.</description>
     </item>
     
     <item>
@@ -126,7 +128,8 @@
       <pubDate>Wed, 11 May 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/05/11/neutron-routed-extnet/</guid>
-      <description>In the this post we&amp;rsquo;ll tackle yet another Neutron scalability problem identified in my earlier post- a requirement to have a direct L2 adjacency between the external provider network and the network node</description>
+      <description>Provider vs Tenant networks Before we start, let&amp;rsquo;s recap the difference between the two major Neutron network types:
+ Tenant networks are:  provisioned by tenants used for inter-VM (east-west) communication use Neutron virtual router as their default gateway  Provider networks are:  provisioned by OpenStack administrator(for use by tenants) match existing physical networks can be either flat (untagged VLAN) or VLAN-based (multiple VLANs) need to be L2 adjacent to network and/or compute nodes   These two network types are not mutually exclusive.</description>
     </item>
     
     <item>
@@ -135,7 +138,7 @@
       <pubDate>Fri, 06 May 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/05/06/neutron-l2pop/</guid>
-      <description>In the previous post we&amp;rsquo;ve had a look at how native OpenStack SDN works and what are some of its limitations. In this post we&amp;rsquo;ll tackle the first one of them - overhead created by multicast source replication</description>
+      <description>MAC learning in a controller-less VXLAN overlay VXLAN standard does not specify any control plane protocol to exchange MAC-IP bindings between VTEPs. Instead it relies on data plane flood-and-learn behaviour, just like a normal switch. To force this behaviour in an underlay, the standard stipulates that each VXLAN network should be mapped to its own multicast address and each VTEP participating in a network should join the corresponding multicast group.</description>
     </item>
     
     <item>
@@ -144,7 +147,7 @@
       <pubDate>Fri, 22 Apr 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/04/22/neutron-native/</guid>
-      <description>Now that we have our 3-node OpenStack lab [up and running][openstack-post-2] we can start exploring how virtual networks are implemented under the hood</description>
+      <description>Table of Contents  Intro High Level Overview Unicast frame between VM1 and VM2 Unicast frame between VM1 and External host BUM frame from VM1 for MAC address of VM2 OpenvSwitch quick intro Detailed packet flow analysis Enumerating OVS ports Unicast frame between VM1 and VM2 Unicast frame to external host (192.168.247.1) BUM frame from VM1 for MAC address of VM2 Native OpenStack SDN advantages and limitation Things to explore next C2O References   Intro This is going to be quite a lengthy blogpost so I&amp;rsquo;ll try to explain its structure first.</description>
     </item>
     
     <item>
@@ -153,7 +156,8 @@
       <pubDate>Tue, 19 Apr 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/04/18/os-unl-lab/</guid>
-      <description>In the previous post I&amp;rsquo;ve demonstrated how to get a working instance of a single-node OpenStack inside UNetLab. In this post we&amp;rsquo;ll continue building on that by adding two new compute nodes and redesigning our network to resemble something you might actually see in a real life.</description>
+      <description>OpenStack network requirements Depending on the number of deployed components, OpenStack physical network requirements could be different. In our case we&amp;rsquo;re not going to deploy any storage solution and simply use the ephemeral storage, i.e. hard disk that&amp;rsquo;s a part of a virtual machine. However, even in minimal installations, there are a number of networks that should be considered individually due to different connectivity requirements:
+ Server OOB management network - this is usually a dedicated physical network used mainly for server bootstrapping and OS deployment.</description>
     </item>
     
     <item>
@@ -162,7 +166,7 @@
       <pubDate>Mon, 04 Apr 2016 00:00:00 +0000</pubDate>
       
       <guid>https://networkop.co.uk/blog/2016/04/04/openstack-unl/</guid>
-      <description>In this post I&amp;rsquo;m going to show how to get a running instance of OpenStack inside a UNetLab virtual machine</description>
+      <description>What the hell am I trying to do? I admit that running OpenStack on anything other than baremetal is nonsense. So why would anyone want to run it with two layers of virtualisation underneath? My goal is to explore some of the new SDN/NFV technologies without leaving the confines of my home area network and/or racking up a triple-digit electricity bill. I also wanted to be able to swap underlay networks without spending hours trying to plumb together virtualized switches and servers from multiple vendors.</description>
     </item>
     
   </channel>
