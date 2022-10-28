@@ -48,7 +48,7 @@ The author of the configuration complexity clock article cautions us against mak
 
 ## Introducing CUE
 
-[CUE](https://cuelang.org/) or cuelang was built to manage configuration data which, as we've seen above, is one of the most critical parts of advanced network automation workflows. CUE tries to strike a balance between the simplicity of a DSL and the efficiency of a general-purpose programming language. Visually, it looks very similar to JSON (it is a superset of JSON) with a relaxed grammar, e.g. you can leave comments and don't have to quote strings. This is an example of a CUE syntax that defines a set of BGP configuration values:
+[CUE](https://cuelang.org/) or cuelang was built to manage configuration data which, as we've seen above, is one of the most critical parts of advanced network automation workflows. CUE tries to strike a balance between the simplicity of a DSL and the efficiency of a general-purpose programming language. Visually, it looks very similar to JSON (it is a superset of JSON) with a relaxed grammar, e.g. you can leave comments and omit string quotes on field names. This is an example of a CUE syntax that defines a set of BGP configuration values:
 
 ```yaml
 bgp: {
