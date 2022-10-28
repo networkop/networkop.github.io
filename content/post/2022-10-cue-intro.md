@@ -5,7 +5,7 @@ categories = ["howto"]
 tags = ["automation", "cue", "ansible"]
 summary = "Introducing CUE for network automation"
 description = "Introducing CUE for network automation"
-images = ["/img/cue-networking.svg"]
+images = ["/img/cue-networking.png"]
 +++
 
 In the past few years, network automation has made its way from a new and fancy way of configuring devices to a well-recognized industry practice. What started as a series of "hello world" examples has evolved into an entire discipline with books, professional certifications and dedicated career paths. It's safe to say that today, most large-scale networks (>100 devices) are at least deployed (day 0) and sometimes managed (day 1+) using an automated workflow. However, at the heart of these workflows are the same exact principles and tools that were used in the early days. Of course, these tools have evolved and matured but they still have the same scope and limitations. Very often, these limitations are only becoming obvious once we hit a certain scale or complexity, which makes it even more difficult to replace them. The easiest option is to accept and work around them, forcing the square peg down the round hole. In this post, I'd like to propose an alternative approach to what I'd consider "traditional" network automation practices by shifting the focus from "driving the CLI" to the management of data. I believe that this adjustment will enable us to build automation workflows that are much more robust and scalable and there are emerging tools and practices that were designed to address exactly that.
