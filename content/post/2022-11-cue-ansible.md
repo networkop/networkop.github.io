@@ -68,7 +68,7 @@ bonds:
         - mstpctl-portadminedge yes
 ```
 
-I've picked this example deliberately because it contains many places where we can make a mistake. All of these errors can be caught by a relatively simple schema definition below:
+I've picked this example deliberately because it contains many places where we can make a mistake. Also, it can be very succinctly summarized by the following CUE schema:
 
 ```json
 #bonds: [...{
@@ -85,13 +85,13 @@ I've picked this example deliberately because it contains many places where we c
 bonds: #bonds
 ```
 
-Here we've created a CUE [definition](https://cuelang.org/docs/tutorials/tour/types/defs/) that describes the structure and type of values expected in the `bonds` variable. The last line "applies" the `#bonds` schema to any existing `bonds` variable. Assuming the above schema is saved in the `bonds.cue` file, we can validate that the input variables conform to it with the following command:
+Here we've created a [CUE definition](https://cuelang.org/docs/tutorials/tour/types/defs/) that describes the structure and type of values expected in the `bonds` variable. The last line "applies" the `#bonds` schema to any existing `bonds` variable. Assuming the above schema is saved in the `bonds.cue` file, we can validate that the input variables conform to it with the following command:
 
 ```bash
 $ cue vet bonds.cue inventories/evpn_symmetric/group_vars/leaf/common.yml
 ```
 
-Now let's introduce a mistake by changing the value of MTU. The resulting error message tells us exactly where the error is and why it's not valid.
+Now let's introduce a mistake by changing the value of MTU in the input variable. The resulting error message tells us exactly where the error is and why it's not valid.
 
 ```bash
 $ sed -i 's/mtu: 9000/mtu: 90000/' inventories/evpn_symmetric/group_vars/leaf/common.yml
@@ -110,6 +110,8 @@ Creating schemas for every input variable can be a tedious process. However, the
 
 To make it easier to follow, I've run through the original `bonds` variable through an [online converter](https://jsonformatter.org/yaml-to-jsonschema), saved the result in a `schema.json` file,  downloaded the `convert.go` script and ran `go run convert.go schema.cue`. The resulting `schema.cue` file contained the following: 
 ```json
+bonds: [...#Bond]
+
 #Bond: {
         name: string
         ports: [...string]
