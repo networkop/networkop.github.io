@@ -43,8 +43,6 @@ If you're thinking about giving CUE a try and now sure where to start, input dat
 
 This could also be a good place to introduce additional constraints for values, for example to verify that BGP ASN is within a valid range or IP addresses are valid. In general, once you've started with a simple schema, you can continue mixing in more policies to tighten the range of allowed values and improve the overall data integrity. 
 
-TODO: DELETE? In its ultimate state, a schema may include a list of required features that need to be enabled for a network protocol,preferred range of network identifiers (VLANs, VNIs, RD/RTs, etc.), becoming an up-to-date network design document.
-
 Let's see a concrete example of how to develop a CUE schema to validate input variables for Cumulus's `golden turtle` [Ansible modules](https://gitlab.com/cumulus-consulting/goldenturtle/cumulus_ansible_modules.git). Get yourself a copy of this repository:
 
 ```bash
@@ -68,7 +66,7 @@ bonds:
         - mstpctl-portadminedge yes
 ```
 
-I've picked this example deliberately because it contains many places where we can make a mistake. Also, it can be very succinctly summarized by the following CUE schema:
+I've picked this example deliberately because it contains many places where we can make a mistake, but also because it can be very succinctly summarized by the following CUE schema:
 
 ```json
 #bonds: [...{
@@ -85,7 +83,7 @@ I've picked this example deliberately because it contains many places where we c
 bonds: #bonds
 ```
 
-Here we've created a [CUE definition](https://cuelang.org/docs/tutorials/tour/types/defs/) that describes the structure and type of values expected in the `bonds` variable. The last line "applies" the `#bonds` schema to any existing `bonds` variable. Assuming the above schema is saved in the `bonds.cue` file, we can validate that the input variables conform to it with the following command:
+Here we've created a [CUE definition](https://cuelang.org/docs/tutorials/tour/types/defs/) that describes the structure and type of values expected in the `bonds` variable. The last line "applies" the `#bonds` schema to any existing `bonds` variable. Assuming the above schema is saved in the `bonds.cue` file, we can check if the input variables conform to it with the following command:
 
 ```bash
 $ cue vet bonds.cue inventories/evpn_symmetric/group_vars/leaf/common.yml
@@ -101,14 +99,14 @@ bonds.0.options.mtu: invalid value 900000 (out of bound <9999):
     ./inventories/evpn_symmetric/group_vars/leaf/common.yml:27:13
 ```
 
-You can experiment a bit more by changing the values in the input data, for example change `ports` to an empty list or shift left the indentation of `access: 10` line.
+You can experiment a bit more by changing the values in the input data, for example change `ports` to an empty list or left-shift the indentation of `access: 10` line.
 
 Creating schemas for every input variable can be a tedious process. However, there's a shortcut you can take that can get you almost all the way there relatively easily.  It's a two-step process:
 
-* Use one of the open-source code generators to produce (infer) a JSON Schema document based on a [YAML](https://www.npmjs.com/package/yaml-to-json-schema) or a [Jinja template](https://jinja2schema.readthedocs.io/en/latest/)
+* Use one of the open-source code generators to produce (infer) a JSON Schema based on a [YAML](https://www.npmjs.com/package/yaml-to-json-schema) or a [Jinja template](https://jinja2schema.readthedocs.io/en/latest/) document
 * Use CUE's Go API to convert that JSON Schema into a CUE schema (see [`convert.go`](https://github.com/networkop/cue-ansible/blob/main/jinja/convert.go) for an example)
 
-To make it easier to follow, I've run through the original `bonds` variable through an [online converter](https://jsonformatter.org/yaml-to-jsonschema), saved the result in a `schema.json` file,  downloaded the `convert.go` script and ran `go run convert.go schema.cue`. The resulting `schema.cue` file contained the following: 
+To make it easier to follow, I've run through the original `bonds` variable through an [online converter](https://jsonformatter.org/yaml-to-jsonschema), saved the result in a `schema.json` file,  downloaded the [`convert.go`]((https://github.com/networkop/cue-ansible/blob/main/jinja/convert.go)) script and ran `go run convert.go schema.cue`. The resulting `schema.cue` file contained the following: 
 ```json
 bonds: [...#Bond]
 
@@ -130,8 +128,25 @@ bonds: [...#Bond]
 
 Althought it's a slightly different (more verbose) version of my hand-written CUE schema, most of the values are exactly the same. The only bits that are missing are the constraints and policies, which are optional and can be added at a later stage. You can find another example of the above process in the [Jinja to CUE](https://github.com/networkop/cue-ansible/tree/main/jinja) page of my [cue-ansible repo](https://github.com/networkop/cue-ansible).
 
-## Data Transformation
+Once you have your schemas developed, you can start adding them to an existing Ansible workflow. Here are some of the ideas of how this can be done, starting from the easiest one:
 
+1. You can add an extra task to the top of your Ansible playbook that uses `shell` module to execute `cue vet` against input variables.
+2. If you have an existing CI system, you can add the `cue vet` as a new step before the `ansible-playbook` command is executed.
+3. Another option is to create a custom module that can be configured to run CUE schema validation for any schema or input variables.
+
+The last option requires you to write an Ansible module in Go, but it allows you to have an Ansible-native way of providing inputs and consuming outputs:
+
+```yaml
+- name: Validate input data model with CUE
+  cue_validate:
+    schema: "schemas/input.cue"
+    input: "{{ hostvars[inventory_hostname] | string | b64encode }}"
+  delegate_to: localhost
+```
+
+You can find a [reference implementation](https://github.com/networkop/cue-ansible/blob/main/validation/src/main.go) of this module with an example workflow in the [Validation](https://github.com/networkop/cue-ansible/tree/main/validation) page of my [cue-ansible repo](https://github.com/networkop/cue-ansible).
+
+## Data Transformation
 
 
 
