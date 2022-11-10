@@ -103,10 +103,10 @@ You can experiment a bit more by changing the values in the input data, for exam
 
 Creating schemas for every input variable can be a tedious process. However, there's a shortcut you can take that can get you almost all the way there relatively easily.  It's a two-step process:
 
-* Use one of the open-source code generators to produce (infer) a JSON Schema based on a [YAML](https://www.npmjs.com/package/yaml-to-json-schema) or a [Jinja template](https://jinja2schema.readthedocs.io/en/latest/) document
-* Use CUE's Go API to convert that JSON Schema into a CUE schema (see [`convert.go`](https://github.com/networkop/cue-ansible/blob/main/jinja/convert.go) for an example)
+* Use one of the open-source code generators to produce (infer) a JSON Schema from a [YAML](https://www.npmjs.com/package/yaml-to-json-schema), [JSON](https://jsonschema.net/) or a [Jinja template](https://jinja2schema.readthedocs.io/en/latest/) document
+* Convert JSON Schema to CUE using the `cue import` command.
 
-To make it easier to follow, I've run through the original `bonds` variable through an [online converter](https://jsonformatter.org/yaml-to-jsonschema), saved the result in a `schema.json` file,  downloaded the [`convert.go`]((https://github.com/networkop/cue-ansible/blob/main/jinja/convert.go)) script and ran `go run convert.go schema.cue`. The resulting `schema.cue` file contained the following: 
+To make it easier to follow, I've run through the original `bonds` variable through an [online converter](https://jsonformatter.org/yaml-to-jsonschema), saved the result in a `schema.json` file, and imported it using the `cue import -f -p schema schema.json` command. The resulting `schema.cue` file contained the following: 
 ```json
 bonds: [...#Bond]
 
@@ -128,13 +128,13 @@ bonds: [...#Bond]
 
 Althought it's a slightly different (more verbose) version of my hand-written CUE schema, most of the values are exactly the same. The only bits that are missing are the constraints and policies, which are optional and can be added at a later stage. You can find another example of the above process in the [Jinja to CUE](https://github.com/networkop/cue-ansible/tree/main/jinja) page of my [cue-ansible repo](https://github.com/networkop/cue-ansible).
 
-Once you have your schemas developed, you can start adding them to an existing Ansible workflow. Here are some of the ideas of how this can be done, starting from the easiest one:
+Once you have your schemas developed, you can start adding them to an existing Ansible workflow. Here are some ideas of how this can be done, starting from the easiest one:
 
 1. You can add an extra task to the top of your Ansible playbook that uses `shell` module to execute `cue vet` against input variables.
 2. If you have an existing CI system, you can add the `cue vet` as a new step before the `ansible-playbook` command is executed.
 3. Another option is to create a custom module that can be configured to run CUE schema validation for any schema or input variables.
 
-The last option requires you to write an Ansible module in Go, but it allows you to have an Ansible-native way of providing inputs and consuming outputs:
+The last option requires you to write an Ansible module in Go, but it allows you to have a native way of providing inputs and consuming outputs:
 
 ```yaml
 - name: Validate input data model with CUE
@@ -148,7 +148,144 @@ You can find a [reference implementation](https://github.com/networkop/cue-ansib
 
 ## Data Transformation
 
+At this point, we've only used CUE for schema validation. The next logical step is to ingest all input values in CUE as start working with them as native CUE values. There are many benefits to using CUE for value management, and I'll cover some of them in the following blogposts, but for now let's focus on a very common task of data transformation.
 
+For an example, I'll be using Arista's Validated Design ([AVD](https://github.com/aristanetworks/ansible-avd)) as its one of the most interesting examples of data transformation done in Ansible. AVD uses a combination of custom Python modules and Jinja templates to transform high-level input data and generate structured configs that have all the values required by devices. My goal would be demonstrate CUE's data transformation capabilities by removing parts of Ansible code and Jinja templates and replacing them with CUE code, while keeping the inputs and outputs unchanged.
+
+![](/img/arista-avd.png)
+
+Let's start by cloning the AVD repo and pinning the Ansible collection path to that directory.
+```bash
+git clone https://github.com/aristanetworks/ansible-avd.git && cd ansible-avd
+export ANSIBLE_COLLECTIONS_PATH=$(pwd)
+export OUT_DIR=intended/structured_configs
+```
+
+Using one of the example topologies, I can run through the build stage and generate the host variables that are used as the input to data transformation logic.
+
+```bash
+cd ansible_collections/arista/avd/examples/l2ls-fabric
+ansible-playbook build.yml  --tags build,facts,debug
+```
+
+At this point, I've gone through the process shown in the diagram above, without using CUE. In the `./intended/structured_configs` directory I now have a set of structured device configs and input host variables. Next I'm going to do two things:
+
+1. Import all input host variables to allow me to use them natively as CUE values. 
+2. Save the generated structured device configuration of `LEAF1` switch as a baseline for future comparison (I'm running it through `cue eval --out=yaml` simply to fix the indentation).
+
+```bash
+cue import -p hostvars -f $OUT_DIR/LEAF1-debug-vars.yml
+mv $OUT_DIR/LEAF1-debug-vars.cue leaf1.cue
+cue eval $OUT_DIR/LEAF1.yml --out=yaml > $OUT_DIR/LEAF1.base.yml   
+```
+
+In order to keep the input values separate from the data transformation logic, I've moved them to the `hostvars` package using the `-p` flag in the command above. CUE's code organisation practices look very similar to Go (programming language) and allow me to group code into packages and group similar packages into modules. In order to import the `hostvars` package, I first need to create a CUE module:
+
+```bash
+cue mod init arista.avd
+```
+
+Now I can create a new file called `transform.cue` and import all input variables using the `arista.avd:hostvars` import statement. From then on, I can use a set of data manipulation techniques like the `for` loop, string interpolation, variable declarations and conditionals to expand the high-level data model into a structured configuration containing all device's port channel interfaces:
+
+```bash
+package avd
+
+import (
+	"arista.avd:hostvars"
+	"strconv"
+)
+
+// Uplink port channels
+port_channel_interfaces: {
+	for link in hostvars.switch.uplinks if link.channel_group_id != _|_ {
+		let groupID = strconv.Atoi(link.channel_group_id)
+
+		"Port-Channel\(groupID)": {
+			description: link.channel_description + "_Po\(groupID)"
+			type:        "switched"
+			shutdown:    false
+			if link.vlans != _|_ {
+				vlans: link.vlans
+			}
+			mode: "trunk"
+			if hostvars.switch.mlag != _|_ {
+				mlag: groupID
+			}
+		}
+	}
+}
+
+// MLAG port channels
+if hostvars.switch.mlag != _|_ {
+    port_channel_interfaces: {
+        let groupID = strconv.Atoi(hostvars.switch.mlag_port_channel_id)
+
+        "Port-Channel\(groupID)": {
+            description: "MLAG_PEER_" + hostvars.switch.mlag_peer + "_Po\(groupID)"
+            type: "switched"
+            shutdown: false,
+            vlans: hostvars.switch.mlag_peer_link_allowed_vlans
+            mode: "trunk",
+            trunk_groups: ["MLAG"]
+        }
+    }
+}
+```
+
+The `if value != _|_` expression in the above example is a check if a value is defined, where `_|_` is a special ["bottom" or error value](https://cuelang.org/docs/tutorials/tour/types/bottom/).
+
+The example above contains enough data transformation logic to generate the required set of port channel interfaces which can be checked as follows:
+
+```
+cue eval transform.cue
+```
+
+Now let's remove the port channel generation logic from AVD's Python module and completely wipe out the corresponding Jinja template:
+
+```
+sed -i '/port_channel_interface_name: port_channel_interface,/d' ../../roles/eos_designs/python_modules/mlag/__init__.py
+cat /dev/null > ../../roles/eos_designs/templates/underlay/interfaces/port-channel-interfaces.j2
+```
+
+I can re-run the playbook again to see what results I get after the above changes:
+
+```bash
+ansible-playbook build.yml  --tags build,facts,debug
+cue eval $OUT_DIR/LEAF1.yml --out=yaml > $OUT_DIR/LEAF1.new.yml
+```
+
+The resulting structured config should contain no port channel configuration data, which we can verify by comparing with the baseline:
+
+```diff
+diff $OUT_DIR/LEAF1.new.yml $OUT_DIR//LEAF1.base.yml
+67c67,82
+< port_channel_interfaces: {}
+---
+> port_channel_interfaces:
+>   Port-Channel47:
+>     description: MLAG_PEER_LEAF2_Po47
+>     type: switched
+>     shutdown: false
+>     vlans: "2-4094"
+>     mode: trunk
+>     trunk_groups:
+>       - MLAG
+>   Port-Channel1:
+>     description: SPINES_Po1
+>     type: switched
+>     shutdown: false
+>     vlans: 10,20
+>     mode: trunk
+>     mlag: 1
+```
+
+Since I already have the port channel data produced by the CUE code, I can merge it together with the latests intended config like this:
+
+```bash
+cue eval transform.cue $OUT_DIR/LEAF1.yml --out=yaml > $OUT_DIR/LEAF1.new.yml
+```
+
+Re-running the above diff command should show that the new intended device config looks exactly the same (with a minor exception of struct field re-ordering). This means we have generated the same exact output from the same set of inputs, bypassing Python and Jinja and baking all logic in CUE. We have consolidated and unified data transformation and made it easier to read and reason about.
 
 Next up: Config Generation and orchestrating API interactions with remote devices
 
