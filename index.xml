@@ -11,6 +11,314 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Network Automation with CUE - Augmenting Ansible workflows</title>
+      <link>https://networkop.co.uk/post/2022-11-cue-ansible/</link>
+      <pubDate>Fri, 11 Nov 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2022-11-cue-ansible/</guid>
+      <description>
+
+&lt;p&gt;Hardly any conversation about network automation that happens these days can avoid the topic of automation frameworks. Amongst the few that are still actively developed, Ansible is by far the most popular choice. Ansible ecosystem has been growing rapidly over the last few years, with modules being contributed by both internal (Redhat) and external (community) developers. Having the backing of one of the largest open-source first companies has allowed Ansible to spread into all areas of infrastructure &amp;ndash; from server automation to cloud provisioning. By following the principle of eating your own dog food, Redhat used Ansible in a lot of its own open-source projects, which made it even more popular in the masses. Another important factor in Ansible&amp;rsquo;s success is the ease of understanding. When it comes to network automation, Ansible&amp;rsquo;s stateless and agentless architecture very closely follows a standard network operation experience &amp;ndash; SSH in, enter commands line-by-line, catch any errors, save and disconnect. But like many complex software projects, Ansible is not without its own challenges, and in this post, I&amp;rsquo;ll take a look at what they are and how CUE can help overcome them.&lt;/p&gt;
+
+&lt;h2 id=&#34;ansible-automation-workflow&#34;&gt;Ansible Automation Workflow&lt;/h2&gt;
+
+&lt;p&gt;Let&amp;rsquo;s start with an overview of the intermediate Ansible automation workflow, that was described in the &lt;a href=&#34;https://networkop.co.uk/post/2022-10-cue-intro/&#34;&gt;previous post&lt;/a&gt;, and try to see what areas are more prone to human error or may require additional improvement. In order to do that, I&amp;rsquo;ll break it down into a sequence of steps describing how configuration data travels through this automation workflow, where it gets mutated and how it is used:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;A user creates a playbook, a device inventory and a set of variables describing the desired state of the network.&lt;/li&gt;
+&lt;li&gt;Ansible runtime parses all input data and calculates a per-host set of variables.&lt;/li&gt;
+&lt;li&gt;This set of high-level variables gets transformed into a larger set of low-level variables.&lt;/li&gt;
+&lt;li&gt;The entire set of variables is now passed to a config generation module which combines them with one or more Jinja templates.&lt;/li&gt;
+&lt;li&gt;The resulting semi-structured text is applied to the running device configuration.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/cue-ansible.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;One of the first places where we can make a mistake is the input data. Specifically, a set of input variables is essentially a free-form YAML data structure with values sourced from up to &lt;a href=&#34;https://docs.ansible.com/ansible/latest/user_guide/playbooks_variables.html#understanding-variable-precedence&#34; target=&#34;_blank&#34;&gt;22 different places&lt;/a&gt;. There&amp;rsquo;s no way to verify that the shape of the input data structure is correct and the only way to validate the type of values is by using filters.&lt;/p&gt;
+
+&lt;p&gt;However, even with filters, you can never be sure the returned value has the right type, as filters are built to &amp;ldquo;fail safe&amp;rdquo;. For example, the &lt;code&gt;ansible.utils.ipaddr&lt;/code&gt; filter will return the input value (as a string) if it&amp;rsquo;s a valid IP address, but will return a boolean &lt;code&gt;False&lt;/code&gt; if it isn&amp;rsquo;t, conflating the returned value and an error in a single variable. There&amp;rsquo;s no way to abort Ansible execution or signal to the user that the input value was incorrect unless you use &lt;code&gt;assert&lt;/code&gt; statements, which become pretty ineffective even with relatively small volumes of data.&lt;/p&gt;
+
+&lt;p&gt;The next place where things can go wrong is the data transformation stage. This can be anything from a simple &lt;code&gt;builtin.set_fact&lt;/code&gt; module with a bunch of filters to what I describe as &amp;ldquo;Jinja programming&amp;rdquo; &amp;ndash; manipulating data structures using Jinja&amp;rsquo;s expression statements (e.g. &lt;code&gt;set&lt;/code&gt; and &lt;code&gt;do&lt;/code&gt; tags) or even building a structured document (YAML, JSON) using string interpolation. In any case, the likelihood of making a mistake gets even higher since both the input data and the transformation logic itself are dynamically-typed and Jinja is notorious for becoming &lt;a href=&#34;https://news.ycombinator.com/item?id=14777697&#34; target=&#34;_blank&#34;&gt;incomprehensible very quickly&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Now we&amp;rsquo;re at the config generation phase where, once again, the input variables are passed without validation which means you can easily get tripped by one of the &lt;a href=&#34;https://docs.saltproject.io/en/latest/topics/troubleshooting/yaml_idiosyncrasies.html&#34; target=&#34;_blank&#34;&gt;YAML idiosyncrasies&lt;/a&gt; and troubleshooting Jinja templating errors is particularly painful as errors are often reported with a vague &amp;ldquo;undefined variable&amp;rdquo; message.&lt;/p&gt;
+
+&lt;p&gt;Finally, one of the unlikely places that can benefit from CUE is the API interactions with remote devices. CUE&amp;rsquo;s &lt;a href=&#34;https://cuelang.org/docs/usecases/scripting/&#34; target=&#34;_blank&#34;&gt;scripting capabilities&lt;/a&gt; can orchestrate interaction with multiple HTTP-based APIs and, if possible, would do this concurrently. This not only accelerates execution but also reduces resource utilisation thanks to the CUE&amp;rsquo;s (Go&amp;rsquo;s) lightweight concurrency model compared to Ansible&amp;rsquo;s more expensive &lt;code&gt;os.fork()&lt;/code&gt; approach.&lt;/p&gt;
+
+&lt;p&gt;If you go back and look at the first two areas I&amp;rsquo;ve identified above, you can see that they can easily be done by an external tool and integrated into any existing Ansible workflow without making any serious changes to how the config is generated or delivered. These will be the two things I&amp;rsquo;m going to cover in this post.&lt;/p&gt;
+
+&lt;p&gt;The final two areas are more disruptive but may allow you to replace Ansible completely for pretty much any non-SSH API automation, i.e. JSON-RPC or REST APIs. I&amp;rsquo;ll cover them in the following article.&lt;/p&gt;
+
+&lt;h2 id=&#34;input-data-validation&#34;&gt;Input Data Validation&lt;/h2&gt;
+
+&lt;p&gt;If you&amp;rsquo;re thinking about giving CUE a try and now sure where to start, input data validation could be your best option. Creating a schema for input data is a good exercise to test and explore the language while having no negative impact on your automation workflow. The benefits, however, are worth it as the schema will improve your automation workflow by:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Validating the structural shape of input variables to catch any potential indentation errors&lt;/li&gt;
+&lt;li&gt;Making sure all variables have the right type and catch any typos before you run the playbook&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;This could also be a good place to introduce additional constraints for values, for example, to verify that BGP ASN is within a valid range or if IP addresses are valid. In general, once you&amp;rsquo;ve started with a simple schema, you can continue mixing in more policies to tighten the range of allowed values and improve the overall data integrity.&lt;/p&gt;
+
+&lt;p&gt;Let&amp;rsquo;s see a concrete example of how to develop a CUE schema to validate input variables using Cumulus&amp;rsquo;s &lt;code&gt;golden turtle&lt;/code&gt; &lt;a href=&#34;https://gitlab.com/cumulus-consulting/goldenturtle/cumulus_ansible_modules.git&#34; target=&#34;_blank&#34;&gt;Ansible modules&lt;/a&gt;. Get yourself a copy of this repository:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;git clone https://gitlab.com/cumulus-consulting/goldenturtle/cumulus_ansible_modules.git &amp;amp;&amp;amp; cd cumulus_ansible_modules
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You&amp;rsquo;ll find several validated network topologies inside of the &lt;code&gt;inventories/&lt;/code&gt; directory together with a set of input variables spread across standard Ansible group and host variable directories. To make this example a bit simpler, I&amp;rsquo;ll focus on the bonds (link aggregation) configuration, and the following example shows a snippet of the &lt;code&gt;bonds&lt;/code&gt; variable from the &lt;a href=&#34;https://gitlab.com/cumulus-consulting/goldenturtle/cumulus_ansible_modules/-/blob/master/inventories/evpn_symmetric/group_vars/leaf/common.yml#L20&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;group_vars/leaf/common.yml&lt;/code&gt;&lt;/a&gt; file:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;bonds:
+  - name: bond1
+    ports: [swp1]
+    clag_id: 1
+    bridge:
+      access: 10
+    options:
+      mtu: 9000
+      extras:
+        - bond-lacp-bypass-allow yes
+        - mstpctl-bpduguard yes
+        - mstpctl-portadminedge yes
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;I&amp;rsquo;ve picked this example deliberately because it contains many places where we can make a mistake, but also because it can be very succinctly summarized by the following CUE schema:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;#bonds: [...{
+    name: string
+    ports: [...string] 
+    clag_id: int
+    bridge: access: int
+    options: {
+        mtu: int &amp;amp; &amp;lt;9999
+        extras: [...string]
+    }
+}]
+
+bonds: #bonds
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Here we&amp;rsquo;ve created a &lt;a href=&#34;https://cuelang.org/docs/tutorials/tour/types/defs/&#34; target=&#34;_blank&#34;&gt;CUE definition&lt;/a&gt; that describes the structure and type of values expected in the &lt;code&gt;bonds&lt;/code&gt; variable. The last line &amp;ldquo;applies&amp;rdquo; the &lt;code&gt;#bonds&lt;/code&gt; schema to any existing &lt;code&gt;bonds&lt;/code&gt; variable. Assuming the above schema is saved in the &lt;code&gt;bonds.cue&lt;/code&gt; file, we can check if the input variables conform to it with the following command:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ cue vet bonds.cue inventories/evpn_symmetric/group_vars/leaf/common.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s introduce a mistake by changing the value of MTU in the input variable. The resulting error message tells us exactly where the error is and why it&amp;rsquo;s not valid:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ sed -i &#39;s/mtu: 9000/mtu: 90000/&#39; inventories/evpn_symmetric/group_vars/leaf/common.yml
+$ cue vet bonds.cue inventories/evpn_symmetric/group_vars/leaf/common.yml
+bonds.0.options.mtu: invalid value 900000 (out of bound &amp;lt;9999):
+    ./bonds.cue:8:20
+    ./inventories/evpn_symmetric/group_vars/leaf/common.yml:27:13
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You can experiment a bit more by changing the values in the input data, for example, try changing &lt;code&gt;ports&lt;/code&gt; to an empty list or left-shifting the indentation of &lt;code&gt;access: 10&lt;/code&gt; line.&lt;/p&gt;
+
+&lt;p&gt;Creating schemas for every input variable can be a tedious process. However, there&amp;rsquo;s a shortcut you can take that can get you a working schema relatively easily.  It&amp;rsquo;s a two-step process:&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;Use one of the open-source code generators to produce (infer) a JSON Schema from a &lt;a href=&#34;https://www.npmjs.com/package/yaml-to-json-schema&#34; target=&#34;_blank&#34;&gt;YAML&lt;/a&gt;, &lt;a href=&#34;https://jsonschema.net/&#34; target=&#34;_blank&#34;&gt;JSON&lt;/a&gt; or a &lt;a href=&#34;https://jinja2schema.readthedocs.io/en/latest/&#34; target=&#34;_blank&#34;&gt;Jinja template&lt;/a&gt; document&lt;/li&gt;
+&lt;li&gt;Convert JSON Schema to CUE using the &lt;code&gt;cue import&lt;/code&gt; command.&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;To make it easier to follow, I&amp;rsquo;ve run through the original &lt;code&gt;bonds&lt;/code&gt; variable through an &lt;a href=&#34;https://jsonformatter.org/yaml-to-jsonschema&#34; target=&#34;_blank&#34;&gt;online converter&lt;/a&gt;, saved the result in a &lt;code&gt;schema.json&lt;/code&gt; file, and imported it using the &lt;code&gt;cue import -f -p schema schema.json&lt;/code&gt; command. The resulting &lt;code&gt;schema.cue&lt;/code&gt; file contained the following:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;bonds: [...#Bond]
+
+#Bond: {
+        name: string
+        ports: [...string]
+        clag_id: int
+        bridge:  #Bridge
+        options: #Options
+}
+
+#Bridge: access: int
+
+#Options: {
+        mtu: int
+        extras: [...string]
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Although it&amp;rsquo;s a slightly different (more verbose) version of my hand-written CUE schema, most of the values are exactly the same. The only bits that are missing are constraints and policies, which are optional and can be added at a later stage. You can find another example of the above process on the &lt;a href=&#34;https://github.com/networkop/cue-ansible/tree/main/jinja&#34; target=&#34;_blank&#34;&gt;Jinja to CUE&lt;/a&gt; page of my &lt;a href=&#34;https://github.com/networkop/cue-ansible&#34; target=&#34;_blank&#34;&gt;cue-ansible repo&lt;/a&gt;.&lt;/p&gt;
+
+&lt;p&gt;Once you have your schemas developed, you can start adding them to an existing Ansible workflow. Here are some ideas of how this can be done, starting from the easiest one:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;You can add an extra task to the top of your Ansible playbook that uses &lt;code&gt;shell&lt;/code&gt; module to execute &lt;code&gt;cue vet&lt;/code&gt; against input variables.&lt;/li&gt;
+&lt;li&gt;If you have an existing CI system, you can add the &lt;code&gt;cue vet&lt;/code&gt; as a new step before &lt;code&gt;ansible-playbook&lt;/code&gt; command is executed.&lt;/li&gt;
+&lt;li&gt;Another option is to create a custom module that can be configured to run CUE schema validation for any schema or input variables.&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;p&gt;The last option requires you to write an Ansible module in Go, but it allows you to have a native way of providing inputs and consuming outputs:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;- name: Validate input data model with CUE
+  cue_validate:
+    schema: &amp;quot;schemas/input.cue&amp;quot;
+    input: &amp;quot;{{ hostvars[inventory_hostname] | string | b64encode }}&amp;quot;
+  delegate_to: localhost
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You can find a &lt;a href=&#34;https://github.com/networkop/cue-ansible/blob/main/validation/src/main.go&#34; target=&#34;_blank&#34;&gt;reference implementation&lt;/a&gt; of this module with an example workflow in the &lt;a href=&#34;https://github.com/networkop/cue-ansible/tree/main/validation&#34; target=&#34;_blank&#34;&gt;Validation&lt;/a&gt; page of my &lt;a href=&#34;https://github.com/networkop/cue-ansible&#34; target=&#34;_blank&#34;&gt;cue-ansible repo&lt;/a&gt;.&lt;/p&gt;
+
+&lt;h2 id=&#34;data-transformation&#34;&gt;Data Transformation&lt;/h2&gt;
+
+&lt;p&gt;At this point, we&amp;rsquo;ve only used CUE for schema validation. The next logical step is to ingest all input values in CUE and start working with them as native CUE values. There are many benefits to using CUE for value management, and I&amp;rsquo;ll cover some of them in the following blog posts, but for now, let me focus on a very common task of data transformation.&lt;/p&gt;
+
+&lt;p&gt;For demonstration purposes, I&amp;rsquo;ll be using Arista&amp;rsquo;s Validated Design (&lt;a href=&#34;https://github.com/aristanetworks/ansible-avd&#34; target=&#34;_blank&#34;&gt;AVD&lt;/a&gt;) as it&amp;rsquo;s one of the most interesting examples of data transformation done in Ansible. AVD uses a combination of custom Python modules and Jinja templates to transform high-level input data and generate structured configs that have all the values required by devices. My goal would be to demonstrate CUE&amp;rsquo;s data transformation capabilities by removing parts of Ansible code and Jinja templates and replacing them with CUE code, while keeping both inputs and outputs unchanged.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/arista-avd.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Let&amp;rsquo;s start by cloning the AVD repo and pinning the Ansible collection path to that directory.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ git clone https://github.com/aristanetworks/ansible-avd.git &amp;amp;&amp;amp; cd ansible-avd
+$ export ANSIBLE_COLLECTIONS_PATH=$(pwd)
+$ export OUT_DIR=intended/structured_configs
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Using one of the included example topologies, I run through the entire data transformation stage shown in the above diagram, first without using CUE.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ cd ansible_collections/arista/avd/examples/l2ls-fabric
+$ ansible-playbook build.yml  --tags build,facts,debug
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;In the &lt;code&gt;./intended/structured_configs&lt;/code&gt; directory, I now have a set of structured device configs and input host variables. Next, I&amp;rsquo;m going to do two things:&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;Import all input host variables to allow me to use them natively as CUE values.&lt;/li&gt;
+&lt;li&gt;Save the generated structured device configuration of &lt;code&gt;LEAF1&lt;/code&gt; switch as a baseline for future comparison (I&amp;rsquo;m running it through &lt;code&gt;cue eval --out=yaml&lt;/code&gt; simply to update the indentation).&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ cue import -p hostvars -f $OUT_DIR/LEAF1-debug-vars.yml
+$ mv $OUT_DIR/LEAF1-debug-vars.cue leaf1.cue
+$ cue eval $OUT_DIR/LEAF1.yml --out=yaml &amp;gt; $OUT_DIR/LEAF1.base.yml   
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;In order to keep the input values separate from the data transformation logic, I&amp;rsquo;ve moved them into their own &lt;code&gt;hostvars&lt;/code&gt; package using the &lt;code&gt;-p&lt;/code&gt; flag in the command above. CUE&amp;rsquo;s code organisation practices are very similar to Go&amp;rsquo;s (programming language) and allow me to group code into packages and group similar packages into modules. In order to import the &lt;code&gt;hostvars&lt;/code&gt; package, I first need to initialise a CUE module:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;cue mod init arista.avd
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now I can create a new file called &lt;code&gt;transform.cue&lt;/code&gt; and get access to all input variables using the &lt;code&gt;arista.avd:hostvars&lt;/code&gt; import statement. From here on, I can use a standard set of data manipulation techniques like the &lt;code&gt;for&lt;/code&gt; loop, string interpolation, variable declarations and conditionals to expand the high-level data model into a low-level structured configuration, focusing only on port channel interfaces for this example:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;package avd
+
+import (
+	&amp;quot;arista.avd:hostvars&amp;quot;
+	&amp;quot;strconv&amp;quot;
+)
+
+// Uplink port channels
+port_channel_interfaces: {
+	for link in hostvars.switch.uplinks if link.channel_group_id != _|_ {
+		let groupID = strconv.Atoi(link.channel_group_id)
+
+		&amp;quot;Port-Channel\(groupID)&amp;quot;: {
+			description: link.channel_description + &amp;quot;_Po\(groupID)&amp;quot;
+			type:        &amp;quot;switched&amp;quot;
+			shutdown:    false
+			if link.vlans != _|_ {
+				vlans: link.vlans
+			}
+			mode: &amp;quot;trunk&amp;quot;
+			if hostvars.switch.mlag != _|_ {
+				mlag: groupID
+			}
+		}
+	}
+}
+
+// MLAG port channels
+if hostvars.switch.mlag != _|_ {
+    port_channel_interfaces: {
+        let groupID = strconv.Atoi(hostvars.switch.mlag_port_channel_id)
+
+        &amp;quot;Port-Channel\(groupID)&amp;quot;: {
+            description: &amp;quot;MLAG_PEER_&amp;quot; + hostvars.switch.mlag_peer + &amp;quot;_Po\(groupID)&amp;quot;
+            type: &amp;quot;switched&amp;quot;
+            shutdown: false,
+            vlans: hostvars.switch.mlag_peer_link_allowed_vlans
+            mode: &amp;quot;trunk&amp;quot;,
+            trunk_groups: [&amp;quot;MLAG&amp;quot;]
+        }
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;The &lt;code&gt;if value != _|_&lt;/code&gt; expression in the above example is a check if a value is defined, where &lt;code&gt;_|_&lt;/code&gt; is a special &lt;a href=&#34;https://cuelang.org/docs/tutorials/tour/types/bottom/&#34; target=&#34;_blank&#34;&gt;&amp;ldquo;bottom&amp;rdquo; or error value&lt;/a&gt;.&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;The example above contains enough data transformation logic to generate the required set of port-channel interfaces, and can be checked as follows:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ cue eval transform.cue
+port_channel_interfaces: {
+    &amp;quot;Port-Channel47&amp;quot;: {
+        description: &amp;quot;MLAG_PEER_LEAF2_Po47&amp;quot;
+        type:        &amp;quot;switched&amp;quot;
+        shutdown:    false
+        vlans:       &amp;quot;2-4094&amp;quot;
+        mode:        &amp;quot;trunk&amp;quot;
+        trunk_groups: [&amp;quot;MLAG&amp;quot;]
+    }
+    &amp;quot;Port-Channel1&amp;quot;: {
+        description: &amp;quot;SPINES_Po1&amp;quot;
+        type:        &amp;quot;switched&amp;quot;
+        shutdown:    false
+        vlans:       &amp;quot;10,20&amp;quot;
+        mlag:        1
+        mode:        &amp;quot;trunk&amp;quot;
+    }
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Now let&amp;rsquo;s remove the port channel data generation logic from AVD&amp;rsquo;s Python module and completely wipe out a corresponding Jinja template:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;$ sed -i &#39;/port_channel_interface_name: port_channel_interface,/d&#39; ../../roles/eos_designs/python_modules/mlag/__init__.py
+$ cat /dev/null &amp;gt; ../../roles/eos_designs/templates/underlay/interfaces/port-channel-interfaces.j2
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;I re-run the playbook again to see what results I get after the above changes:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ ansible-playbook build.yml  --tags build,facts,debug
+$ cue eval $OUT_DIR/LEAF1.yml --out=yaml &amp;gt; $OUT_DIR/LEAF1.new.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The resulting structured config should contain no port channel configuration data, which I verify by comparing with the baseline:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-diff&#34;&gt;$ diff $OUT_DIR/LEAF1.new.yml $OUT_DIR/LEAF1.base.yml
+67c67,82
+&amp;lt; port_channel_interfaces: {}
+---
+&amp;gt; port_channel_interfaces:
+&amp;gt;   Port-Channel47:
+&amp;gt;     description: MLAG_PEER_LEAF2_Po47
+&amp;gt;     type: switched
+&amp;gt;     shutdown: false
+&amp;gt;     vlans: &amp;quot;2-4094&amp;quot;
+&amp;gt;     mode: trunk
+&amp;gt;     trunk_groups:
+&amp;gt;       - MLAG
+&amp;gt;   Port-Channel1:
+&amp;gt;     description: SPINES_Po1
+&amp;gt;     type: switched
+&amp;gt;     shutdown: false
+&amp;gt;     vlans: 10,20
+&amp;gt;     mode: trunk
+&amp;gt;     mlag: 1
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;However, since I already have the correct port channel data produced by my CUE code, I can merge it with the latest structured config. Note that I pass both CUE and YAML files as the input to the &lt;code&gt;cue eval&lt;/code&gt; command, leaving it up to CUE to recognise the type, import and evaluate everything as a single set of CUE values.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;$ cue eval transform.cue $OUT_DIR/LEAF1.yml --out=yaml &amp;gt; $OUT_DIR/LEAF1.new.yml
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Re-running the earlier diff command should show that the new structured device config looks exactly the same as the baseline (with a minor exception of struct field re-ordering). This means I have generated the same exact output from the same set of inputs, bypassing Python and Jinja and moving all port-channel data transformation logic into CUE. This way I have consolidated and unified data transformation and made it easier to read and reason about.&lt;/p&gt;
+
+&lt;p&gt;Now that I&amp;rsquo;ve covered the first two stages of the advanced automation workflow, it&amp;rsquo;s time to move on to the final two stages and wrap up the Ansible portion of this blog post series. In the next post, I&amp;rsquo;ll show how to hierarchically organise CUE code to minimise boilerplate, how to work with externally-sourced data like IPAM or secret stores and use CUE&amp;rsquo;s scripting to apply configurations to multiple devices at the same time.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Network Automation with CUE - Introduction</title>
       <link>https://networkop.co.uk/post/2022-10-cue-intro/</link>
       <pubDate>Thu, 27 Oct 2022 00:00:00 +0000</pubDate>
@@ -2884,238 +3192,6 @@ Sending 5, 100-byte ICMP Echos to 12.12.12.1, timeout is 2 seconds:
 Success rate is 100 percent (5/5), round-trip min/avg/max = 2/8/18 ms
 csr1000v#
 &lt;/code&gt;&lt;/pre&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Large-scale network simulations in Kubernetes, Part 2 - Network topology orchestration</title>
-      <link>https://networkop.co.uk/post/2018-11-k8s-topo-p2/</link>
-      <pubDate>Sat, 01 Dec 2018 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/post/2018-11-k8s-topo-p2/</guid>
-      <description>
-
-&lt;p&gt;In the &lt;a href=&#34;https://networkop.co.uk/post/2018-11-k8s-topo-p1/&#34;&gt;previous post&lt;/a&gt; I&amp;rsquo;ve demonstrated a special-purpose CNI plugin for network simulations inside kubernetes called &lt;a href=&#34;https://github.com/networkop/meshnet-cni&#34; target=&#34;_blank&#34;&gt;meshnet&lt;/a&gt;. I&amp;rsquo;ve shown how relatively easy it is to build a simple 3-node topology spread across multiple kubernetes nodes. However, when it comes to real-life large-scale topology simulations, using meshnet &amp;ldquo;as is&amp;rdquo; becomes problematic due to the following reasons:&lt;/p&gt;
-
-&lt;ol&gt;
-&lt;li&gt;Uploading topology information into etcd requires a lot of manual effort.&lt;/li&gt;
-&lt;li&gt;Any customisation like startup configuration injection or exposure of internal ports is still a manual process.&lt;/li&gt;
-&lt;/ol&gt;
-
-&lt;p&gt;That is why I built &lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; - an orchestrator for network simulations inside kubernetes. It automates a lot of these manual steps and provides a simple and user-friendly interface to create networks of any size and configuration.&lt;/p&gt;
-
-&lt;h1 id=&#34;k8s-topo-overview&#34;&gt;k8s-topo overview&lt;/h1&gt;
-
-&lt;p&gt;&lt;a href=&#34;https://github.com/networkop/k8s-topo&#34; target=&#34;_blank&#34;&gt;k8s-topo&lt;/a&gt; is a Python script that creates network topologies inside k8s based on a simple YAML file. It uses syntax similar to &lt;a href=&#34;https://github.com/networkop/arista-ceos-topo&#34; target=&#34;_blank&#34;&gt;docker-topo&lt;/a&gt; with a few modifications to account for the specifics of kubernetes environment. For instance, the following file is all what&amp;rsquo;s required to create and configure a simple 3-node topology:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-yaml&#34;&gt;etcd_port: 32379
-links:
-  - endpoints: [&amp;quot;host-1:eth1:12.12.12.1/24&amp;quot;, &amp;quot;host-2:eth1:12.12.12.2/24&amp;quot;]
-  - endpoints: [&amp;quot;host-1:eth2:13.13.13.1/24&amp;quot;, &amp;quot;host-3:eth1:13.13.13.3/24&amp;quot;]
-  - endpoints: [&amp;quot;host-2:eth2:23.23.23.2/24&amp;quot;, &amp;quot;host-3:eth2:23.23.23.3/24&amp;quot;]
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Behind the scenes it uses &lt;a href=&#34;https://github.com/kubernetes-client/python&#34; target=&#34;_blank&#34;&gt;kubernetes&lt;/a&gt; and &lt;a href=&#34;https://github.com/kragniz/python-etcd3&#34; target=&#34;_blank&#34;&gt;etcd&lt;/a&gt; python libraries to accomplish the following things:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Upload topology information into etcd&lt;/li&gt;
-&lt;li&gt;Create a pod for each network device mentioned in the topology file&lt;/li&gt;
-&lt;li&gt;If present, mount devices startup configuration as volumes inside pods&lt;/li&gt;
-&lt;li&gt;Expose internal HTTPs port as a &lt;a href=&#34;https://kubernetes.io/docs/concepts/services-networking/service/#nodeport&#34; target=&#34;_blank&#34;&gt;NodePort&lt;/a&gt; service for every device&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-topo.png&#34; alt=&#34;k8s-topo&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;At the time of writing, k8s-topo supported three devices types, that get matched based on the device hostname prefix:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Host device - an Alpine image, matched by prefix &lt;code&gt;host&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;cEOS device - an Arista cEOS image, matched by prefix &lt;code&gt;sw&lt;/code&gt;&lt;/li&gt;
-&lt;li&gt;Quagga device - an Alpine image with Quagga package installed, matched by prefix &lt;code&gt;qrtr&lt;/code&gt;&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;As an optional extra, k8s-topo can generate a &lt;a href=&#34;https://www.tutorialspoint.com/d3js/d3js_graphs.htm&#34; target=&#34;_blank&#34;&gt;D3.js&lt;/a&gt; graph that visualises the deployed network topology on an interactive web graph as will be shown later.&lt;/p&gt;
-
-&lt;h1 id=&#34;installation&#34;&gt;Installation&lt;/h1&gt;
-
-&lt;p&gt;There are two main ways to install k8s-topo. The more traditional way will install k8s-topo as a python script on a local machine:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;pip3 install git+https://github.com/networkop/k8s-topo.git
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Another option is to install k8s-topo as a pod on top of a kubernetes cluster (it could be the same cluster that will be used for network simulations). For this option, we first need to build a k8s-topo docker image:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;build.sh &amp;lt;dockerhub_username&amp;gt;
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;And then create a pod and its associated service:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;kubectl create -f kube-k8s-topo.yml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Technically, it doesn&amp;rsquo;t matter where the k8s-topo is installed as long as it can access the k8s cluster and meshnet&amp;rsquo;s etcd service. However, for the sake of simplicity, examples below will assume hosted k8s install, which means that we only need to specify the &lt;code&gt;etcd_port&lt;/code&gt; variable, leaving all others as default (e.g. &lt;code&gt;etcd_host = localhost&lt;/code&gt;).&lt;/p&gt;
-
-&lt;h1 id=&#34;random-topology-examples&#34;&gt;Random topology examples&lt;/h1&gt;
-
-&lt;p&gt;To demonstrate capabilities of our orchestrator, I&amp;rsquo;ve written a random topology &lt;a href=&#34;https://github.com/networkop/k8s-topo/blob/master/examples/builder/builder&#34; target=&#34;_blank&#34;&gt;builder script&lt;/a&gt; that generates a &lt;a href=&#34;https://en.wikipedia.org/wiki/Loop-erased_random_walk&#34; target=&#34;_blank&#34;&gt;uniform spanning tree&lt;/a&gt; graph, which is then used to create a topology definition YAML file along with a set of configuration files for each device. These configuration files accomplish two things:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;Configure a unique Loopback IP address in the &lt;code&gt;198.51.100.0/24&lt;/code&gt; range&lt;/li&gt;
-&lt;li&gt;Enable OSPF on all directly connected interfaces&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;The goal of this script is to be able to generate random large-scale network topologies that would be easy to test by simply ping-sweeping the range of all configured loopback addresses.&lt;/p&gt;
-
-&lt;p&gt;All following demos assume that meshnet CNI  plugin has already been installed, as described in the &lt;a href=&#34;https://networkop.co.uk/post/2018-11-k8s-topo-p1/&#34;&gt;previous post&lt;/a&gt;. Let&amp;rsquo;s start with a relatively small example of 50 cEOS containers.&lt;/p&gt;
-
-&lt;h2 id=&#34;building-a-50-node-ceos-topology&#34;&gt;Building a 50-node cEOS topology&lt;/h2&gt;
-
-&lt;blockquote&gt;
-&lt;p&gt;Before we can start building cEOS topologies, we need to make the cEOS Docker image available in a private docker registry. Refer to the k8s-topo Github repository for a complete list of &lt;a href=&#34;https://github.com/networkop/k8s-topo#private-docker-registry-setup&#34; target=&#34;_blank&#34;&gt;instructions&lt;/a&gt;.&lt;/p&gt;
-&lt;/blockquote&gt;
-
-&lt;p&gt;First, we&amp;rsquo;ll generate a random 50-node topology. From inside the k8s-topo pod run:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./examples/builder/builder --prefix sw 50 0
-Total number of links generated: 49
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Prefix &lt;code&gt;sw&lt;/code&gt; ensures that configured devices will be based on Arista cEOS image.&lt;/p&gt;
-
-&lt;p&gt;Next, we can use k8s-topo to create our random topology inside k8s:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./bin/k8s-topo --create examples/builder/random.yml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Some of the versions of cEOS don&amp;rsquo;t have the &lt;code&gt;net.ipv4.ip_forward&lt;/code&gt; bit set which means no transit traffic will be allowed. In order to fix that, we can run the following command which modifies this setting on all running cEOS devices:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./bin/k8s-topo --eif examples/builder/random.yml
-INFO:__main__:All pods are running, trying to enable ip forwarding for cEOS pods
-INFO:__main__:All cEOS pods have IP forwarding enabled
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;To be able see the generated topology we can run the following command, which creates a D3 graph and prints the URL we can use to access it.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;/k8s-topo # ./bin/k8s-topo --graph examples/builder/random.yml
-INFO:__main__:D3 graph created
-INFO:__main__:URL: http://10.83.30.252:32080
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The built-in nginx server renders a simple interactive web page with each device coloured according to the k8s node they are running on (in my case there are 4 nodes in total):&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-topo-20.png&#34; alt=&#34;20-node&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;At this point we can run the ping-sweep test from any device to verify that we have complete end-to-end reachability:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;# kubectl exec -it sw-1 bash
-bash-4.3# for i in `seq 1 50`; do ping -c 1 -W 1 198.51.100.$i|grep from; done
-64 bytes from 198.51.100.1: icmp_seq=1 ttl=64 time=0.061 ms
-64 bytes from 198.51.100.2: icmp_seq=1 ttl=54 time=187 ms
-64 bytes from 198.51.100.3: icmp_seq=1 ttl=56 time=139 ms
-64 bytes from 198.51.100.4: icmp_seq=1 ttl=49 time=238 ms
-64 bytes from 198.51.100.5: icmp_seq=1 ttl=53 time=189 ms
-64 bytes from 198.51.100.6: icmp_seq=1 ttl=50 time=238 ms
-64 bytes from 198.51.100.7: icmp_seq=1 ttl=61 time=71.6 ms
-64 bytes from 198.51.100.8: icmp_seq=1 ttl=62 time=42.3 ms
-64 bytes from 198.51.100.9: icmp_seq=1 ttl=59 time=91.0 ms
-64 bytes from 198.51.100.10: icmp_seq=1 ttl=61 time=43.8 ms
-64 bytes from 198.51.100.11: icmp_seq=1 ttl=60 time=60.8 ms
-64 bytes from 198.51.100.12: icmp_seq=1 ttl=60 time=70.7 ms
-64 bytes from 198.51.100.13: icmp_seq=1 ttl=57 time=134 ms
-64 bytes from 198.51.100.14: icmp_seq=1 ttl=48 time=251 ms
-64 bytes from 198.51.100.15: icmp_seq=1 ttl=63 time=27.8 ms
-64 bytes from 198.51.100.16: icmp_seq=1 ttl=62 time=35.6 ms
-64 bytes from 198.51.100.17: icmp_seq=1 ttl=54 time=182 ms
-64 bytes from 198.51.100.18: icmp_seq=1 ttl=60 time=68.4 ms
-64 bytes from 198.51.100.19: icmp_seq=1 ttl=59 time=97.9 ms
-64 bytes from 198.51.100.20: icmp_seq=1 ttl=64 time=9.81 ms
-64 bytes from 198.51.100.21: icmp_seq=1 ttl=58 time=114 ms
-64 bytes from 198.51.100.22: icmp_seq=1 ttl=52 time=192 ms
-64 bytes from 198.51.100.23: icmp_seq=1 ttl=59 time=102 ms
-64 bytes from 198.51.100.24: icmp_seq=1 ttl=59 time=87.5 ms
-64 bytes from 198.51.100.25: icmp_seq=1 ttl=61 time=66.7 ms
-64 bytes from 198.51.100.26: icmp_seq=1 ttl=55 time=148 ms
-64 bytes from 198.51.100.27: icmp_seq=1 ttl=61 time=60.6 ms
-64 bytes from 198.51.100.28: icmp_seq=1 ttl=62 time=47.2 ms
-64 bytes from 198.51.100.29: icmp_seq=1 ttl=63 time=18.8 ms
-64 bytes from 198.51.100.30: icmp_seq=1 ttl=52 time=202 ms
-64 bytes from 198.51.100.31: icmp_seq=1 ttl=61 time=49.2 ms
-64 bytes from 198.51.100.32: icmp_seq=1 ttl=62 time=42.9 ms
-64 bytes from 198.51.100.33: icmp_seq=1 ttl=49 time=252 ms
-64 bytes from 198.51.100.34: icmp_seq=1 ttl=60 time=77.8 ms
-64 bytes from 198.51.100.35: icmp_seq=1 ttl=49 time=217 ms
-64 bytes from 198.51.100.36: icmp_seq=1 ttl=49 time=232 ms
-64 bytes from 198.51.100.37: icmp_seq=1 ttl=50 time=218 ms
-64 bytes from 198.51.100.38: icmp_seq=1 ttl=63 time=18.6 ms
-64 bytes from 198.51.100.39: icmp_seq=1 ttl=63 time=24.6 ms
-64 bytes from 198.51.100.40: icmp_seq=1 ttl=49 time=223 ms
-64 bytes from 198.51.100.41: icmp_seq=1 ttl=61 time=48.4 ms
-64 bytes from 198.51.100.42: icmp_seq=1 ttl=48 time=233 ms
-64 bytes from 198.51.100.43: icmp_seq=1 ttl=64 time=11.0 ms
-64 bytes from 198.51.100.44: icmp_seq=1 ttl=51 time=210 ms
-64 bytes from 198.51.100.45: icmp_seq=1 ttl=62 time=51.6 ms
-64 bytes from 198.51.100.46: icmp_seq=1 ttl=57 time=125 ms
-64 bytes from 198.51.100.47: icmp_seq=1 ttl=51 time=222 ms
-64 bytes from 198.51.100.48: icmp_seq=1 ttl=53 time=181 ms
-64 bytes from 198.51.100.49: icmp_seq=1 ttl=63 time=33.8 ms
-64 bytes from 198.51.100.50: icmp_seq=1 ttl=60 time=71.1 ms
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;This test proves that &lt;code&gt;sw-1&lt;/code&gt; can reach the loopback IP of every other device in the topology and, since the topology does not have any redundant links, also proves that k8s-topo, together with meshnet, have interconnected all devices correctly. If we had incorrectly connected at least one of the links, the OSPF adjacency would not have formed (due to incorrect source IP in the OSPF hello on NBMA network) and some of the pings would have failed.&lt;/p&gt;
-
-&lt;p&gt;To destroy the network topology and clean-up any state stored in etcd, we can run the following command:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code&gt;./bin/k8s-topo --destroy examples/builder/random.yml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;building-a-250-node-quagga-topology&#34;&gt;Building a 250-node Quagga topology&lt;/h2&gt;
-
-&lt;p&gt;Now let&amp;rsquo;s take this up a notch and test a 250-node topology built out of Quagga containers. Once again, we&amp;rsquo;ll use the builder script to generate a random spanning-tree graph and create all the required configuration files:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./examples/builder/builder 250 0
-Total number of links generated: 249
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;Now we can spin-up our 250-node topology:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;./bin/k8s-topo --create examples/builder/random.yml
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The generated graph is not as neat anymore but can be very handy when troubleshooting connectivity issues between different parts of topology&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/k8s-topo-200.png&#34; alt=&#34;200-node&#34; /&gt;&lt;/p&gt;
-
-&lt;p&gt;Finally, we can do a loopback ping-sweep test from any random node in our topology to prove that everything has been interconnected correctly:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;# kubectl exec -it qrtr-19 sh
-/ # for i in `seq 1 250`; do ping -c 1 -W 1 198.51.100.$i|grep from; done
-64 bytes from 198.51.100.1: seq=0 ttl=39 time=2.867 ms
-64 bytes from 198.51.100.2: seq=0 ttl=42 time=1.979 ms
-64 bytes from 198.51.100.3: seq=0 ttl=23 time=3.339 ms
-64 bytes from 198.51.100.4: seq=0 ttl=37 time=2.348 ms
-64 bytes from 198.51.100.5: seq=0 ttl=52 time=1.277 ms
-64 bytes from 198.51.100.6: seq=0 ttl=33 time=2.662 ms
-64 bytes from 198.51.100.7: seq=0 ttl=49 time=1.054 ms
-64 bytes from 198.51.100.8: seq=0 ttl=40 time=2.320 ms
-64 bytes from 198.51.100.9: seq=0 ttl=48 time=1.127 ms
-64 bytes from 198.51.100.10: seq=0 ttl=61 time=0.425 ms
-&amp;lt;...&amp;gt;
-64 bytes from 198.51.100.240: seq=0 ttl=50 time=1.101 ms
-64 bytes from 198.51.100.241: seq=0 ttl=62 time=0.254 ms
-64 bytes from 198.51.100.242: seq=0 ttl=35 time=2.288 ms
-64 bytes from 198.51.100.243: seq=0 ttl=51 time=0.939 ms
-64 bytes from 198.51.100.244: seq=0 ttl=32 time=2.468 ms
-64 bytes from 198.51.100.245: seq=0 ttl=64 time=0.523 ms
-64 bytes from 198.51.100.246: seq=0 ttl=44 time=1.452 ms
-64 bytes from 198.51.100.247: seq=0 ttl=41 time=1.705 ms
-64 bytes from 198.51.100.248: seq=0 ttl=44 time=1.429 ms
-64 bytes from 198.51.100.249: seq=0 ttl=42 time=1.722 ms
-64 bytes from 198.51.100.250: seq=0 ttl=34 time=1.968 ms
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h1 id=&#34;conclusion&#34;&gt;Conclusion&lt;/h1&gt;
-
-&lt;p&gt;For a very long time, when building real-life virtual network topologies, we had to compromise on the number of real network devices that can be simulated. This led to topology simplification and often resulted in parts of the real network topologies either missed or collapsed into a single virtual device. With k8s-topo and meshnet CNI plugin, we can now build one-to-one replicas of physical network topologies of any size and complexity, without sacrificing the level of detail.&lt;/p&gt;
 </description>
     </item>
     
