@@ -38,9 +38,36 @@ In the rest of this blog post I will walk you through the above CUE workflow, wh
 
 ## Pulling Configuration Data from External Systems
 
-For an example of an external IPAM/DCIM system I'll be using the public demo instance of [Nautobot](https://github.com/nautobot/nautobot) located at [demo.nautbot.com](https://demo.nautobot.com/).
+For an external IPAM/DCIM system I'll be using the public demo instance of [Nautobot](https://github.com/nautobot/nautobot) located at [demo.nautbot.com](https://demo.nautobot.com/). Since this is a demo instance, it gets re-built periodically, so I need to make sure I pre-populate it with the required device data. This is done based on the static [inventory file](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue) and automated with the `cue apply ./...` command. The action of populating IPAM/DCIM systems with data is normally a day-0 excercise and is rarely included in network automation workflows, so I won't focus on it here. However, if you're interested in an advanced REST API workflow orchestrated by CUE, you can check out the [`seed_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/seed_tool.cue) file for more details.
+
+Once we have the right data in Nautobot, we can fetch it by orchestrating a number of REST API calls with CUE. However, since Nautobot supports graphQL, I'll cheat a little bit and get all the data in a single RPC. The [query itself](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/query.gql) is less important, as its unique to my specific requirements, so I'll focus only on CUE code. In the [`fetch_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/fetch_tool.cue) file I define a sequence of tasks that will get executed concurrently for all devices from the [inventory](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue#L14):
+
+1. Query the graphQL API enpoint of Nautobot and unmarshal the response into a CUE struct.
+2. Create an hierachical directory structure based on device role (spine|leaf) and name.
+3. Save the received data in a device-specific directory as a YAML file.
+4. Import the YAML data as CUE, saving it in the `hostvars` map.
+
+All of the above can be done with a single `cue fetch ./...` command and the following snippet shows how the first task is written in CUE:
 
 ```json
+command: fetch: {
+ for _, dev in inventory.#devices {
+  (dev.name): {
+   gqlRequest: http.Post & {
+    url:     inventory.ipam.url + "/graphql/"
+    request: inventory.ipam.headers & {
+     body: json.Marshal({
+      query: template.Execute(gqlQuery.contents, {name: dev.name})
+     })
+    }
+   }
+
+   response: json.Unmarshal(gqlRequest.response.body)
+
+   // save data in a file (omitted for brevity)
+  }
+ }
+}
 ```
 
 ## Data Transformation
