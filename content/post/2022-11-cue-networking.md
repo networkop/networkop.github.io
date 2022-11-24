@@ -32,13 +32,13 @@ Once this data is collected and evaluated, the remainder of the process looks ve
 
 The bottom part shows how the same data sources are consumed in the equivalent CUE workflow. External data from IPAM/DCIM systems is ingested using CUE scripting layer and saved next to the rest of the CUE values. CUE runtime now takes the latest snapshot of external data, combines it with other local CUE values and generates per-device configurations. At this point we can either apply the device configuration as is, or combine it with a Jinja template to generate a semi-structured text before sending it to the remote device. 
 
-In the rest of this blog post I will walk you through the above CUE workflow, while configuring an unnumbered BGP session between Arista cEOS and NVIDIA Cumulus Linux connected back-to-back. The goal is to show an example of how the data flows from its source all the way to its ultimate destination and how CUE can be used at every step of the way.
+In the rest of this blog post I will cover some of the highlights of the above CUE workflow, while configuring an unnumbered BGP session between Arista cEOS and NVIDIA Cumulus Linux connected back-to-back. The goal is to show an example of how the data flows from its source all the way to its ultimate destination and how CUE can be used at every step of the way. The lab can be spun up with the `cue lab-up ./...` command. [TODO: rewrite]
 
-> All code from this blog post can be found in the [cue-networking-II](https://github.com/networkop/cue-networking-II) GH repository
+> All code from this blog post can be found in the [cue-networking-II](https://github.com/networkop/cue-networking-II) Github repository
 
 ## Pulling Configuration Data from External Systems
 
-For an external IPAM/DCIM system I'll be using the public demo instance of [Nautobot](https://github.com/nautobot/nautobot) located at [demo.nautbot.com](https://demo.nautobot.com/). Since this is a demo instance, it gets re-built periodically, so I need to make sure I pre-populate it with the required device data. This is done based on the static [inventory file](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue) and automated with the `cue apply ./...` command. The action of populating IPAM/DCIM systems with data is normally a day-0 excercise and is rarely included in network automation workflows, so I won't focus on it here. However, if you're interested in an advanced REST API workflow orchestrated by CUE, you can check out the [`seed_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/seed_tool.cue) file for more details.
+For an external IPAM/DCIM system I'll be using the public demo instance of [Nautobot](https://github.com/nautobot/nautobot) located at [demo.nautbot.com](https://demo.nautobot.com/). Since this is a demo instance, it gets re-built periodically, so I need to pre-populate it with the required device data. This is done based on the static [inventory file](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue) and automated with the `cue apply ./...` command. The action of populating IPAM/DCIM systems with data is normally a day-0 excercise and is rarely included in network automation workflows, so I won't focus on it here. However, if you're interested in an advanced REST API workflow orchestrated by CUE, you can check out the [`seed_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/seed_tool.cue) file for more details.
 
 Once we have the right data in Nautobot, we can fetch it by orchestrating a number of REST API calls with CUE. However, since Nautobot supports graphQL, I'll cheat a little bit and get all the data in a single RPC. The [query itself](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/query.gql) is less important, as its unique to my specific requirements, so I'll focus only on CUE code. In the [`fetch_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/fetch_tool.cue) file I define a sequence of tasks that will get executed concurrently for all devices from the [inventory](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue#L14):
 
@@ -79,130 +79,106 @@ The above code snippet demonstrates how to make a single HTTP API call and parse
 
 At this point, it would make sense to talk a little about how CUE evaluates files from an hierarchical directory structure. In Ansible, it's common to use group variables to manage settings common amongst multiple hosts. In CUE, you can use subdirectories to group related hosts and manage their common configuration values. Although my two-node test topology is not the best example for this, I still tried to group data base on the `device role` value extracted from Nautobot. This is how the `./config` directory structure looks like, as you can see host-specific CUE files are sitting in leaf/edge directories, while common data values and operations are defined in their parent directories:
 
-```tree
-config
-├── hostvars.cue
-├── lleaf
-│   ├── groupvars.cue
-│   └── lon-sw-01
-│       ├── lon-sw-01.cue
-│       └── lon-sw-01.yml
-├── sspine
-│   ├── groupvars.cue
-│   └── lon-sw-02
-│       ├── lon-sw-02.cue
-│       └── lon-sw-02.yml
-└── transform.cue
-```
+![](/img/cue-dirs.png)
 
-Whenever a CUE script needs to evaluate data from one of these subdirectories (for example `./...` tells CUE to evaluate all files recursively starting from the current directory), the values in the leaf subdirectories get merged with everything from their parents. So, for example, the `lon-sw-01.cue` values will get merged with `./lleaf/groupvars.cue` but not with `sspine/groupvars.cue`, which will get merged with `lon-sw-02.cue`. This is just an example of how to optimise configuration values to remove boilerplate, you can check out my earlier [cue-networking](https://github.com/networkop/cue-networking) repository for a more complete real-world example.
+Whenever a CUE script needs to evaluate data from one of these subdirectories (for example `./...` tells CUE to evaluate all files recursively starting from the current directory), the values in the leaf subdirectories get merged with everything from their parents. So, for example, the [`lon-sw-01.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/lleaf/lon-sw-01/lon-sw-01.cue) values will get merged with [`./lleaf/groupvars.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/lleaf/groupvars.cue) but not with [`sspine/groupvars.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/sspine/groupvars.cue), which will get merged with [`lon-sw-02.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/sspine/lon-sw-02/lon-sw-02.cue). This is just an example of how to optimise configuration values to remove boilerplate, you can check out my earlier [cue-networking](https://github.com/networkop/cue-networking) repository for a more complete real-world example.
 
-In the leaf CUE files I've saved the data I retrieved from Nautobot in a `hostvars: [device name]: {}` struct. Now I can use one of the topmost files, [`hostvars.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/hostvars.cue) to define a set of constraints for this data as well as do some initial value computation:
+So now in the leaf CUE files we've got the data that was retrieved from Nautobot, saved in a `hostvars: [device name]: {}` struct. That means in the topmost [`hostvars.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/hostvars.cue) file I've got access to all of that data and can start adding a schema and even do some initial value computations. You can view the resulting host variables with the `cue try ./...` command.
+
 
 ```json
-import (
-  "net"
-  "strings"
-)
+$ cue try ./...
+-== hostvars[lon-sw-02] ==-
+name: lon-sw-02
+device_role:
+  name: sspine
+> snip <
+```
 
-hostvars: [Name=_]: {
-  name: Name
-  device_role: name: string
-  id: string
-  device_type: manufacturer: name: string
-  interfaces: [...{
-    name: string
-    ip_addresses: [...{
-      address: string & net.IPCIDR
-    }]
-  }]
-  local_context_data: bgp_asn: <=65535 & >=64512
+Majority of the work is done in the [`transform.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/transform.cue) file, where `hostvars` get transformed into a complete structured device configuration. As I've already covered data transformation in the [previous blog post](/post/2022-11-cue-ansible/), I won't focus too much on it here, and invite you to walk through [the code](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/transform.cue) on your own. However, before moving on, I want to discuss the use of schemas in the data transformation logic, e.g. `nvidia.#set` in the below code snippet from the [`transform.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/transform.cue) file:
 
-  // computed values
-  loopbackIP: string & net.IPCIDR
-  for _, intf in interfaces {
-    if intf.name == "loopback0" {
-      if len(intf.ip_addresses) > 0 {
-        loopbackIP: intf.ip_addresses[0].address
-      }
+```json
+nvidiaX: {
+  _input: {}
+  nvidia.#set & {
+    interface: {
+      for _, intf in _input.interfaces {
+        if strings.HasPrefix(intf.name, "loopback") {
+          lo: {
+            ip: address: (intf.ip_addresses[0].address): {}
+            type: "loopback"
+// omitted for brevity
+```
+
+Although schemas are optional, they can give you additional assurance that what you're doing is right and catch errors before you try to use the generated data. Moreover, once CUE gets its own [language server](https://github.com/cue-lang/cue/issues/142), writing the code would become a lot easier with IDE's help. Similar to Go, you would get features like struct templates, autocompletion and error highlighting. 
+
+The biggest problem with using a schema is generating it in the first place. I've briefly touched upon this subject in the [previous blog post](http://localhost:1313/post/2022-11-cue-ansible/#input-data-validation) but want to expand a bit on it here. No matter if you interact with a [model-compliant API](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux-44/api/index.html) (OpenAPI or YANG) or with [templates]((https://github.com/aristanetworks/ansible-avd/tree/devel/ansible_collections/arista/avd/roles/eos_cli_config_gen/templates/eos)) that generate semi-structured set of CLI commands, you can always describe their input with a data model. CUE understands a few common schema languages and can import and generate its own definitions from them. So now all what we need to do is generate that data model somehow.
+
+In some cases, you may be in luck if your vendor already publishes these models, however, this time I'll focus on how to generate them manually. The detailed step-by-step process is [documented](https://github.com/networkop/cue-networking-II#creating-cue-schemas) in the Github repository, but here I want to summarise some of the key points:
+
+* If your device stores configuration as structured data (the case of NVIDIA Cumulus Linux), you can generate a JSON schema from an existing configuration instance. For example, I've worked out the exact set of values I need to configure first, saved it in a YAML file and ran it through YAML to JSON schema [converter](https://jsonformatter.org/yaml-to-jsonschema). 
+* If you have to use text templates to produce the device config (the case of Arisa EOS), you can infer a JSON schema from a Jinja template (see [this script](https://github.com/networkop/cue-networking-II/blob/main/schemas/jinja-to-json-schema.py) for an example).
+* CUE can correctly recognise the JSON schema format and import it as native definitions using the `cue import` command.
+* Following the initial (double) conversion, some of the type information may get lost or distorted, so most likely you would need to massage the automatically generated CUE schema before you can use it. This, however, only needs to be done once, since you can discard the intermediate schema files and carry on working exclusively with CUE files from now on.
+
+You can vew the generated structured device configurations, produced by the data transformation logic, by running the  `cue show ./...` command.
+
+## Configuration Push
+
+This is the final stage of the CUE workflow where, once again, I use CUE scripting to interact with Arista's JSON RPC and NVIDIA's REST APIs. All that is done as a part of a custom `cue push ./...` command that executes multiple vendor-dependent workflows in per-device coroutines. You can find the complete implementation in the [`main_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/main_tool.cue) file, and here I'd like to zoom in on a couple of interesting concepts. 
+
+First one is authentication and secret management. As I've mentioned before, one of the common ways of injecting secrets is via environment variables, e.g. if you running a workflow inside a CI/CD system. While CUE does not support them natively, you can achieve the same result using the `@tag` keyword. A common pattern is to define default values that can be overridden with a user-provided command line tag, like in the following snippet from the [`inventory.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue) file:
+
+```json
+-- inventory/inventory.cue --
+package inventory
+auth: {
+	nvidia: {
+		user:     *"cumulus" | string @tag(nvidia_user)
+		password: *"cumulus" | string @tag(nvidia_pwd)
+	}
+	arista: {
+		user:     *"admin" | string @tag(arista_user)
+		password: *"admin" | string @tag(arista_pwd)
+	}
+}
+#devices: [{
+	name:     "lon-sw-01"
+	user:     auth.nvidia.user
+	password: auth.nvidia.password
+}, {
+	name:     "lon-sw-02"
+	user:     auth.arista.user
+	password: auth.arista.password
+}]
+```
+
+When calling any CUE script, you can now pass an additional `-t tag_name=tag_value` flag that will get injected into the CUE code. For example, this is how I would change the default password for Arista:
+
+```
+export ARISTA_PWD=foo
+cue push -t arista_pwd=$ARISTA_PWD ./...
+```
+
+Another concept is the CUE's [function pattern](https://cuetorials.com/patterns/functions/). It's an ability to abstract a re-usable piece of CUE code in a dedicated struct that can be evaluated when needed by multiple different callers. I've used this pattern multiple times in most of the tool files, but below I'll cover its simplest form. Before we can send the generated configuration to Arista eAPI endpoint, we need to wrap it inside of a few special keywords (`enable`, `configure` and `write`). 
+
+```json
+eapi_wrapper: {
+  input: [...string]
+  output: ["enable", "configure"] + input + ["write"]
+}
+
+command: push: {
+  for _, dev in inventory.#devices {
+    // snip
+    (dev.name): {
+      // snip
+      wrapped_commands: eapi_wrapper & {input: split_commands}
+      // snip
     }
   }
-  routerID: string & net.IP
-  routerID: strings.Split(loopbackIP, "/")[0]
 }
 ```
-
-The above `hostvars: [Name=_]:` signature is what CUE calls a [template](https://cuelang.org/docs/tutorials/tour/types/templates/) and it allows you to define common defaults and constraints that would apply to all fields within a struct or, in our case, to all devices. I also use this place to extract and save some common values (loopback and router ID) that will be used in the next stage.
-
-This is the result of running `cue try ./...` command, showing the computed `hostvars` for the `lon-sw-01` device:
-```json
--== hostvars[lon-sw-01] ==-
-name: lon-sw-01
-device_role:
-  name: lleaf
-id: dbd9838d-9b0b-4eac-8553-ba5860fa8490
-local_context_data:
-  bgp_asn: 65000
-  bgp_intfs:
-    - swp1
-device_type:
-  manufacturer:
-    name: NVIDIA1
-interfaces:
-  - name: loopback0
-    ip_addresses:
-      - address: 198.51.100.1/32
-loopbackIP: 198.51.100.1/32
-routerID: 198.51.100.1
-groupvars: LLEAF-VALUE
-```
-
-The majority of the work is done in the [`transform.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/transform.cue) file, where `hostvars` get transformed into a complete structured device configuration. As I've already covered this in the [previous blogpost](/post/2022-11-cue-ansible/), I won't focus too much on it here, and invite you to walk through [the code](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/transform.cue) on your own. There a few things I do want to mention about the structure of this file before I move on:
-
-1. The schema for structured device configuration is unique per vendor. 
-  * In NVIDIA's case it follows the [OpenAPI definition](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux-44/api/index.html) for NVUE. 
-  * In Arista's case it is based on the data expected by the Ansible AVD's [Jinja templates](https://github.com/aristanetworks/ansible-avd/tree/devel/ansible_collections/arista/avd/roles/eos_cli_config_gen/templates/eos).
-2. The github repo contains [instructions](https://github.com/networkop/cue-networking-II#creating-cue-schemas) for how to generate CUE schemas from Jinja and YAML documents.
-3. Although schema validation is optional, I'd highly recommend everyone do that, as it would make working with config less error-prone and easier, especially once CUE gets its own languge server support.
-
-You can view the generated structured device configurations by running `cue show ./...`.
-
-```json
--== configs[lon-sw-01] ==-
-interface:
- lo:
-  ip:
-   address:
-    198.51.100.1/32: {}
-  type: loopback
- swp1:
-  type: swp
-router:
- bgp:
-  enable: "on"
-vrf:
- default:
-  router:
-   bgp:
-    address-family:
-     ipv4-unicast:
-      enable: "on"
-      redistribute:
-       connected:
-        enable: "on"
-    autonomous-system: 65000
-    enable: "on"
-    neighbor:
-     swp1:
-      remote-as: external
-      type: unnumbered
-    router-id: 198.51.100.1
-```
-
-
-## Config Generation
-
-## Config Push
 
 ## Outro
 
