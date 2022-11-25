@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="theme" content="hugo-academic">
+  <meta name="generator" content="Hugo 0.52" />
+  <meta name="author" content="Michael Kashin">
+
+  
+  
+  
+  
+    
+      
+    
+  
+  <meta name="description" content="What I&rsquo;ve covered in the previous blog post about CUE and Ansible were isolated use cases, disconnected islands in the sea of network automation. The idea behind that was to simplify the introduction of CUE into existing network automation workflows. However, this does not mean CUE is limited to those use cases and, in fact, CUE is most powerful when it&rsquo;s used end-to-end &mdash; both to generate device configurations and to orchestrate interactions with external systems.">
+
+  
+  <link rel="alternate" hreflang="en-us" href="https://networkop.co.uk/post/2022-11-cue-networking/">
+
+  
+
+
+  
+
+  
+  
+  <meta name="theme-color" content="#E29930">
+  
+  
+  
+  
+    
+  
+  
+    
+    
+    <link rel="stylesheet" href="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+    
+  
+  
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha512-6MXa8B6uaO18Hid6blRMetEIoPqHf7Ux1tnyIQdpt9qI5OACx7C+O3IVTr98vwGnlcg0LOLa02i9Y1HpVhlfiw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/academicons/1.8.1/css/academicons.min.css" integrity="sha512-NThgw3XKQ1absAahW6to7Ey42uycrVvfNfyjqcFNgCmOCQ5AR4AO0SiXrN+8ZtYeappp56lk1WtvjVmEa+VR6A==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css" integrity="sha512-SfTiTlX6kk+qitfevl/7LibUOeJWlt9rbyDn92a1DqWOw9vWG2MFoays0sgObmWazO5BQPiFucnnEAjpAB+/Sw==" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.css" integrity="sha256-ygkqlh3CYSUri3LhQxzdcm0n1EQvH2Y+U5S2idbLtxs=" crossorigin="anonymous">
+  
+  
+  
+  
+  <link rel="stylesheet" href="//fonts.googleapis.com/css?family=Montserrat:400,700%7cRoboto:400,400italic,700%7cRoboto&#43;Mono">
+  
+  <link rel="stylesheet" href="/styles.css">
+  
+
+  
+    <script>
+      window.ga=window.ga||function(){(ga.q=ga.q||[]).push(arguments)};ga.l=+new Date;
+      ga('create', 'UA-31517751-2', 'auto');
+      ga('require', 'eventTracker');
+      ga('require', 'outboundLinkTracker');
+      ga('require', 'urlChangeTracker');
+      ga('send', 'pageview');
+    </script>
+    <script async src="//www.google-analytics.com/analytics.js"></script>
+    
+    <script async src="https://cdnjs.cloudflare.com/ajax/libs/autotrack/2.4.1/autotrack.js" integrity="sha512-HUmooslVKj4m6OBu0OgzjXXr+QuFYy/k7eLI5jdeEy/F4RSgMn6XRWRGkFi5IFaFgy7uFTkegp3Z0XnJf3Jq+g==" crossorigin="anonymous"></script>
+    
+  
+
+  
+  <link rel="alternate" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  <link rel="feed" href="https://networkop.co.uk/index.xml" type="application/rss+xml" title="networkop">
+  
+
+  <link rel="manifest" href="/site.webmanifest">
+  <link rel="icon" type="image/png" href="/img/icon.png">
+  <link rel="apple-touch-icon" type="image/png" href="/img/icon-192.png">
+
+  <link rel="canonical" href="https://networkop.co.uk/post/2022-11-cue-networking/">
+
+  <meta property="twitter:card" content="summary_large_image">
+  
+  <meta property="twitter:site" content="@networkop1">
+  <meta property="twitter:creator" content="@networkop1">
+  
+  <meta property="og:site_name" content="networkop">
+  <meta property="og:url" content="https://networkop.co.uk/post/2022-11-cue-networking/">
+  <meta property="og:title" content="Network Automation with CUE - Advanced workflows | networkop">
+  <meta property="og:description" content="What I&rsquo;ve covered in the previous blog post about CUE and Ansible were isolated use cases, disconnected islands in the sea of network automation. The idea behind that was to simplify the introduction of CUE into existing network automation workflows. However, this does not mean CUE is limited to those use cases and, in fact, CUE is most powerful when it&rsquo;s used end-to-end &mdash; both to generate device configurations and to orchestrate interactions with external systems.">
+  <meta property="og:locale" content="en-us">
+  
+  <meta property="article:published_time" content="2022-11-22T00:00:00&#43;00:00">
+  
+  <meta property="article:modified_time" content="2022-11-22T00:00:00&#43;00:00">
+  
+
+  <meta name="twitter:card" content="summary_large_image"/>
+<meta name="twitter:image" content="https://networkop.co.uk/img/cue-networking.png"/>
+
+<meta name="twitter:title" content="Network Automation with CUE - Advanced workflows"/>
+<meta name="twitter:description" content="Using CUE for advanced network automation workflows"/>
+
+
+  <title>Network Automation with CUE - Advanced workflows | networkop</title>
+
+</head>
+<body id="top" data-spy="scroll" data-target="#toc" data-offset="71" >
+
+<nav class="navbar navbar-default navbar-fixed-top" id="navbar-main">
+  <div class="container">
+
+    
+    <div class="navbar-header">
+      
+      <button type="button" class="navbar-toggle collapsed" data-toggle="collapse"
+              data-target=".navbar-collapse" aria-expanded="false">
+        <span class="sr-only">Toggle navigation</span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+        <span class="icon-bar"></span>
+      </button>
+      
+      <a class="navbar-brand" href="/"><img src="/img/intro.gif" alt="networkop"></a>
+    </div>
+
+    
+    <div class="collapse navbar-collapse">
+
+      
+      
+      <ul class="nav navbar-nav navbar-right">
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#hero">
+            
+            <span>Home</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#posts">
+            
+            <span>Posts</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#projects">
+            
+            <span>Topics</span>
+            
+          </a>
+        </li>
+
+        
+        
+
+        
+        
+        
+        
+        
+          
+        
+
+        <li class="nav-item">
+          <a href="/#about">
+            
+            <span>About</span>
+            
+          </a>
+        </li>
+
+        
+        
+      
+
+      
+      </ul>
+
+    </div>
+  </div>
+</nav>
+
+
+<article class="article" itemscope itemtype="http://schema.org/Article">
+
+  
+
+
+  <div class="article-container">
+    <div class="article-inner">
+      <h1 itemprop="name">Network Automation with CUE - Advanced workflows</h1>
+
+      
+
+<div class="article-metadata">
+
+  <span class="article-date">
+    
+    <time datetime="2022-11-22 00:00:00 &#43;0000 UTC" itemprop="datePublished dateModified">
+      22 Nov 2022
+    </time>
+  </span>
+  <span itemscope itemprop="author publisher" itemtype="http://schema.org/Person">
+    <meta itemprop="name" content="Michael Kashin">
+  </span>
+
+  
+  <span class="middot-divider"></span>
+  <span class="article-reading-time">
+    14 min read
+  </span>
+  
+
+  
+  
+
+  
+  
+  
+  <span class="middot-divider"></span>
+  <span class="article-categories">
+    <i class="fa fa-folder"></i>
+    
+    <a href="/categories/howto">howto</a
+    >
+    
+  </span>
+  
+  
+
+  
+  
+<div class="share-box" aria-hidden="true">
+  <ul class="share">
+    <li>
+      <a class="twitter"
+         href="https://twitter.com/intent/tweet?text=Network%20Automation%20with%20CUE%20-%20Advanced%20workflows&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2022-11-cue-networking%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-twitter"></i>
+      </a>
+    </li>
+    <li>
+      <a class="facebook"
+         href="https://www.facebook.com/sharer.php?u=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2022-11-cue-networking%2f"
+         target="_blank" rel="noopener">
+        <i class="fa fa-facebook"></i>
+      </a>
+    </li>
+    <li>
+      <a class="linkedin"
+         href="https://www.linkedin.com/shareArticle?mini=true&amp;url=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2022-11-cue-networking%2f&amp;title=Network%20Automation%20with%20CUE%20-%20Advanced%20workflows"
+         target="_blank" rel="noopener">
+        <i class="fa fa-linkedin"></i>
+      </a>
+    </li>
+    <li>
+      <a class="email"
+         href="mailto:?subject=Network%20Automation%20with%20CUE%20-%20Advanced%20workflows&amp;body=https%3a%2f%2fnetworkop.co.uk%2fpost%2f2022-11-cue-networking%2f">
+        <i class="fa fa-envelope"></i>
+      </a>
+    </li>
+  </ul>
+</div>
+
+
+  
+
+</div>
+
+
+      <div class="article-style" itemprop="articleBody">
+        
+
+<p>What I&rsquo;ve covered in the <a href="/post/2022-11-cue-ansible/">previous blog post</a> about CUE and Ansible were isolated use cases, disconnected islands in the sea of network automation. The idea behind that was to simplify the introduction of CUE into existing network automation workflows. However, this does not mean CUE is limited to those use cases and, in fact, CUE is most powerful when it&rsquo;s used end-to-end &mdash; both to generate device configurations and to orchestrate interactions with external systems. In this post, I&rsquo;m going to demonstrate how to use CUE for advanced network automation workflows involving fetching information from an external device inventory management system, using it to build complex hierarchical configuration values and, finally, generating and pushing intended configurations to remote network devices.</p>
+
+<h2 id="cue-vs-cue-scripting">CUE vs CUE scripting</h2>
+
+<p>CUE was designed to be a simple, scalable and robust configuration language. This is why it includes type checking, schema and constraints validation as first-class constructs. There are some <a href="https://cuelang.org/docs/usecases/configuration/" target="_blank">design decisions</a>, like the lack of inheritance or value overrides, that may take new users by surprise, however over time it becomes clear that they make the language simpler and more readable. One of the most interesting features of CUE, though, is that all code is hermetic. What that means is all configuration values must come from local CUE files and cannot be dynamically fetched or injected into the evaluation process, so that no matter how many times or in which environment you run your CUE code, it always produces the same result.</p>
+
+<p>However, as we all know, in real life configuration values may come from many different places. In the network automation context, we often use IP address and infrastructure management systems (IPAM/DCIM) to store device-specific data, often referring to these systems as a &ldquo;source of truth&rdquo;. I won&rsquo;t focus on the fact that most often these systems are managed imperatively (point and click), making them a very poor choice for this task (how do you roll back?), but their dominance and popularity in our industry are undeniable. So how can we make CUE work in such environments?</p>
+
+<p>CUE has an optional scripting layer, that is complementary to the core functionality of a configuration language. The CUE scripting (or <a href="(https://cuelang.org/docs/usecases/configuration/#tooling)" target="_blank">tooling</a>) layer works by evaluating files (identified by the <code>_tool.cue</code> suffix) that contain a set of tasks and executing them concurrently. These files are still written in CUE and can access the values defined in the rest of the CUE module, however, CUE tasks <em>are</em> allowed to make local and remote I/O calls and can be strung together to form some pretty complex workflows. As you may have guessed, this is what allows us to interact with external databases and remote network devices.</p>
+
+<h2 id="advanced-network-automation-workflow">Advanced Network Automation Workflow</h2>
+
+<p>Let&rsquo;s revisit the advanced network automation workflow, that was described in the <a href="/post/2022-10-cue-intro/">CUE introduction post</a>. What makes it different from the intermediate workflow is that  host variables are sourced from multiple different places. In most common workflows, these places can be described as:</p>
+
+<ol>
+<li>Local static variables, defined in host and group variables.</li>
+<li>Variables injected by the environment, which often include sensitive information like secrets and passwords.</li>
+<li>Externally-sourced data, fetched and evaluated during runtime.</li>
+</ol>
+
+<p>Once this data is collected and evaluated, the remainder of the process looks very similar to what I&rsquo;ve described in the <a href="/post/2022-11-cue-ansible/">previous blog post</a>, i.e. this data is modified and expanded to generate a complete per-device set of variables which are then used to produce the final device configuration. The top part of the following diagrams is a visual representation of this workflow.</p>
+
+<p><img src="/img/cue-advanced.png" alt="" /></p>
+
+<p>The bottom part shows how the same data sources are consumed in the equivalent CUE workflow. External data from IPAM/DCIM systems is ingested using the CUE scripting layer and saved next to the rest of the CUE values. CUE runtime now takes the latest snapshot of external data, combines it with other local CUE values and generates a set of per-device configurations. At this point, we can either apply them as-is or combine them with Jinja templates to generate a semi-structured text before sending it to the remote device.</p>
+
+<p>In the rest of this blog post, I will cover some of the highlights of the above CUE workflow, while configuring an unnumbered BGP session between Arista cEOS and NVIDIA Cumulus Linux connected back-to-back. The goal is to show an example of how the data flows from its source all the way to its ultimate destination and how CUE can be used at every step of the way.</p>
+
+<blockquote>
+<p>All code from this blog post can be found in the <a href="https://github.com/networkop/cue-networking-II" target="_blank">cue-networking-II</a> github repository</p>
+</blockquote>
+
+<h2 id="pulling-configuration-data-from-external-systems">Pulling Configuration Data from External Systems</h2>
+
+<p>For an external IPAM/DCIM system I&rsquo;ll be using the public demo instance of <a href="https://github.com/nautobot/nautobot" target="_blank">Nautobot</a> located at <a href="https://demo.nautobot.com/" target="_blank">demo.nautbot.com</a>. Since this is a demo instance, it gets rebuilt periodically, so I need to pre-populate it with the required device data. This is done based on the static <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue" target="_blank">inventory file</a> and automated with the <code>cue apply ./...</code> command. The action of populating IPAM/DCIM systems with data is normally a day 0 exercise and is rarely included in day 1+ network automation workflows, so I won&rsquo;t focus on it here. However, if you&rsquo;re interested in an advanced REST API workflow orchestrated by CUE, you can check out the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/seed_tool.cue" target="_blank"><code>seed_tool.cue</code></a> file for more details.</p>
+
+<p>Once we have the right data in Nautobot, we can fetch it by orchestrating a number of REST API calls with CUE. However, since Nautobot supports GraphQL, I&rsquo;ll cheat a little bit and get all the data in a single RPC. The <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/query.gql" target="_blank">query itself</a> is less important, as it&rsquo;s unique to my specific requirements, so I&rsquo;ll focus only on the CUE code. In the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/fetch_tool.cue" target="_blank"><code>fetch_tool.cue</code></a> file I define a sequence of tasks that will get executed concurrently for all devices from the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue#L14" target="_blank">inventory</a>:</p>
+
+<ol>
+<li>Query the GraphQL API endpoint of Nautobot and unmarshal the response into a CUE struct.</li>
+<li>Import the received data as CUE and save it in a device-specific directory.</li>
+</ol>
+
+<p>All of the above can be done with a single <code>cue fetch ./...</code> command and the following snippet shows how the first task is written in CUE:</p>
+
+<pre><code class="language-json">import (
+	&quot;text/template&quot;
+	&quot;tool/http&quot;
+	&quot;encoding/json&quot;
+)
+
+command: fetch: {
+ for _, dev in inventory.#devices {
+  (dev.name): {
+   gqlRequest: http.Post &amp; {
+    url:     inventory.ipam.url + &quot;/graphql/&quot;
+    request: inventory.ipam.headers &amp; {
+     body: json.Marshal({
+      query: template.Execute(gqlQuery.contents, {name: dev.name})
+     })
+    }
+   }
+
+   response: json.Unmarshal(gqlRequest.response.body)
+
+   // save data in a file (omitted for brevity)
+  }
+ }
+}
+</code></pre>
+
+<p>The above code snippet demonstrates how to make a single HTTP API call and parse the received payload using <code>tool/http</code> and <code>encoding/json</code> packages from the CUE&rsquo;s <a href="https://pkg.go.dev/cuelang.org/go@v0.4.3/pkg" target="_blank">standard library</a>. The CUE scripting layer is smart enough to understand dependencies between tasks, e.g. in this case <code>json.Unmarshal</code> will only be called once the <code>gqlRequest</code> has returned a response, while still trying to run tasks concurrently (all GraphQL calls will be made at roughly the same time). This makes it highly efficient at almost no cost to the end user.</p>
+
+<h2 id="data-transformation">Data Transformation</h2>
+
+<p>At this point, it would make sense to talk a little about how CUE evaluates files from a hierarchical directory structure. In Ansible, it&rsquo;s common to use &ldquo;group&rdquo; variables to manage settings common amongst multiple hosts. In CUE, you can use subdirectories to group related hosts and manage their common configuration values. Although my two-node test topology is not the best example for this, I still tried to group data based on the <code>device role</code> value extracted from Nautobot. This is what the <code>./config</code> directory structure looks like. As you can see, host-specific CUE files are sitting in leaf/edge directories, while common data values and operations are defined in their parent directories:</p>
+
+<p><img src="/img/cue-dirs.png" alt="" /></p>
+
+<p>Whenever a CUE script needs to evaluate data from one of these subdirectories (for example <code>./...</code> tells CUE to evaluate all files recursively starting from the current directory), the values in the leaf subdirectories get merged with everything from their parents. So, for example, the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/lleaf/lon-sw-01/lon-sw-01.cue" target="_blank"><code>lon-sw-01.cue</code></a> values will get merged with <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/lleaf/groupvars.cue" target="_blank"><code>./lleaf/groupvars.cue</code></a> but not with <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/sspine/groupvars.cue" target="_blank"><code>sspine/groupvars.cue</code></a>, which will get merged with <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/sspine/lon-sw-02/lon-sw-02.cue" target="_blank"><code>lon-sw-02.cue</code></a>. This is just an example of how to optimise configuration values to remove boilerplate, you can check out my earlier <a href="https://github.com/networkop/cue-networking" target="_blank">cue-networking</a> repository for a more complete real-world example.</p>
+
+<p>So now in the leaf CUE files we&rsquo;ve got the data that was retrieved from Nautobot, saved in a <code>hostvars: [device name]: {}</code> struct. That means in the topmost <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/hostvars.cue" target="_blank"><code>hostvars.cue</code></a> file I&rsquo;ve got access to all of that data and can start adding a schema and even do some initial value computations. You can view the resulting host variables with the <code>cue try ./...</code> command.</p>
+
+<pre><code class="language-json">$ cue try ./...
+-== hostvars[lon-sw-02] ==-
+name: lon-sw-02
+device_role:
+  name: sspine
+&gt; snip &lt;
+</code></pre>
+
+<p>The majority of the work is done in the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/transform.cue" target="_blank"><code>transform.cue</code></a> file, where <code>hostvars</code> get transformed into a complete structured device configuration. As I&rsquo;ve already covered data transformation in the <a href="/post/2022-11-cue-ansible/">previous blog post</a>, I won&rsquo;t focus too much on it here, and invite you to walk through <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/transform.cue" target="_blank">the code</a> on your own. However, before moving on, I want to discuss the use of schemas in the data transformation logic, e.g. <code>nvidia.#set</code> in the below code snippet from the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/config/transform.cue" target="_blank"><code>transform.cue</code></a> file:</p>
+
+<pre><code class="language-json">nvidiaX: {
+  _input: {}
+  nvidia.#set &amp; {
+    interface: {
+      for _, intf in _input.interfaces {
+        if strings.HasPrefix(intf.name, &quot;loopback&quot;) {
+          lo: {
+            ip: address: (intf.ip_addresses[0].address): {}
+            type: &quot;loopback&quot;
+// omitted for brevity
+</code></pre>
+
+<p>Although schemas are optional, they can give you additional assurance that what you&rsquo;re doing is right and catch errors before you try to use the generated data. Moreover, once CUE gets its own <a href="https://github.com/cue-lang/cue/issues/142" target="_blank">language server</a>, writing the code would become a lot easier with IDE&rsquo;s help. Similar to Go, you would get features like struct templates, autocompletion and error highlighting.</p>
+
+<p>The biggest problem with using a schema is generating it in the first place. I&rsquo;ve briefly touched upon this subject in the <a href="http://localhost:1313/post/2022-11-cue-ansible/#input-data-validation" target="_blank">previous blog post</a> but want to expand a bit on it here. Doesn&rsquo;t matter if you work with a <a href="https://docs.nvidia.com/networking-ethernet-software/cumulus-linux-44/api/index.html" target="_blank">model-compliant API</a> (OpenAPI or YANG) or with <a href="(https://github.com/aristanetworks/ansible-avd/tree/devel/ansible_collections/arista/avd/roles/eos_cli_config_gen/templates/eos)" target="_blank">templates</a> that generate a semi-structured set of CLI commands, you can always describe their input with a data model. CUE understands a few common schema languages and can import and generate its own definitions from them. So now all that we need to do is generate that data model somehow.</p>
+
+<p>In some cases, you may be in luck if your vendor already publishes these models, however, this time I&rsquo;ll focus on how to generate them manually. The detailed step-by-step process is <a href="https://github.com/networkop/cue-networking-II#creating-cue-schemas" target="_blank">documented</a> in the GitHub repository, but here I want to summarise some of the key points:</p>
+
+<ul>
+<li>If your device manages its configuration as structured data (the case of NVIDIA Cumulus Linux), you can generate a JSON schema from an existing configuration instance. For example, I&rsquo;ve worked out the exact set of values I need to configure first, saved it in a YAML file and ran it through YAML to JSON schema <a href="https://jsonformatter.org/yaml-to-jsonschema" target="_blank">converter</a>.</li>
+<li>If you have to use text templates to produce the device config (the case of Arisa EOS), you can infer a JSON schema from a Jinja template (see <a href="https://github.com/networkop/cue-networking-II/blob/main/schemas/jinja-to-json-schema.py" target="_blank">this script</a> for an example).</li>
+<li>CUE can correctly recognise the JSON schema format and import it as native definitions using the <code>cue import</code> command.</li>
+<li>Following the initial (double) conversion, some of the type information may get lost or distorted, so most likely you would need to massage the automatically generated CUE schema before you can use it. This, however, only needs to be done once, since you can discard the intermediate schema files and carry on working exclusively with CUE definitions from now on.</li>
+</ul>
+
+<p>You can view the generated structured device configurations, produced by the data transformation logic, by running the <code>cue show ./...</code> command.</p>
+
+<h2 id="configuration-push">Configuration Push</h2>
+
+<p>This is the final stage of the CUE workflow where, once again, I use CUE scripting to interact with Arista&rsquo;s JSON RPC and NVIDIA&rsquo;s REST APIs. All that is done as a part of a user-defined <code>cue push ./...</code> command that executes multiple vendor-dependent workflows in per-device coroutines. You can find the complete implementation in the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/main_tool.cue" target="_blank"><code>main_tool.cue</code></a> file, and here I&rsquo;d like to zoom in on a few interesting concepts.</p>
+
+<p>The first one is authentication and secret management. As I&rsquo;ve mentioned before, one of the common ways of injecting secrets is via environment variables, e.g. if you running a workflow inside a CI/CD system. While CUE cannot inject them natively, you can achieve the same result using the <code>@tag</code> keyword. A common pattern is to define default values that can be overridden with a user-provided command line tag, like in the following snippet from the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue" target="_blank"><code>inventory.cue</code></a> file:</p>
+
+<pre><code class="language-json">auth: {
+  nvidia: {
+    user:     *&quot;cumulus&quot; | string @tag(nvidia_user)
+    password: *&quot;cumulus&quot; | string @tag(nvidia_pwd)
+  }
+  arista: {
+    user:     *&quot;admin&quot; | string @tag(arista_user)
+    password: *&quot;admin&quot; | string @tag(arista_pwd)
+  }
+}
+</code></pre>
+
+<p>When calling any CUE script, you can now pass an additional <code>-t tag_name=tag_value</code> flag that will get injected into your code. For example, this is how I would change the default password for Arista:</p>
+
+<pre><code>export ARISTA_PWD=foo
+cue push -t arista_pwd=$ARISTA_PWD ./...
+</code></pre>
+
+<p>Another interesting concept is the <a href="https://cuetorials.com/patterns/functions/" target="_blank">function pattern</a>. It&rsquo;s an ability to abstract a reusable piece of CUE code in a dedicated struct that can be evaluated when needed by any number of callers. I&rsquo;ve used this pattern multiple times in most of the <code>_tool.cue</code> files, but below I&rsquo;ll cover its simplest form.</p>
+
+<p>Before we can send the generated configuration to Arista eAPI endpoint, we need to wrap it with a few special keywords &ndash; <code>enable</code>, <code>configure</code> and <code>write</code>. This is done in a special struct called <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/main_tool.cue#L60" target="_blank"><code>eapi_wrapper</code></a>. This struct defines an abstract schema for its input (a list of strings) but performs some concrete actions on it (wraps it in special keywords). In order to &ldquo;call&rdquo; this &ldquo;function&rdquo; we unify it with a struct that we know will define these inputs as concrete values. CUE runtime will delay the evaluation of this function struct until all of its inputs are known. In the following example, once CUE generates a list of CLI commands in the <code>split_commands</code> list, it will evaluate the &ldquo;function call&rdquo; expression and the result will become available to subsequent tasks in <code>wrapped_commands.output</code>.</p>
+
+<pre><code class="language-json">eapi_wrapper: {
+  input: [...string]
+  output: [&quot;enable&quot;, &quot;configure&quot;] + input + [&quot;write&quot;]
+}
+
+command: push: {
+  for _, dev in inventory.#devices {
+    (dev.name): {
+      // ...
+      wrapped_commands: eapi_wrapper &amp; {input: split_commands}
+      // ...
+    }
+  }
+}
+</code></pre>
+
+<p>The last concept I wanted to cover is the sequencing of tasks in CUE scripts. As I&rsquo;ve mentioned before, CUE runtime is able to infer the implicit dependencies between tasks and evaluate them in the right order. This happens when an input of one task consumes an output from another task. This way you can just focus on writing code, while CUE will do its best to parallelise as many tasks as it can.</p>
+
+<p>However, some tasks don&rsquo;t have implicit dependencies but still need to be run in sequence. A good example of this is the interaction with NVIDIA&rsquo;s NVUE API. The procedure to apply the generated configuration consists of 3 stages &ndash; (1) creating a new configuration revision, (2) patching this revision with the generated data and (3) applying it. While 1-2 and 1-3 have implicit dependencies (revision ID generated in 1), stages 2 and 3 don&rsquo;t, but 3 must always happen after 2. The way we can make it happen is by adding <code>$after</code> to the third task, referencing the name of the second. This little trick allows CUE to build the right graph of dependencies and apply the revision only after it has been patched.</p>
+
+<pre><code class="language-json">createRevision: http.Post &amp; {
+  url: &quot;https://\(dev.name):8765/nvue_v1/revision&quot;
+  // ...
+}
+
+patchRevision: http.Do &amp; {
+  method: &quot;PATCH&quot;
+  url:    &quot;https://\(dev.name):8765/nvue_v1/?rev=\(escapedID)&quot;
+  // ...
+}
+
+applyRevision: http.Do &amp; {
+  $after: patchRevision
+  method: &quot;PATCH&quot;
+  url:    &quot;https://\(dev.name):8765/nvue_v1/revision/\(escapedID)&quot;
+  // ...
+}
+</code></pre>
+
+<p>You can see the complete example of the last two concepts in the <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/main_tool.cue" target="_blank"><code>main_tool.cue</code></a> file and a few more advanced workflows in <a href="https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/seed_tool.cue" target="_blank"><code>seed_tool.cue</code></a>.</p>
+
+<h2 id="outro">Outro</h2>
+
+<p>You can test the complete CUE workflow in a virtual environment with the help of <a href="https://containerlab.dev/quickstart/" target="_blank">containerlab</a>:</p>
+
+<ol>
+<li>Build the lab with <code>cue lab-up ./...</code></li>
+<li>Pre-seed the demo Nautobot instance with <code>cue apply ./...</code></li>
+<li>Import the data from Nautobot with <code>cue fetch ./...</code></li>
+<li>Push the generated device configs with <code>cue push ./...</code></li>
+</ol>
+
+<p>You can verify that everything works as intended by pinging the peer device&rsquo;s loopback, e.g. <code>docker exec lon-sw-01 ping 198.51.100.2</code>. More importantly, at this stage, we have managed to replace all functions of Ansible, while having improved the data integrity, added flexibility and made our network automation workflow more robust.</p>
+
+<p>Another interesting bonus of using CUE, when compared to Ansible, is the reduced resource utilisation. Due to a completely different architecture, CUE consumes a lot fewer resources and works much faster than Ansible, while doing essentially the same work. I&rsquo;ve done some measurements of how CUE compares to Ansible when doing remote machine execution (running commands via SSH) and making remote API calls and in both cases CUE outperforms Ansible across major dimensions. In the most extreme case (CUE API vs Ansible API), CUE is more than 3 times faster and consumes less than 8% of the memory required by Ansible. You can find this and other results in the <a href="https://github.com/networkop/cue-ansible" target="_blank">cue-ansible</a> repository.</p>
+
+<hr />
+
+<p>I think at this point I&rsquo;ve covered all that I wanted about CUE and how it can be used for common network automation workflows. My hope is that people can see that there is a better alternative to what we use today and keep an open mind when making their next decision.</p>
+
+<p>If you feel like this is something unfamiliar and strange, remember that Ansible and Python all used to feel like that at some point in the past. If you have the desire to do things better and learn new things, then CUE can offer a lot in both departments.</p>
+
+<p>P.S. I still have enough material for another blog post about CUE and YANG. I haven&rsquo;t finished exploring this topic so it may be a very small article, depending on how it goes. Stay tuned for more.</p>
+
+      </div>
+
+      
+
+
+<div class="article-tags">
+  
+  <a class="btn btn-primary btn-outline" href="/tags/automation">automation</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/cue">cue</a>
+  
+  <a class="btn btn-primary btn-outline" href="/tags/ansible">ansible</a>
+  
+</div>
+
+
+
+    </div>
+  </div>
+
+</article>
+
+
+
+<div class="article-container article-widget">
+  <div class="hr-light"></div>
+  <h3>Related</h3>
+  <ul>
+    
+    <li><a href="/post/2022-11-cue-ansible/">Network Automation with CUE - Augmenting Ansible workflows</a></li>
+    
+    <li><a href="/post/2022-10-cue-intro/">Network Automation with CUE - Introduction</a></li>
+    
+    <li><a href="/post/2021-02-diy-sdwan/">Building your own SD-WAN with Envoy and Wireguard</a></li>
+    
+    <li><a href="/tags/ansible-yang/">YANG &amp; Ansible</a></li>
+    
+    <li><a href="/tags/network-ci/">Network CI/CD</a></li>
+    
+  </ul>
+</div>
+
+
+
+
+<div class="article-container">
+  <script src="https://utteranc.es/client.js" repo="networkop/networkop.github.io" issue-term="pathname" label="comment" theme="github-dark-orange" crossorigin="anonymous" async></script>
+</div>
+
+<footer class="site-footer">
+  <div class="container">
+    <p class="powered-by">
+
+      &copy; Michael Kashin 2021 &middot; 
+
+      Powered by the
+      <a href="https://sourcethemes.com/academic/" target="_blank" rel="noopener">Academic theme</a> for
+      <a href="https://gohugo.io" target="_blank" rel="noopener">Hugo</a>.
+
+      <span class="pull-right" aria-hidden="true">
+        <a href="#" id="back_to_top">
+          <span class="button_icon">
+            <i class="fa fa-chevron-up fa-2x"></i>
+          </span>
+        </a>
+      </span>
+
+    </p>
+  </div>
+</footer>
+
+
+<div id="modal" class="modal fade" role="dialog">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close btn-large" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Cite</h4>
+      </div>
+      <div>
+        <pre><code class="modal-body tex"></code></pre>
+      </div>
+      <div class="modal-footer">
+        <a class="btn btn-primary btn-outline js-copy-cite" href="#" target="_blank">
+          <i class="fa fa-copy"></i> Copy
+        </a>
+        <a class="btn btn-primary btn-outline js-download-cite" href="#" target="_blank">
+          <i class="fa fa-download"></i> Download
+        </a>
+        <div id="modal-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+    
+
+    
+    
+
+    
+
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js" integrity="sha512-3P8rXCuGJdNZOnUx/03c1jOTnMn3rP63nBip5gOP2qmUh5YAdVAvFZ1E+QLZZbC1rtMrQb+mah3AfYW11RUrWA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.imagesloaded/4.1.3/imagesloaded.pkgd.min.js" integrity="sha512-umsR78NN0D23AzgoZ11K7raBD+R6hqKojyBZs1w8WvYlsI+QuKRGBx3LFCwhatzBunCjDuJpDHwxD13sLMbpRA==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha512-iztkobsvnjKfAtTNdHkGVjAYTrrtlC7mGp/54c40wowO7LhURYl3gVzzcEqGl/qKXQltJ2HwMrdLcNUdo+N/RQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery.isotope/3.0.4/isotope.pkgd.min.js" integrity="sha512-VDBOIlDbuC4VWxGJNmuFRQ0Li0SKkDpmGyuhAG5LTDLd/dJ/S0WMVxriR2Y+CyPL5gzjpN4f/6iqWVBJlht0tQ==" crossorigin="anonymous"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fancybox/3.2.5/jquery.fancybox.min.js" integrity="sha256-X5PoE3KU5l+JcX+w09p/wHl9AzK333C4hJ2I9S5mD4M=" crossorigin="anonymous"></script>
+    
+    
+    <script src="/js/hugo-academic.js"></script>
+    
+
+    
+    
+      
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js" integrity="sha256-/BfiIkHlHoVihZdc6TFuj7MmJ0TWcWsMXkeDFwhi0zw=" crossorigin="anonymous"></script>
+      
+
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/go.min.js"></script>
+      
+      <script src="//cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/languages/yaml.min.js"></script>
+      
+
+      
+
+      <script>hljs.initHighlightingOnLoad();</script>
+    
+
+    
+    
+
+  </body>
+</html>
+
