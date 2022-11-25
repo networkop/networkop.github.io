@@ -8,13 +8,13 @@ description = "Using CUE for advanced network automation workflows"
 images = ["/img/cue-networking.png"]
 +++
 
-What I've covered in the [previous blog post](/post/2022-11-cue-ansible/) about CUE and Ansible were isolated use cases, disconnected islands in the sea of network automation. The idea behind that was to simplify the introduction of CUE into existing network automation workflows. However, this does not mean CUE is limited to those use cases and, in fact, CUE is most powerful when it's used end-to-end --- both to generate device configurations and to orchestrate interactions with external systems. In this post, I'm going to demonstrate how to use CUE for advanced network automation workflows involving fetching information from an external device inventory management system, using it to build complex hierarchical configuration values and, finally, generating and pushing the intended configuration to remote network devices.
+What I've covered in the [previous blog post](/post/2022-11-cue-ansible/) about CUE and Ansible were isolated use cases, disconnected islands in the sea of network automation. The idea behind that was to simplify the introduction of CUE into existing network automation workflows. However, this does not mean CUE is limited to those use cases and, in fact, CUE is most powerful when it's used end-to-end --- both to generate device configurations and to orchestrate interactions with external systems. In this post, I'm going to demonstrate how to use CUE for advanced network automation workflows involving fetching information from an external device inventory management system, using it to build complex hierarchical configuration values and, finally, generating and pushing intended configurations to remote network devices.
 
 ## CUE vs CUE scripting
 
 CUE was designed to be a simple, scalable and robust configuration language. This is why it includes type checking, schema and constraints validation as first-class constructs. There are some [design decisions](https://cuelang.org/docs/usecases/configuration/), like the lack of inheritance or value overrides, that may take new users by surprise, however over time it becomes clear that they make the language simpler and more readable. One of the most interesting features of CUE, though, is that all code is hermetic. What that means is all configuration values must come from local CUE files and cannot be dynamically fetched or injected into the evaluation process, so that no matter how many times or in which environment you run your CUE code, it always produces the same result.
 
-However, as we all know, in real life, configuration values may come from many different places. In the network automation context, we often use IP address and infrastructure management systems (IPAM/DCIM) to store device-specific data, often referring to these systems as a "source of truth". I won't focus on the fact that most often these systems are managed imperatively (point and click), making them a very poor choice for this task (how do you roll back?), but their dominance and popularity in our industry are undeniable. So how can we make CUE work in such environments?
+However, as we all know, in real life configuration values may come from many different places. In the network automation context, we often use IP address and infrastructure management systems (IPAM/DCIM) to store device-specific data, often referring to these systems as a "source of truth". I won't focus on the fact that most often these systems are managed imperatively (point and click), making them a very poor choice for this task (how do you roll back?), but their dominance and popularity in our industry are undeniable. So how can we make CUE work in such environments?
 
 CUE has an optional scripting layer, that is complementary to the core functionality of a configuration language. The CUE scripting (or [tooling]((https://cuelang.org/docs/usecases/configuration/#tooling))) layer works by evaluating files (identified by the `_tool.cue` suffix) that contain a set of tasks and executing them concurrently. These files are still written in CUE and can access the values defined in the rest of the CUE module, however, CUE tasks _are_ allowed to make local and remote I/O calls and can be strung together to form some pretty complex workflows. As you may have guessed, this is what allows us to interact with external databases and remote network devices.
 
@@ -38,11 +38,11 @@ In the rest of this blog post, I will cover some of the highlights of the above 
 
 ## Pulling Configuration Data from External Systems
 
-For an external IPAM/DCIM system I'll be using the public demo instance of [Nautobot](https://github.com/nautobot/nautobot) located at [demo.nautbot.com](https://demo.nautobot.com/). Since this is a demo instance, it gets rebuilt periodically, so I need to pre-populate it with the required device data. This is done based on the static [inventory file](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue) and automated with the `cue apply ./...` command. The action of populating IPAM/DCIM systems with data is normally a day-0 exercise and is rarely included in network automation workflows, so I won't focus on it here. However, if you're interested in an advanced REST API workflow orchestrated by CUE, you can check out the [`seed_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/seed_tool.cue) file for more details.
+For an external IPAM/DCIM system I'll be using the public demo instance of [Nautobot](https://github.com/nautobot/nautobot) located at [demo.nautbot.com](https://demo.nautobot.com/). Since this is a demo instance, it gets rebuilt periodically, so I need to pre-populate it with the required device data. This is done based on the static [inventory file](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue) and automated with the `cue apply ./...` command. The action of populating IPAM/DCIM systems with data is normally a day 0 exercise and is rarely included in day 1+ network automation workflows, so I won't focus on it here. However, if you're interested in an advanced REST API workflow orchestrated by CUE, you can check out the [`seed_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/seed_tool.cue) file for more details.
 
-Once we have the right data in Nautobot, we can fetch it by orchestrating a number of REST API calls with CUE. However, since Nautobot supports graphQL, I'll cheat a little bit and get all the data in a single RPC. The [query itself](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/query.gql) is less important, as it's unique to my specific requirements, so I'll focus only on the CUE code. In the [`fetch_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/fetch_tool.cue) file I define a sequence of tasks that will get executed concurrently for all devices from the [inventory](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue#L14):
+Once we have the right data in Nautobot, we can fetch it by orchestrating a number of REST API calls with CUE. However, since Nautobot supports GraphQL, I'll cheat a little bit and get all the data in a single RPC. The [query itself](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/query.gql) is less important, as it's unique to my specific requirements, so I'll focus only on the CUE code. In the [`fetch_tool.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/fetch_tool.cue) file I define a sequence of tasks that will get executed concurrently for all devices from the [inventory](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue#L14):
 
-1. Query the graphQL API endpoint of Nautobot and unmarshal the response into a CUE struct.
+1. Query the GraphQL API endpoint of Nautobot and unmarshal the response into a CUE struct.
 2. Import the received data as CUE and save it in a device-specific directory.
 
 All of the above can be done with a single `cue fetch ./...` command and the following snippet shows how the first task is written in CUE:
@@ -77,7 +77,7 @@ The above code snippet demonstrates how to make a single HTTP API call and parse
 
 ## Data Transformation
 
-At this point, it would make sense to talk a little about how CUE evaluates files from a hierarchical directory structure. In Ansible, it's common to use "group" variables to manage settings common amongst multiple hosts. In CUE, you can use subdirectories to group related hosts and manage their common configuration values. Although my two-node test topology is not the best example for this, I still tried to group data based on the `device role` value extracted from Nautobot. This is what the `./config` directory structure looks like. As you can see host-specific CUE files are sitting in leaf/edge directories, while common data values and operations are defined in their parent directories:
+At this point, it would make sense to talk a little about how CUE evaluates files from a hierarchical directory structure. In Ansible, it's common to use "group" variables to manage settings common amongst multiple hosts. In CUE, you can use subdirectories to group related hosts and manage their common configuration values. Although my two-node test topology is not the best example for this, I still tried to group data based on the `device role` value extracted from Nautobot. This is what the `./config` directory structure looks like. As you can see, host-specific CUE files are sitting in leaf/edge directories, while common data values and operations are defined in their parent directories:
 
 ![](/img/cue-dirs.png)
 
@@ -112,14 +112,14 @@ nvidiaX: {
 
 Although schemas are optional, they can give you additional assurance that what you're doing is right and catch errors before you try to use the generated data. Moreover, once CUE gets its own [language server](https://github.com/cue-lang/cue/issues/142), writing the code would become a lot easier with IDE's help. Similar to Go, you would get features like struct templates, autocompletion and error highlighting. 
 
-The biggest problem with using a schema is generating it in the first place. I've briefly touched upon this subject in the [previous blog post](http://localhost:1313/post/2022-11-cue-ansible/#input-data-validation) but want to expand a bit on it here. No matter if you work with a [model-compliant API](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux-44/api/index.html) (OpenAPI or YANG) or with [templates]((https://github.com/aristanetworks/ansible-avd/tree/devel/ansible_collections/arista/avd/roles/eos_cli_config_gen/templates/eos)) that generate a semi-structured set of CLI commands, you can always describe their input with a data model. CUE understands a few common schema languages and can import and generate its own definitions from them. So now all that we need to do is generate that data model somehow.
+The biggest problem with using a schema is generating it in the first place. I've briefly touched upon this subject in the [previous blog post](http://localhost:1313/post/2022-11-cue-ansible/#input-data-validation) but want to expand a bit on it here. Doesn't matter if you work with a [model-compliant API](https://docs.nvidia.com/networking-ethernet-software/cumulus-linux-44/api/index.html) (OpenAPI or YANG) or with [templates]((https://github.com/aristanetworks/ansible-avd/tree/devel/ansible_collections/arista/avd/roles/eos_cli_config_gen/templates/eos)) that generate a semi-structured set of CLI commands, you can always describe their input with a data model. CUE understands a few common schema languages and can import and generate its own definitions from them. So now all that we need to do is generate that data model somehow.
 
 In some cases, you may be in luck if your vendor already publishes these models, however, this time I'll focus on how to generate them manually. The detailed step-by-step process is [documented](https://github.com/networkop/cue-networking-II#creating-cue-schemas) in the GitHub repository, but here I want to summarise some of the key points:
 
-* If your device stores configuration as structured data (the case of NVIDIA Cumulus Linux), you can generate a JSON schema from an existing configuration instance. For example, I've worked out the exact set of values I need to configure first, saved it in a YAML file and ran it through YAML to JSON schema [converter](https://jsonformatter.org/yaml-to-jsonschema). 
+* If your device manages its configuration as structured data (the case of NVIDIA Cumulus Linux), you can generate a JSON schema from an existing configuration instance. For example, I've worked out the exact set of values I need to configure first, saved it in a YAML file and ran it through YAML to JSON schema [converter](https://jsonformatter.org/yaml-to-jsonschema). 
 * If you have to use text templates to produce the device config (the case of Arisa EOS), you can infer a JSON schema from a Jinja template (see [this script](https://github.com/networkop/cue-networking-II/blob/main/schemas/jinja-to-json-schema.py) for an example).
 * CUE can correctly recognise the JSON schema format and import it as native definitions using the `cue import` command.
-* Following the initial (double) conversion, some of the type information may get lost or distorted, so most likely you would need to massage the automatically generated CUE schema before you can use it. This, however, only needs to be done once, since you can discard the intermediate schema files and carry on working exclusively with CUE files from now on.
+* Following the initial (double) conversion, some of the type information may get lost or distorted, so most likely you would need to massage the automatically generated CUE schema before you can use it. This, however, only needs to be done once, since you can discard the intermediate schema files and carry on working exclusively with CUE definitions from now on.
 
 You can view the generated structured device configurations, produced by the data transformation logic, by running the `cue show ./...` command.
 
@@ -130,26 +130,16 @@ This is the final stage of the CUE workflow where, once again, I use CUE scripti
 The first one is authentication and secret management. As I've mentioned before, one of the common ways of injecting secrets is via environment variables, e.g. if you running a workflow inside a CI/CD system. While CUE cannot inject them natively, you can achieve the same result using the `@tag` keyword. A common pattern is to define default values that can be overridden with a user-provided command line tag, like in the following snippet from the [`inventory.cue`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/inventory/inventory.cue) file:
 
 ```json
-package inventory
 auth: {
   nvidia: {
     user:     *"cumulus" | string @tag(nvidia_user)
     password: *"cumulus" | string @tag(nvidia_pwd)
-	}
+  }
   arista: {
     user:     *"admin" | string @tag(arista_user)
     password: *"admin" | string @tag(arista_pwd)
-	}
+  }
 }
-#devices: [{
-  name:     "lon-sw-01"
-  user:     auth.nvidia.user
-  password: auth.nvidia.password
-}, {
-  name:     "lon-sw-02"
-  user:     auth.arista.user
-  password: auth.arista.password
-}]
 ```
 
 When calling any CUE script, you can now pass an additional `-t tag_name=tag_value` flag that will get injected into your code. For example, this is how I would change the default password for Arista:
@@ -161,7 +151,7 @@ cue push -t arista_pwd=$ARISTA_PWD ./...
 
 Another interesting concept is the [function pattern](https://cuetorials.com/patterns/functions/). It's an ability to abstract a reusable piece of CUE code in a dedicated struct that can be evaluated when needed by any number of callers. I've used this pattern multiple times in most of the `_tool.cue` files, but below I'll cover its simplest form. 
 
-Before we can send the generated configuration to Arista eAPI endpoint, we need to wrap it with a few special keywords -- `enable`, `configure` and `write`. This is done in a special struct called [`eapi_wrapper`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/main_tool.cue#L60). This struct defines an abstract schema for its input (a list of strings) and performs some concrete actions on it (wraps it in special keywords). In order to "call" this "function" we unify it with a struct that we know will define these inputs as concrete values. CUE runtime will delay the evaluation of this function struct until all of its inputs are known. In the following example, once CUE generates a list of CLI commands in the `split_commands` list, it will evaluate the "function call" expression and the result will become available to subsequent tasks in `wrapped_commands.output`.
+Before we can send the generated configuration to Arista eAPI endpoint, we need to wrap it with a few special keywords -- `enable`, `configure` and `write`. This is done in a special struct called [`eapi_wrapper`](https://github.com/networkop/cue-networking-II/blob/64064138005dc55b9fb7a0e5c3b3f9a55eecfdd0/main_tool.cue#L60). This struct defines an abstract schema for its input (a list of strings) but performs some concrete actions on it (wraps it in special keywords). In order to "call" this "function" we unify it with a struct that we know will define these inputs as concrete values. CUE runtime will delay the evaluation of this function struct until all of its inputs are known. In the following example, once CUE generates a list of CLI commands in the `split_commands` list, it will evaluate the "function call" expression and the result will become available to subsequent tasks in `wrapped_commands.output`.
 
 ```json
 eapi_wrapper: {
@@ -221,7 +211,7 @@ Another interesting bonus of using CUE, when compared to Ansible, is the reduced
 
 ---
 
-I think at this point I've covered all that I wanted about CUE and how it can be used for the majority of network automation workflows. My hope is that people can see that there is an alternative to what we use today, and keep an open mind when making their next decision. 
+I think at this point I've covered all that I wanted about CUE and how it can be used for common network automation workflows. My hope is that people can see that there is a better alternative to what we use today and keep an open mind when making their next decision. 
 
 If you feel like this is something unfamiliar and strange, remember that Ansible and Python all used to feel like that at some point in the past. If you have the desire to do things better and learn new things, then CUE can offer a lot in both departments.
 
