@@ -20,44 +20,49 @@ Once of the projects that can generate Go language bindings from a set of YANG m
 
 ![](/img/cue-yang.png)
 
-Obviously, if things were that easy, you wouldn't be reading this 10 minute article. YANG is a complicated language that was designed before our industry converged on a much (relatively) simpler set of schema standards. In the rest of this blog post I will document what issues I hit when using the automatically-generated CUE definitions, how I worked around them and what challanges still lie ahead.
+Obviously, if things were that easy, you wouldn't be writing this article now. YANG is a complicated language that was designed before our industry converged on a much (relatively) simpler set of schema standards. In the rest of this blog post I will document what issues I hit when using the automatically-generated CUE definitions, how I worked around them and what challanges still lie ahead.
 
 > All code from this blog post can be found in the [yang-to-cue](https://github.com/networkop/yang-to-cue) github repository
 
 ## Generating CUE definitions
 
-One thing to get out of the gate is that if you want to use YANG-based APIs, most likely you would need to generate your language bindings or, in my case, CUE definitions automatically. There is absolutely no way you can (or should try to) create them manually. You can look at an [average YANG model](https://github.com/openconfig/public/blob/master/release/models/interfaces/openconfig-interfaces.yang) or a [size of the generated library](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/json-rpc/pkg/srl/srl.go) to understand what level of complexity you area dealing with. 
+One thing I wanted to get out of the gate is that if you want to use YANG-based APIs, most likely you would need to generate your language bindings or, in my case, CUE definitions automatically. There is absolutely no way you can (or should try to) create them manually. You can look at an [average YANG model](https://github.com/openconfig/public/blob/master/release/models/interfaces/openconfig-interfaces.yang) or a [size of the generated library](https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/json-rpc/pkg/srl/srl.go) to understand what level of complexity you area dealing with. 
 
+With that in mind, the only way I could make it work is if I used the `cue get go` command, which means the first thing I had to do was generate Go types using the [`openconfig/ygot`](https://github.com/openconfig/ygot). I won't focus on how to do it here, you can see an example in steps 1-3 of the workflow described in the [yang-to-cue](https://github.com/networkop/yang-to-cue) repo or read about it in the [Go Network Automation book](https://www.packtpub.com/product/network-automation-with-go/9781800560925). Once you have those types defined, you can run the `cue get go` command and pull them into your CUE code, for example:
 
 ```bash
 cue get go yang.to.cue/pkg/...
 ```
 
-### Challenge 1 - ENUMs
-### Challenge 2 - YANG lists
-### Challenge 3 - Optional fields
+The above command would generate a `[package]_go_gen.cue` file per Go package containing everything that has been recognised and imported. Here's where I started seeing issues and below I'll explain what they are and how I fixed them, starting from the simplest to the hardest.
 
-When it comes to field optionality, CUE and YANG have opposite defaults. In YANG each node of a tree is optional by default, while in CUE all fields are mandatory, unless they are explicitly marked as optional. When CUE imports definition from Go types, it looks at the struct field type and marks it optional if this is a pointer type. This, however, leaves some of the fields as required, which goes against the YANG defaults. So the simplest solution would be to walk all fields in all structs and make sure they all are marked as default.
+### Challenge 1 - Optional fields
+
+When it comes to field optionality, CUE and YANG have opposite defaults. In YANG each node of a tree is optional by default, while in CUE all fields are mandatory, unless they are explicitly marked as optional. When CUE imports definition from Go types, it looks at the struct field type and marks it optional if it is a pointer type. This, however, marks some of the fields as required, which goes against the YANG defaults. 
+
+The simplest solution is to walk through all of the fields defined in all of the structs and make them optional. CUE's Go API includes a convenient helper function that traverses all nodes in a parsed CUE file and allows you to modify their content. Below is a snippet from the [`post-import.go`](https://github.com/networkop/yang-to-cue/blob/00f5287a29cf98f1746806e89c5a93b6d2d2d61d/post-import.go) script that does that:
 
 ```go
 case *ast.StructLit:
-	for _, elt := range x.Elts {
-		if field, ok := elt.(*ast.Field); ok {
-			name, _, err := ast.LabelName(field.Label)
-			if err != nil {
-				log.Fatal(err)
-			}
-			if field.Optional == token.NoPos {
-				log.Debugf("found mandadory field: %s", name)
-				field.Optional = token.Blank.Pos()
-			}
-		}
-	}
+  for _, elt := range x.Elts {
+    if field, ok := elt.(*ast.Field); ok {
+      name, _, err := ast.LabelName(field.Label)
+        if err != nil {
+          log.Fatal(err)
+        }
+        if field.Optional == token.NoPos {
+          log.Debugf("found mandadory field: %s", name)
+          field.Optional = token.Blank.Pos()
+        }
+      }
+    }
 ```
- 
 
+This was the simplest wait to work around the problem. The downside is that we lose the ability to check if any field was marked mandatory by its YANG model. Fortunately, for this we first need to wait for `ygot` to implement [this functionality](https://github.com/openconfig/ygot/issues/514), by which time CUE's [mandatory field proposal](https://github.com/cue-lang/proposal/blob/main/designs/1951-required-fields-v2.md) may get implemented as well, making the solution for this problem a bit easier.
+ 
+### Challenge 2 - ENUMs
+### Challenge 3 - YANG lists
 
 
 ## Outro
 CUE is pre 1.0 so some things may change, for example:
-https://github.com/cue-lang/proposal/blob/main/designs/1951-required-fields-v2.md
