@@ -58,11 +58,97 @@ case *ast.StructLit:
     }
 ```
 
-This was the simplest wait to work around the problem. The downside is that we lose the ability to check if any field was marked mandatory by its YANG model. Fortunately, for this we first need to wait for `ygot` to implement [this functionality](https://github.com/openconfig/ygot/issues/514), by which time CUE's [mandatory field proposal](https://github.com/cue-lang/proposal/blob/main/designs/1951-required-fields-v2.md) may get implemented as well, making the solution for this problem a bit easier.
+This was the simplest wait to work around the problem. The downside is that we lose the ability to check if any field was marked mandatory by a YANG model. Fortunately, for this we first need to wait for `ygot` to implement [this functionality](https://github.com/openconfig/ygot/issues/514), by which time CUE's [mandatory field proposal](https://github.com/cue-lang/proposal/blob/main/designs/1951-required-fields-v2.md) may get implemented as well, making the solution for this problem a bit easier.
  
 ### Challenge 2 - ENUMs
+
+The second problem is caused by the the way the [`openconfig/ygot`](https://github.com/openconfig/ygot) deals with YANG enum types. Most enum types I've seen are an alias to `int64` and each enum value is a constant (of enum type) that stores that [enum's value](https://www.rfc-editor.org/rfc/rfc7950#section-9.6.4.2). When emitting the JSON value, `ygot` uses the constant value to perform a lookup in the `ΛEnum` dictionary storing the actual enum name. The following excerpt from [`yang-to-go/pkg/yang.go`](https://github.com/networkop/yang-to-cue/blob/00f5287a29cf98f1746806e89c5a93b6d2d2d61d/pkg/yang.go) file should make it a bit clearer:
+
+```go
+type E_AristaIntfAugments_AristaAddrType int64
+
+const (
+	AristaIntfAugments_AristaAddrType_UNSET E_AristaIntfAugments_AristaAddrType = 0
+	...
+	AristaIntfAugments_AristaAddrType_IPV6 E_AristaIntfAugments_AristaAddrType = 3
+)
+var ΛEnum = map[string]map[int64]ygot.EnumDefinition{
+	"E_AristaIntfAugments_AristaAddrType": {
+		1: {Name: "PRIMARY"},
+		2: {Name: "SECONDARY"},
+		3: {Name: "IPV6"},
+	},
+)
+```
+
+By default, CUE would ingest all enum types and store them as integers and wouldn't know anything about the above map or its string values. So what I had to do was parse the auto-generated CUE file and patch the enum definitions by replacing integers (enum's value) with strings (enum's name) from the `ΛEnum` map. All this is done inside the same [`post-import.go`](https://github.com/networkop/yang-to-cue/blob/master/post-import.go#L208-L264) script and the resulting CUE code looks something like this:
+
+```json
+#enumE_AristaIntfAugments_AristaAddrType:
+  #AristaIntfAugments_AristaAddrType_UNSET |
+  #AristaIntfAugments_AristaAddrType_PRIMARY |
+  #AristaIntfAugments_AristaAddrType_SECONDARY |
+  #AristaIntfAugments_AristaAddrType_IPV6
+
+#E_AristaIntfAugments_AristaAddrType: string
+
+#AristaIntfAugments_AristaAddrType_UNSET: 
+    { #E_AristaIntfAugments_AristaAddrType & "UNSET" }
+#AristaIntfAugments_AristaAddrType_PRIMARY: 
+    { #E_AristaIntfAugments_AristaAddrType & "PRIMARY" }
+...
+```
+
+This definition would allow you to write values using concrete value strings, e.g. `"addr-type": "PRIMARY"` or simply refer to one of the globally defined constants, as in the following example from the [`yang-to-cue/values.cue`](https://github.com/networkop/yang-to-cue/blob/master/values.cue):
+
+```json
+config: {
+  "addr-type": oc.#AristaIntfAugments_AristaAddrType_PRIMARY
+  "prefix-length": 24
+  ip: "192.0.2.1"
+}
+```
+
 ### Challenge 3 - YANG lists
+
+This ended being the biggest challenge I had to solve. For all intents and purposes a YANG list is a map (or a dictionary) with values identified by unique keys. So [`openconfig/ygot`](https://github.com/openconfig/ygot) naturally stores YANG lists as Go maps. This makes it easier to ensure uniqueness and catch any duplicates. However, on the wire a YANG list is represented as a list of objects (`[...{}]`), so when it's time to emit a payload, `ygot` [translates](https://github.com/openconfig/ygot/blob/master/ygot/render.go#L1281) maps to lists, producing a valid RFC7951 JSON.
+
+This last bit is unique to `ygot`'s serliasation logic and by default remains unknown to CUE. So I've decided to take the most straigh-forward approach and convert all maps to lists before running the `cue get go` command. This is described in the readme of the [yang-to-cue](https://github.com/networkop/yang-to-cue) repository and can be accomplished with a little bit of `sed` magic:
+
+```
+sed -i -E 's/map\[.*\]\*(\S+)/\[\]\*\1/' pkg/yang.go
+```
+
+While this solves the problem of helping CUE generate a valid RFC7951 JSON, this does not guarantee YANG list entry uniqueness, which opens a room for user error. So I've decided to use CUE's validation capabilities to accomplish that instead. 
+
+In the following example I'm using a hidden field `_check` to store a set of YANG keys and compare its length to the length of the corresponding YANG list. Since some lists can have composite keys (more than 1 value is a key), I have to do some string concatenation to generate a unique string per key. Ultimately, as long as the list and a set of its keys have the same size, the validation passes and the payload is emitted by CUE.
+
+```json
+#OpenconfigInterfaces_Interfaces: {
+  X = "interface": [...null | #OpenconfigInterfaces_Interfaces_Interface]
+    _check: {
+      for e in X {
+        let kValues = [ for k in strings.Split("name", "+") {"\(e.config[k])"}]
+        let compK = strings.Join(kValues, "+")
+        "\(compK)": true
+    }
+  }
+  if len(_check) != len(X) {_|_}
+}
+```
+
+The above code snippet is automatically injected into every YANG list definition in CUE when the [`post-import.go`](https://github.com/networkop/yang-to-cue/blob/00f5287a29cf98f1746806e89c5a93b6d2d2d61d/post-import.go) is run with the default `-yanglist=true` argument.
 
 
 ## Outro
+
+So where does all of the above leave us in relation to CUE and YANG? So far I was able to generate some pretty sizeable instances of YANG using CUE and apply the same validation rules imported from `ygot` packages. This makes me pretty comfortable I've reached the 80% feature coverage I've set to myself a [few months ago](https://twitter.com/networkop1/status/1550145828236443648).
+
+
+This still leaves a few areas
+
+* When it comes to YANG list validations, error reporting is not as clear as I'd like it to be
+* YANG
+
+---
 CUE is pre 1.0 so some things may change, for example:
