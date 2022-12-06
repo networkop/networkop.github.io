@@ -68,22 +68,22 @@ The second problem is caused by the the way the [`openconfig/ygot`](https://gith
 type E_AristaIntfAugments_AristaAddrType int64
 
 const (
-	AristaIntfAugments_AristaAddrType_UNSET E_AristaIntfAugments_AristaAddrType = 0
-	...
-	AristaIntfAugments_AristaAddrType_IPV6 E_AristaIntfAugments_AristaAddrType = 3
+  AristaIntfAugments_AristaAddrType_UNSET E_AristaIntfAugments_AristaAddrType = 0
+  ...
+  AristaIntfAugments_AristaAddrType_IPV6 E_AristaIntfAugments_AristaAddrType = 3
 )
 var ΛEnum = map[string]map[int64]ygot.EnumDefinition{
-	"E_AristaIntfAugments_AristaAddrType": {
-		1: {Name: "PRIMARY"},
-		2: {Name: "SECONDARY"},
-		3: {Name: "IPV6"},
-	},
+  "E_AristaIntfAugments_AristaAddrType": {
+    1: {Name: "PRIMARY"},
+    2: {Name: "SECONDARY"},
+    3: {Name: "IPV6"},
+  },
 )
 ```
 
 By default, CUE would ingest all enum types and store them as integers and wouldn't know anything about the above map or its string values. So what I had to do was parse the auto-generated CUE file and patch the enum definitions by replacing integers (enum's value) with strings (enum's name) from the `ΛEnum` map. All this is done inside the same [`post-import.go`](https://github.com/networkop/yang-to-cue/blob/master/post-import.go#L208-L264) script and the resulting CUE code looks something like this:
 
-```json
+```javascript
 #enumE_AristaIntfAugments_AristaAddrType:
   #AristaIntfAugments_AristaAddrType_UNSET |
   #AristaIntfAugments_AristaAddrType_PRIMARY |
@@ -101,7 +101,7 @@ By default, CUE would ingest all enum types and store them as integers and would
 
 This definition would allow you to write values using concrete value strings, e.g. `"addr-type": "PRIMARY"` or simply refer to one of the globally defined constants, as in the following example from the [`yang-to-cue/values.cue`](https://github.com/networkop/yang-to-cue/blob/master/values.cue):
 
-```json
+```javascript
 config: {
   "addr-type": oc.#AristaIntfAugments_AristaAddrType_PRIMARY
   "prefix-length": 24
@@ -113,42 +113,104 @@ config: {
 
 This ended being the biggest challenge I had to solve. For all intents and purposes a YANG list is a map (or a dictionary) with values identified by unique keys. So [`openconfig/ygot`](https://github.com/openconfig/ygot) naturally stores YANG lists as Go maps. This makes it easier to ensure uniqueness and catch any duplicates. However, on the wire a YANG list is represented as a list of objects (`[...{}]`), so when it's time to emit a payload, `ygot` [translates](https://github.com/openconfig/ygot/blob/master/ygot/render.go#L1281) maps to lists, producing a valid RFC7951 JSON.
 
-This last bit is unique to `ygot`'s serliasation logic and by default remains unknown to CUE. So I've decided to take the most straigh-forward approach and convert all maps to lists before running the `cue get go` command. This is described in the readme of the [yang-to-cue](https://github.com/networkop/yang-to-cue) repository and can be accomplished with a little bit of `sed` magic:
+This last bit is unique to `ygot`'s serializaion logic and by default remains unknown to CUE. So I've taken the most straigh-forward approach to convert all maps to lists before running the `cue get go` command. This is described in the readme of the [yang-to-cue](https://github.com/networkop/yang-to-cue) repository and can be accomplished with a little bit of `sed` magic:
 
 ```
 sed -i -E 's/map\[.*\]\*(\S+)/\[\]\*\1/' pkg/yang.go
 ```
 
-While this solves the problem of helping CUE generate a valid RFC7951 JSON, this does not guarantee YANG list entry uniqueness, which opens a room for user error. So I've decided to use CUE's validation capabilities to accomplish that instead. 
+While this solves the problem of helping CUE generate a valid RFC7951 JSON, this does not guarantee YANG list entry uniqueness, which opens a room for user error. However, it's possible to use CUE itself to introduce additional constraints and ensure all entries in a list are unique.
 
-In the following example I'm using a hidden field `_check` to store a set of YANG keys and compare its length to the length of the corresponding YANG list. Since some lists can have composite keys (more than 1 value is a key), I have to do some string concatenation to generate a unique string per key. Ultimately, as long as the list and a set of its keys have the same size, the validation passes and the payload is emitted by CUE.
+In the following example I'm using a hidden field `_check` to store a set of YANG keys and compare its length to the length of the corresponding YANG list. As long as the list and a set of its keys have the same size, the validation passes and the payload is emitted by CUE.
 
-```json
+```javascript
 #OpenconfigInterfaces_Interfaces: {
-  X = "interface": [...null | #OpenconfigInterfaces_Interfaces_Interface]
-    _check: {
-      for e in X {
-        let kValues = [ for k in strings.Split("name", "+") {"\(e.config[k])"}]
-        let compK = strings.Join(kValues, "+")
-        "\(compK)": true
+  interface: [...null | #OpenconfigInterfaces_Interfaces_Interface]
+  _check: {
+    for intf in interface {
+      let key = intf.name
+      "\(key)": true
     }
   }
-  if len(_check) != len(X) {_|_}
+  if len(_check) != len(interface) {_|_}
 }
 ```
 
-The above code snippet is automatically injected into every YANG list definition in CUE when the [`post-import.go`](https://github.com/networkop/yang-to-cue/blob/00f5287a29cf98f1746806e89c5a93b6d2d2d61d/post-import.go) is run with the default `-yanglist=true` argument.
+The above code snippet is automatically injected into every YANG list definition in CUE when the [`post-import.go`](https://github.com/networkop/yang-to-cue/blob/00f5287a29cf98f1746806e89c5a93b6d2d2d61d/post-import.go) is run with the default `-yanglist=true` argument. The actual [injected code](https://github.com/networkop/yang-to-cue/blob/master/post-import.go#L189-L200) is slightly more complicated to account for the presence of composite keys (keys with more than one value) and includes a check that `entry.key` is always the same as `entry.config.key` as [required](https://www.openconfig.net/docs/guides/style_guide/#list) by the Openconfig styling guide.
 
 
 ## Outro
 
-So where does all of the above leave us in relation to CUE and YANG? So far I was able to generate some pretty sizeable instances of YANG using CUE and apply the same validation rules imported from `ygot` packages. This makes me pretty comfortable I've reached the 80% feature coverage I've set to myself a [few months ago](https://twitter.com/networkop1/status/1550145828236443648).
+So where does all of the above leave us in relation to CUE and YANG? So far I was able to generate some pretty sizeable instances of YANG using  CUE and apply the same validation rules imported from `ygot` packages. This makes me pretty comfortable I've reached the 80% feature coverage target I've set to myself a [few months ago](https://twitter.com/networkop1/status/1550145828236443648). Here's an example from the [yang-to-cue](https://github.com/networkop/yang-to-cue) repo that you can successfully apply to any reachable Arista EOS device using the `cue apply` command.
+
+```javascript
+package main
+
+import oc "yang.to.cue/pkg:yang"
+
+config: oc.#Device & {
+  interfaces: interface: [{
+    config: {
+      description: "loopback interface"
+      mtu:         1500
+      name:        "Loopback0"
+    }
+    name: "Loopback0"
+    subinterfaces: {
+      subinterface: [{
+        config: {
+          description: "default subinterface"
+          index:       0
+        }
+        index: 0
+        ipv4: {
+          addresses: {
+            address: [{
+              ip: "192.0.2.1"
+              config: {
+                "addr-type":     oc.#AristaIntfAugments_AristaAddrType_PRIMARY
+                "prefix-length": 24
+                ip:              "192.0.2.1"
+              }
+            }]
+          }
+        }
+      }]
+    }
+  }]
+  "network-instances": "network-instance": [{
+    config: name: "default"
+    name: "default"
+    protocols: protocol: [{
+      bgp: {
+        global: config: as: 65000
+        neighbors: neighbor: [{
+          "afi-safis": "afi-safi": [{
+            "afi-safi-name": oc.#OpenconfigBgpTypes_AFI_SAFI_TYPE_IPV4_UNICAST
+            config: "afi-safi-name": "IPV4_UNICAST"
+          }]
+          config: {
+            "neighbor-address": "169.254.0.1"
+            "peer-as":          65001
+          }
+          "neighbor-address": "169.254.0.1"
+        }]
+      }
+      config: {
+        identifier: "BGP"
+        name:       "BGP"
+      }
+      identifier: "BGP"
+      name:       "BGP"
+    }]
+  }]
+}
+```
+
+You can use the approach described in this blog post to write and validate YANG-compliant data entirely in CUE and, once CUE gets its own [language server](https://github.com/cue-lang/cue/issues/142), writing this data would become even easier with IDE hints, autocompletion and error highlighting. Combine this with data generation and scripting capabilities described in the [previous post](/post/2022-11-cue-networking/) and this gives you a versatile and robust toolset to work with YANG-based APIs, something that has been missing for a very long time.
 
 
-This still leaves a few areas
+There are still a few areas for improvement where CUE does not yet do as good a job as it could. One of them is the error reporting in YANG list validation logic. There's no way to emit a custom error message, however this may change once [this proposal](https://github.com/cue-lang/cue/issues/943) get implemented. Another area for improvement could be extracting more metadata from Go types, but this seems to be unique to YANG/ygot so unlikely to get implemented in CUE natively. That being said, I hope that the approach that I've shown here -- importing Go types using CUE and changing them later with a Go script -- works for most of the other potential future improvements.
 
-* When it comes to YANG list validations, error reporting is not as clear as I'd like it to be
-* YANG
+Since CUE is a pre 1.0 language, I would expect a few more things to change in the coming months. I doubt these changes would have any major negative impact on [what I've written about CUE](http://localhost:1313/tags/cue/) so far. If anything, they would improve the language, like the [query proposal](https://github.com/cue-lang/cue/issues/165) that would simplify its data generation capabilities or the [function signatures proposal](https://github.com/cue-lang/cue/issues/2007) to allow external, user-provided code to be injected into CUE evalutation process. So in my view now is definitely the right time to start exploring CUE and injecting it into various parts of your network automation workflow. As you dig into the details of the language more, you'll discover more interesting patterns and applications and, hopefully, CUE (Configure, Unify, Execute) becomes that common unifying language for configuration and data in many parts of IT infrastructure.
 
----
-CUE is pre 1.0 so some things may change, for example:
