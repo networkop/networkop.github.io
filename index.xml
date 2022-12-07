@@ -11,6 +11,214 @@
     <atom:link href="/" rel="self" type="application/rss+xml" />
     
     <item>
+      <title>Network Automation with CUE - Working with YANG-based APIs</title>
+      <link>https://networkop.co.uk/post/2022-12-cue-yang/</link>
+      <pubDate>Mon, 05 Dec 2022 00:00:00 +0000</pubDate>
+      
+      <guid>https://networkop.co.uk/post/2022-12-cue-yang/</guid>
+      <description>
+
+&lt;p&gt;In the &lt;a href=&#34;https://networkop.co.uk/post/2022-11-cue-networking/&#34;&gt;previous post&lt;/a&gt;, I mentioned that CUE can help you work with both &amp;ldquo;industry-standard&amp;rdquo; semi-structured APIs and fully structured APIs where data is modelled using OpenAPI or JSON schema. However, there was an elephant in the room that I conveniently ignored but without which no conversation about network automation would be complete. With this post, I plan to rectify my previous omission and explain how you can use CUE to work with YANG-based APIs. More specifically, I&amp;rsquo;ll focus on OpenConfig and gNMI and show how CUE can be used to write YANG-based configuration data, validate it and send it to a remote device.&lt;/p&gt;
+
+&lt;h2 id=&#34;automating-yang-based-apis-with-cue&#34;&gt;Automating YANG-based APIs with CUE&lt;/h2&gt;
+
+&lt;p&gt;Working with YANG-based APIs is not much different from what I&amp;rsquo;ve described in the two previous blog posts &lt;a href=&#34;https://networkop.co.uk/post/2022-11-cue-ansible/&#34;&gt;[1]&lt;/a&gt; and &lt;a href=&#34;https://networkop.co.uk/post/2022-11-cue-networking/&#34;&gt;[2]&lt;/a&gt;. We&amp;rsquo;re still dealing with structured data that gets assembled based on the rules defined in a set of YANG models and sent over the wire using one of the supported protocols (Netconf, Restconf or gNMI). One of the biggest differences, though, is that data generation gets done in one of the general-purpose programming languages (e.g. Python, Go), since doing it in Ansible is not feasible due to the sheer complexity of YANG schemas. What CUE can bring to the table is the data transformation and generation capabilities often found in general-purpose programming languages while still retaining the simplicity and readability of a DSL.&lt;/p&gt;
+
+&lt;p&gt;If we want to use CUE the main problem that we have to solve is figuring out how to generate the YANG-based CUE definitions. Since YANG is not widely used outside of the physical networking infrastructure space, CUE does not have a native language adaptor for YANG. However, CUE has integrations with a &lt;a href=&#34;https://cuelang.org/docs/integrations/&#34; target=&#34;_blank&#34;&gt;number of&lt;/a&gt; structured data standards which allows us to use one of them as an intermediate step.&lt;/p&gt;
+
+&lt;p&gt;One of the projects that can generate Go language bindings from a set of YANG models is &lt;a href=&#34;https://github.com/openconfig/ygot&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;openconfig/ygot&lt;/code&gt;&lt;/a&gt;. Fortunately, CUE understands Go and can generate its own definitions from Go types using the &lt;code&gt;cue get go [packages]&lt;/code&gt; command. This makes the remainder of the network automation workflow very similar to what I&amp;rsquo;ve described in the &lt;a href=&#34;https://networkop.co.uk/post/2022-11-cue-networking/&#34;&gt;previous post&lt;/a&gt;. We combine CUE definitions with user-provided data, validating its structure and values. Using CUE scripting, we can serialise this data into JSON and orchestrate &lt;a href=&#34;https://gnmic.kmrd.dev/&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;gnmic&lt;/code&gt;&lt;/a&gt; to perform a &lt;a href=&#34;https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md#341-the-setrequest-message&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;Set&lt;/code&gt; RPC&lt;/a&gt; with the provided data in the payload.&lt;/p&gt;
+
+&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/cue-yang.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
+
+&lt;p&gt;Obviously, if things were that easy, I wouldn&amp;rsquo;t be writing this blog post now. YANG is a complicated language that was designed before our industry converged on a much (relatively) simpler set of schema standards. In the rest of this article, I will document what issues I hit when using the automatically-generated CUE definitions, how I worked around them and what challenges still lie ahead.&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;All code from this blog post can be found in the &lt;a href=&#34;https://github.com/networkop/yang-to-cue&#34; target=&#34;_blank&#34;&gt;yang-to-cue&lt;/a&gt; github repository&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h2 id=&#34;generating-cue-definitions&#34;&gt;Generating CUE definitions&lt;/h2&gt;
+
+&lt;p&gt;One thing I wanted to get out of the gate is that if you want to use YANG-based APIs, most likely you would need to generate your language bindings or, in my case, CUE definitions automatically. There is absolutely no way you can (or should try to) create them manually. You can look at an &lt;a href=&#34;https://github.com/openconfig/public/blob/master/release/models/interfaces/openconfig-interfaces.yang&#34; target=&#34;_blank&#34;&gt;average YANG model&lt;/a&gt; or a &lt;a href=&#34;https://github.com/PacktPublishing/Network-Automation-with-Go/blob/main/ch08/json-rpc/pkg/srl/srl.go&#34; target=&#34;_blank&#34;&gt;size of the generated library&lt;/a&gt; to understand what level of complexity you are dealing with.&lt;/p&gt;
+
+&lt;p&gt;With that in mind, the only way I could make it work is if I used the &lt;code&gt;cue get go&lt;/code&gt; command, which means the first thing I had to do was generate Go types using the &lt;a href=&#34;https://github.com/openconfig/ygot&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;openconfig/ygot&lt;/code&gt;&lt;/a&gt;. I won&amp;rsquo;t focus on how to do it here, you can see an example in steps 1-3 of the workflow described in the &lt;a href=&#34;https://github.com/networkop/yang-to-cue&#34; target=&#34;_blank&#34;&gt;yang-to-cue&lt;/a&gt; repo or read about it in the &lt;a href=&#34;https://www.packtpub.com/product/network-automation-with-go/9781800560925&#34; target=&#34;_blank&#34;&gt;Go Network Automation book&lt;/a&gt;. Once you have those types defined, you can run the &lt;code&gt;cue get go&lt;/code&gt; command and pull them into your CUE code, for example:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-bash&#34;&gt;cue get go yang.to.cue/pkg/...
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The above command would generate a &lt;code&gt;[package]_go_gen.cue&lt;/code&gt; file per Go package containing everything that has been recognised and imported. This is where I started seeing issues and below I&amp;rsquo;ll explain what they are and how I fixed them.&lt;/p&gt;
+
+&lt;h3 id=&#34;challenge-1-optional-fields&#34;&gt;Challenge 1 - Optional fields&lt;/h3&gt;
+
+&lt;p&gt;When it comes to field optionality, CUE and YANG have opposite defaults. In YANG each node of a tree is optional by default, while in CUE all fields are mandatory unless they are explicitly marked as optional. When CUE imports definitions from Go types, it looks at each struct field and marks it optional if it is a pointer type. This, however, marks some of the fields as required, which goes against the YANG defaults.&lt;/p&gt;
+
+&lt;p&gt;The simplest solution is to walk through all of the fields defined in all of the structs and make them optional. CUE&amp;rsquo;s Go API includes a convenient helper function that traverses all nodes in a parsed CUE file and allows you to modify their content. Below is a snippet from the &lt;a href=&#34;https://github.com/networkop/yang-to-cue/blob/00f5287a29cf98f1746806e89c5a93b6d2d2d61d/post-import.go&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;post-import.go&lt;/code&gt;&lt;/a&gt; script that does that:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;case *ast.StructLit:
+  for _, elt := range x.Elts {
+    if field, ok := elt.(*ast.Field); ok {
+      name, _, err := ast.LabelName(field.Label)
+        if err != nil {
+          log.Fatal(err)
+        }
+        if field.Optional == token.NoPos {
+          log.Debugf(&amp;quot;found mandadory field: %s&amp;quot;, name)
+          field.Optional = token.Blank.Pos()
+        }
+      }
+    }
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This was the simplest way to work around the problem. The downside is that we lose the ability to check if any field was marked mandatory by a YANG model. Fortunately, for this we first need to wait for &lt;code&gt;ygot&lt;/code&gt; to implement &lt;a href=&#34;https://github.com/openconfig/ygot/issues/514&#34; target=&#34;_blank&#34;&gt;this functionality&lt;/a&gt;, by which time CUE&amp;rsquo;s &lt;a href=&#34;https://github.com/cue-lang/proposal/blob/main/designs/1951-required-fields-v2.md&#34; target=&#34;_blank&#34;&gt;mandatory field proposal&lt;/a&gt; may get implemented as well, making the future solution a bit easier.&lt;/p&gt;
+
+&lt;h3 id=&#34;challenge-2-enums&#34;&gt;Challenge 2 - ENUMs&lt;/h3&gt;
+
+&lt;p&gt;The second problem is caused by the way the &lt;a href=&#34;https://github.com/openconfig/ygot&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;openconfig/ygot&lt;/code&gt;&lt;/a&gt; deals with YANG enum types. Most enum types I&amp;rsquo;ve seen are aliases to &lt;code&gt;int64&lt;/code&gt; and each enum value is a constant (of enum type) that stores that &lt;a href=&#34;https://www.rfc-editor.org/rfc/rfc7950#section-9.6.4.2&#34; target=&#34;_blank&#34;&gt;enum&amp;rsquo;s value&lt;/a&gt;. When emitting the JSON value, &lt;code&gt;ygot&lt;/code&gt; uses the constant to perform a lookup in the &lt;code&gt;ΛEnum&lt;/code&gt; dictionary storing the actual enum name. The following excerpt from &lt;a href=&#34;https://github.com/networkop/yang-to-cue/blob/00f5287a29cf98f1746806e89c5a93b6d2d2d61d/pkg/yang.go&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;yang-to-go/pkg/yang.go&lt;/code&gt;&lt;/a&gt; file should make it a bit clearer:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;type E_AristaIntfAugments_AristaAddrType int64
+
+const (
+  AristaIntfAugments_AristaAddrType_UNSET E_AristaIntfAugments_AristaAddrType = 0
+  ...
+  AristaIntfAugments_AristaAddrType_IPV6 E_AristaIntfAugments_AristaAddrType = 3
+)
+var ΛEnum = map[string]map[int64]ygot.EnumDefinition{
+  &amp;quot;E_AristaIntfAugments_AristaAddrType&amp;quot;: {
+    1: {Name: &amp;quot;PRIMARY&amp;quot;},
+    2: {Name: &amp;quot;SECONDARY&amp;quot;},
+    3: {Name: &amp;quot;IPV6&amp;quot;},
+  },
+)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;By default, CUE would ingest all enum types and store them as integers and wouldn&amp;rsquo;t know anything about the above map or its string values. So what I had to do was parse the auto-generated CUE file and patch the enum definitions by replacing integers (enum&amp;rsquo;s value) with strings (enum&amp;rsquo;s name) from the &lt;code&gt;ΛEnum&lt;/code&gt; map. All this is done inside the same &lt;a href=&#34;https://github.com/networkop/yang-to-cue/blob/master/post-import.go#L208-L264&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;post-import.go&lt;/code&gt;&lt;/a&gt; script and the resulting CUE code looks something like this:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-javascript&#34;&gt;#enumE_AristaIntfAugments_AristaAddrType:
+  #AristaIntfAugments_AristaAddrType_UNSET |
+  #AristaIntfAugments_AristaAddrType_PRIMARY |
+  #AristaIntfAugments_AristaAddrType_SECONDARY |
+  #AristaIntfAugments_AristaAddrType_IPV6
+
+#E_AristaIntfAugments_AristaAddrType: string
+
+#AristaIntfAugments_AristaAddrType_UNSET: 
+    { #E_AristaIntfAugments_AristaAddrType &amp;amp; &amp;quot;UNSET&amp;quot; }
+#AristaIntfAugments_AristaAddrType_PRIMARY: 
+    { #E_AristaIntfAugments_AristaAddrType &amp;amp; &amp;quot;PRIMARY&amp;quot; }
+...
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;This definition would allow you to write values using concrete value strings, e.g. &lt;code&gt;&amp;quot;addr-type&amp;quot;: &amp;quot;PRIMARY&amp;quot;&lt;/code&gt; or simply refer to one of the globally defined constants, as in the following example from the &lt;a href=&#34;https://github.com/networkop/yang-to-cue/blob/master/values.cue&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;yang-to-cue/values.cue&lt;/code&gt;&lt;/a&gt;:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-javascript&#34;&gt;config: {
+  &amp;quot;addr-type&amp;quot;: oc.#AristaIntfAugments_AristaAddrType_PRIMARY
+  &amp;quot;prefix-length&amp;quot;: 24
+  ip: &amp;quot;192.0.2.1&amp;quot;
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id=&#34;challenge-3-yang-lists&#34;&gt;Challenge 3 - YANG lists&lt;/h3&gt;
+
+&lt;p&gt;This ended up being the biggest challenge I had to solve. For all intents and purposes, a YANG list is a map (or a dictionary) with values identified by unique keys. So &lt;a href=&#34;https://github.com/openconfig/ygot&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;openconfig/ygot&lt;/code&gt;&lt;/a&gt; naturally stores YANG lists as Go maps. This makes it easier to ensure uniqueness and catch any duplicates. However, on the wire, a YANG list is represented as a list of objects (&lt;code&gt;[...{}]&lt;/code&gt;), so when it&amp;rsquo;s time to emit a payload, &lt;code&gt;ygot&lt;/code&gt; &lt;a href=&#34;https://github.com/openconfig/ygot/blob/master/ygot/render.go#L1281&#34; target=&#34;_blank&#34;&gt;translates&lt;/a&gt; maps to lists, producing a valid RFC7951 JSON.&lt;/p&gt;
+
+&lt;p&gt;This last bit is unique to &lt;code&gt;ygot&lt;/code&gt;&amp;rsquo;s serialization logic and by default remains unknown to CUE. So I&amp;rsquo;ve taken the most straightforward approach and converted all maps to lists before running the &lt;code&gt;cue get go&lt;/code&gt; command. This is described in the readme of the &lt;a href=&#34;https://github.com/networkop/yang-to-cue&#34; target=&#34;_blank&#34;&gt;yang-to-cue&lt;/a&gt; repository and can be accomplished with a little bit of &lt;code&gt;sed&lt;/code&gt; magic:&lt;/p&gt;
+
+&lt;pre&gt;&lt;code&gt;sed -i -E &#39;s/map\[.*\]\*(\S+)/\[\]\*\1/&#39; pkg/yang.go
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;While this solves the problem of helping CUE generate a valid RFC7951 JSON, this does not guarantee YANG list entry uniqueness, leaving room for error. Fortunately, it&amp;rsquo;s possible to use CUE itself to introduce additional constraints and ensure all entries in a list are unique.&lt;/p&gt;
+
+&lt;p&gt;In the following example, I&amp;rsquo;m using a hidden field &lt;code&gt;_check&lt;/code&gt; to store a set of YANG keys and compare its length to the length of the corresponding YANG list. As long as the list and a set of its keys have the same size, the validation passes and a payload is emitted by CUE.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-javascript&#34;&gt;#OpenconfigInterfaces_Interfaces: {
+  interface: [...null | #OpenconfigInterfaces_Interfaces_Interface]
+  _check: {
+    for intf in interface {
+      let key = intf.name
+      &amp;quot;\(key)&amp;quot;: true
+    }
+  }
+  if len(_check) != len(interface) {_|_}
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;The above code snippet is automatically injected into every YANG list definition in CUE when the &lt;a href=&#34;https://github.com/networkop/yang-to-cue/blob/00f5287a29cf98f1746806e89c5a93b6d2d2d61d/post-import.go&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;post-import.go&lt;/code&gt;&lt;/a&gt; is run with the default &lt;code&gt;-yanglist=true&lt;/code&gt; argument. The actual &lt;a href=&#34;https://github.com/networkop/yang-to-cue/blob/master/post-import.go#L189-L200&#34; target=&#34;_blank&#34;&gt;injected code&lt;/a&gt; is slightly more complicated to account for the presence of composite keys (keys with more than one value) and includes a check that &lt;code&gt;entry.key&lt;/code&gt; is always the same as &lt;code&gt;entry.config.key&lt;/code&gt; as &lt;a href=&#34;https://www.openconfig.net/docs/guides/style_guide/#list&#34; target=&#34;_blank&#34;&gt;required&lt;/a&gt; by the Openconfig styling guide.&lt;/p&gt;
+
+&lt;h2 id=&#34;outro&#34;&gt;Outro&lt;/h2&gt;
+
+&lt;p&gt;So where does all of the above leave us in relation to CUE and YANG? So far I was able to generate some pretty sizeable instances of YANG using  CUE and apply validation rules imported from &lt;code&gt;ygot&lt;/code&gt; packages. This makes me pretty comfortable I&amp;rsquo;ve reached the 80% feature coverage target I was aiming for a &lt;a href=&#34;https://twitter.com/networkop1/status/1550145828236443648&#34; target=&#34;_blank&#34;&gt;few months ago&lt;/a&gt;. Here&amp;rsquo;s an example from the &lt;a href=&#34;https://github.com/networkop/yang-to-cue&#34; target=&#34;_blank&#34;&gt;yang-to-cue&lt;/a&gt; repo that you can successfully apply to any reachable Arista EOS device using the &lt;code&gt;cue apply&lt;/code&gt; command.&lt;/p&gt;
+
+&lt;pre&gt;&lt;code class=&#34;language-javascript&#34;&gt;package main
+
+import oc &amp;quot;yang.to.cue/pkg:yang&amp;quot;
+
+config: oc.#Device &amp;amp; {
+  interfaces: interface: [{
+    config: {
+      description: &amp;quot;loopback interface&amp;quot;
+      mtu:         1500
+      name:        &amp;quot;Loopback0&amp;quot;
+    }
+    name: &amp;quot;Loopback0&amp;quot;
+    subinterfaces: {
+      subinterface: [{
+        config: {
+          description: &amp;quot;default subinterface&amp;quot;
+          index:       0
+        }
+        index: 0
+        ipv4: {
+          addresses: {
+            address: [{
+              ip: &amp;quot;192.0.2.1&amp;quot;
+              config: {
+                &amp;quot;addr-type&amp;quot;:     oc.#AristaIntfAugments_AristaAddrType_PRIMARY
+                &amp;quot;prefix-length&amp;quot;: 24
+                ip:              &amp;quot;192.0.2.1&amp;quot;
+              }
+            }]
+          }
+        }
+      }]
+    }
+  }]
+  &amp;quot;network-instances&amp;quot;: &amp;quot;network-instance&amp;quot;: [{
+    config: name: &amp;quot;default&amp;quot;
+    name: &amp;quot;default&amp;quot;
+    protocols: protocol: [{
+      bgp: {
+        global: config: as: 65000
+        neighbors: neighbor: [{
+          &amp;quot;afi-safis&amp;quot;: &amp;quot;afi-safi&amp;quot;: [{
+            &amp;quot;afi-safi-name&amp;quot;: oc.#OpenconfigBgpTypes_AFI_SAFI_TYPE_IPV4_UNICAST
+            config: &amp;quot;afi-safi-name&amp;quot;: &amp;quot;IPV4_UNICAST&amp;quot;
+          }]
+          config: {
+            &amp;quot;neighbor-address&amp;quot;: &amp;quot;169.254.0.1&amp;quot;
+            &amp;quot;peer-as&amp;quot;:          65001
+          }
+          &amp;quot;neighbor-address&amp;quot;: &amp;quot;169.254.0.1&amp;quot;
+        }]
+      }
+      config: {
+        identifier: &amp;quot;BGP&amp;quot;
+        name:       &amp;quot;BGP&amp;quot;
+      }
+      identifier: &amp;quot;BGP&amp;quot;
+      name:       &amp;quot;BGP&amp;quot;
+    }]
+  }]
+}
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;You can use the approach described in this blog post to write and validate YANG-compliant data entirely in CUE and, once CUE gets its own &lt;a href=&#34;https://github.com/cue-lang/cue/issues/142&#34; target=&#34;_blank&#34;&gt;language server&lt;/a&gt;, writing this data would become even easier with IDE hints, autocompletion and error highlighting. Combine this with data generation and scripting capabilities described in the &lt;a href=&#34;https://networkop.co.uk/post/2022-11-cue-networking/&#34;&gt;previous post&lt;/a&gt; and this gives you a versatile and robust toolset to work with YANG-based APIs, something that has been missing for a very long time.&lt;/p&gt;
+
+&lt;p&gt;There are still a few areas for improvement where CUE does not yet do as good a job as it could. One of them is error reporting in the YANG list validation logic. There&amp;rsquo;s no way to emit a custom error message, however, this may change once &lt;a href=&#34;https://github.com/cue-lang/cue/issues/943&#34; target=&#34;_blank&#34;&gt;this proposal&lt;/a&gt; gets implemented. Another area for improvement could be extracting more metadata from Go types, but this seems to be unique to YANG/ygot so unlikely to get implemented in CUE natively. That being said, I hope that the approach that I&amp;rsquo;ve shown here &amp;ndash; importing Go types using CUE and changing them later with a Go script &amp;ndash; would work for most of the potential future improvements.&lt;/p&gt;
+
+&lt;p&gt;Since CUE is a pre-1.0 language, I would expect a few more things to change in the coming months. I doubt these changes would have any major negative impact on &lt;a href=&#34;http://localhost:1313/tags/cue/&#34; target=&#34;_blank&#34;&gt;what I&amp;rsquo;ve written about CUE&lt;/a&gt; so far. If anything, they would improve the language, like the &lt;a href=&#34;https://github.com/cue-lang/cue/issues/165&#34; target=&#34;_blank&#34;&gt;query proposal&lt;/a&gt; that would simplify CUE&amp;rsquo;s data generation capabilities or the &lt;a href=&#34;https://github.com/cue-lang/cue/issues/2007&#34; target=&#34;_blank&#34;&gt;function signatures proposal&lt;/a&gt; to allow external, user-provided code to be injected into the CUE evaluation process. So in my view now is the right time to start exploring CUE and injecting it into various parts of your network automation workflow. As you dig more into the details of the language, you&amp;rsquo;ll discover more interesting patterns and applications and, hopefully, CUE (Configure, Unify, Execute) becomes that common language for configuration and data, unifying different parts of IT infrastructure.&lt;/p&gt;
+</description>
+    </item>
+    
+    <item>
       <title>Network Automation with CUE - Advanced workflows</title>
       <link>https://networkop.co.uk/post/2022-11-cue-networking/</link>
       <pubDate>Tue, 22 Nov 2022 00:00:00 +0000</pubDate>
@@ -3101,106 +3309,6 @@ alias FOO BAR
 &lt;h2 id=&#34;coming-up&#34;&gt;Coming up&lt;/h2&gt;
 
 &lt;p&gt;Now that we have the mechanism to push the network changes based on models and templates, we can start building the user-facing part of the NaaS platform. In the next post, I&amp;rsquo;ll demonstrate the architecture and implementation of a &lt;strong&gt;watcher&lt;/strong&gt; - a service that listens to custom resources and builds a device interface data model to be used by the scheduler.&lt;/p&gt;
-</description>
-    </item>
-    
-    <item>
-      <title>Terraform your physical network with YANG</title>
-      <link>https://networkop.co.uk/post/2019-04-tf-yang/</link>
-      <pubDate>Thu, 11 Apr 2019 00:00:00 +0000</pubDate>
-      
-      <guid>https://networkop.co.uk/post/2019-04-tf-yang/</guid>
-      <description>
-
-&lt;p&gt;Every time when I get bored from my day job I tend to find some small interesting project that I can do that can give me an instant sense of accomplishment and as the result lift my spirits and improve motivation. So this time I remembered when someone once asked me if they could use Terraform to control their physical network devices and I had to explain how this is the wrong tool for the job. Somehow the question got stuck in my head and now it came to fruition in the form of &lt;a href=&#34;https://github.com/networkop/terraform-yang&#34; target=&#34;_blank&#34;&gt;terraform-yang&lt;/a&gt;.&lt;/p&gt;
-
-&lt;p&gt;This is a small Terraform plugin (provider) that allows users to manipulate interface-level settings of a network device. And I&amp;rsquo;m not talking about a VM in the cloud that runs network OS of your favourite vendor, this stuff is trivial and doesn&amp;rsquo;t require anything special from Terraform. I&amp;rsquo;m talking about Terraform controlling your individual physical network devices over an OpenConfig&amp;rsquo;s gNMI interface with standard Create/Read/Update/Delete operations exposed all the way to Terraform&amp;rsquo;s playbooks (or whatever they are called). Network Infrastructure as code nirvana&amp;hellip;&lt;/p&gt;
-
-&lt;p&gt;&lt;img src=&#34;https://networkop.co.uk/img/tf-gnmi.png&#34; alt=&#34;&#34; /&gt;&lt;/p&gt;
-
-&lt;h2 id=&#34;writing-a-custom-terraform-provider-for-a-network-device&#34;&gt;Writing a custom Terraform provider for a network device&lt;/h2&gt;
-
-&lt;p&gt;Although this may look scary at the beginning, the process of creating your own TF provider is fairly easy. In fact a provider is nothing but a pointer to a remote API, which from the client point of view is just a URL (or a session to that URL) along with the necessary authentication credentials. TF provider simply combines all that information in a struct, which is later made available to various resource-specific API calls. For a network device with a gNMI interface, this is all the work that needs to be done to initialise the provider:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-go&#34;&gt;cfg := &amp;amp;gnmi.Config{
-	Addr:     d.Get(&amp;quot;address&amp;quot;).(string),
-	TLS:      d.Get(&amp;quot;tls&amp;quot;).(bool),
-	Username: d.Get(&amp;quot;username&amp;quot;).(string),
-	Password: d.Get(&amp;quot;password&amp;quot;).(string),
-}
-client, err := gnmi.Dial(cfg)
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;p&gt;The only problem with this approach is that we have multiple devices and obviously it wouldn&amp;rsquo;t make sense to write a dedicated provider for each one. This is where Terraform &lt;a href=&#34;https://www.terraform.io/docs/configuration/providers.html#alias-multiple-provider-instances&#34; target=&#34;_blank&#34;&gt;aliases&lt;/a&gt; come to the rescue. With aliases we can define different providers that all use the same custom gNMI provider logic. This is how a &lt;code&gt;provider.tf&lt;/code&gt; file may look like:&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;provider &amp;quot;gnmi&amp;quot; {
-  alias    = &amp;quot;SW1&amp;quot;
-  address  = &amp;quot;192.0.2.0:6030&amp;quot;
-  username = &amp;quot;admin&amp;quot;
-  password = &amp;quot;admin&amp;quot;
-}
-
-provider &amp;quot;gnmi&amp;quot; {
-  alias    = &amp;quot;SW2&amp;quot;
-  address  = &amp;quot;192.0.2.1:6030&amp;quot;
-  username = &amp;quot;admin&amp;quot;
-  password = &amp;quot;admin&amp;quot;
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;writing-a-resource-for-an-interface&#34;&gt;Writing a resource for an interface&lt;/h2&gt;
-
-&lt;p&gt;Most of the work and logic goes into resources. Each resource represents an object hosted by a provider, that can be manipulated, i.e. created, updated and deleted. For public clouds, this could be a VM, a disk or a security group. For my little experiment, I&amp;rsquo;ve picked the simplest (and most common) configuration object that exists on a network device - an interface. I didn&amp;rsquo;t have time to boil the ocean so I decided to expose only a subset of interface-level settings:&lt;/p&gt;
-
-&lt;ul&gt;
-&lt;li&gt;description&lt;/li&gt;
-&lt;li&gt;switchport flag&lt;/li&gt;
-&lt;li&gt;IPv4 Address&lt;/li&gt;
-&lt;li&gt;Access VLAN&lt;/li&gt;
-&lt;li&gt;Trunk VLANs&lt;/li&gt;
-&lt;/ul&gt;
-
-&lt;p&gt;In order to build the structured configuration data, I&amp;rsquo;m using Go structs generated by &lt;a href=&#34;https://github.com/openconfig/ygot&#34; target=&#34;_blank&#34;&gt;ygot&lt;/a&gt; based on OpenConfig&amp;rsquo;s YANG models. A little hint for those of you who&amp;rsquo;ve read my Ansible &amp;amp; YANG &lt;a href=&#34;https://networkop.co.uk/tags/ansible-yang/&#34; target=&#34;_blank&#34;&gt;series&lt;/a&gt; and know what pyangbind or YDK are: ygot to gNMI is what pyangbind/YDK is to ncclient. So to configure a new interface, I first build an empty struct skeleton with ygot, populate it with values inside &lt;a href=&#34;https://github.com/networkop/terraform-yang/blob/master/resource_interface.go#L64&#34; target=&#34;_blank&#34;&gt;&lt;code&gt;resourceInterfaceCreate()&lt;/code&gt;&lt;/a&gt; and then do &lt;code&gt;gnmi.Set()&lt;/code&gt; to send them off to the device. The logic for &lt;a href=&#34;https://github.com/networkop/terraform-yang/blob/master/resource_interface.go#L156&#34; target=&#34;_blank&#34;&gt;resource update&lt;/a&gt; is slightly more complicated since it should take into account mutually exclusive modes (e.g. switchport) and the behaviour when multiple conflicting arguments are defined. But ultimately you can decide how far you want to go and for a simple use case I&amp;rsquo;ve chosen, it only took me a few hours to &lt;a href=&#34;https://github.com/networkop/terraform-yang/blob/master/resource_interface.go#L64&#34; target=&#34;_blank&#34;&gt;codify&lt;/a&gt; the logic I wanted.&lt;/p&gt;
-
-&lt;h2 id=&#34;using-a-gnmi-interface-resource&#34;&gt;Using a gNMI interface resource&lt;/h2&gt;
-
-&lt;p&gt;With all of the provider/resource work done, making interface changes becomes really easy. Here&amp;rsquo;s an example of two different interfaces being configured on two different devices. The &lt;code&gt;provider&lt;/code&gt; argument points TF to one of the pre-defined aliases (i.e. network devices) and &lt;code&gt;name&lt;/code&gt; tells it which interface to configure. The rest of the arguments should be fairly self-explanatory.&lt;/p&gt;
-
-&lt;pre&gt;&lt;code class=&#34;language-json&#34;&gt;resource &amp;quot;gnmi_interface&amp;quot; &amp;quot;SW1_Eth1&amp;quot; {
-    provider = &amp;quot;gnmi.SW1&amp;quot;
-    name = &amp;quot;Ethernet1&amp;quot;
-    description = &amp;quot;TF_INT_ETH1&amp;quot;
-    switchport = false
-    ipv4_address = &amp;quot;12.12.12.1/24&amp;quot;
-}
-resource &amp;quot;gnmi_interface&amp;quot; &amp;quot;SW2_Eth1&amp;quot; {
-    provider = &amp;quot;gnmi.SW1&amp;quot;
-    name = &amp;quot;Ethernet1&amp;quot;
-    description = &amp;quot;TF_INT_ETH1&amp;quot;
-    switchport = true
-    trunk_vlans = [100, 200]
-}
-&lt;/code&gt;&lt;/pre&gt;
-
-&lt;h2 id=&#34;surprises-and-gotchas&#34;&gt;Surprises and Gotchas&lt;/h2&gt;
-
-&lt;p&gt;While writing this plugin I&amp;rsquo;ve stumbled across several interesting and what I thought were surprising issues with gNMI and OpenConfig models in general.&lt;/p&gt;
-
-&lt;p&gt;Firstly, because the gNMI spec is in a constant state of flux, the official &lt;a href=&#34;https://github.com/openconfig&#34; target=&#34;_blank&#34;&gt;tools&lt;/a&gt; may not work with your device out of the box. There may be slightly different implementations of gNMI/gRPC clients, which obviously make it difficult to operate in a multivendor environment.&lt;/p&gt;
-
-&lt;p&gt;Second, I was surprised to discover that a lot of structured data is still encoded as JSON. This JSON is serialised into a string and later encoded as protobuf as it gets sent to the device but still, my naive assumption was that protobuf was used for everything.&lt;/p&gt;
-
-&lt;p&gt;Third, there are still a lot of vendor augments to standard openconfig models, which results in a vendor-specific ygot code. This feels almost like we&amp;rsquo;ve gone back to automating vendor-specific CLIs with all their quirks and corner cases.&lt;/p&gt;
-
-&lt;p&gt;Fourth, there&amp;rsquo;s still a lot of YANG&amp;lt;-&amp;gt;CLI translation going on under the hood, especially for the configuration part (less for telemetry), so always expect the unexpected.&lt;/p&gt;
-
-&lt;p&gt;Finally, I was initially bemused by the gNMI message format. I didn&amp;rsquo;t understand why I can have multiple updates in a single notification message and what&amp;rsquo;s the purpose of &lt;a href=&#34;https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md#21-reusable-notification-message-format&#34; target=&#34;_blank&#34;&gt;duplicates&lt;/a&gt;. Until I realised that one of the primary use cases for gNMI was streaming telemetry and the protocol format was designed to work for both that and configuration updates. Some of these and other protocol-specific things still don&amp;rsquo;t make a lot of sense to me, and the &lt;a href=&#34;https://github.com/openconfig/reference/blob/master/rpc/gnmi/gnmi-specification.md#21-reusable-notification-message-format&#34; target=&#34;_blank&#34;&gt;GNMI specification&lt;/a&gt; doesn&amp;rsquo;t do a very good job explaining why (not sure if it&amp;rsquo;s even supposed to).&lt;/p&gt;
-
-&lt;p&gt;But as I&amp;rsquo;ve said multiple times before, just having the gNMI support that we have today, is way, way much better than not having it and having to rely on vendor-specific CLIs.&lt;/p&gt;
-
-&lt;h2 id=&#34;outro&#34;&gt;Outro&lt;/h2&gt;
-
-&lt;p&gt;I always liked writing plugins. They may look like some serious piece of software but in reality, they&amp;rsquo;re just a bunch of for loops and conditionals, so writing them is really easy. Not only do you get all of the boilerplate code that exposes all the bells and whistles you might need, but you also have tons of production-grade examples of how to write this kind of stuff &lt;a href=&#34;https://github.com/terraform-providers&#34; target=&#34;_blank&#34;&gt;available on Github&lt;/a&gt;. So don&amp;rsquo;t treat &lt;a href=&#34;https://github.com/networkop/terraform-yang&#34; target=&#34;_blank&#34;&gt;terraform-yang&lt;/a&gt; as a serious project, this was just a proof-of-concept and a learning exercise. I&amp;rsquo;m not convinced this is the right way to configure your network, although I feel the same way about most of the other popular automation tools out there.&lt;/p&gt;
 </description>
     </item>
     
