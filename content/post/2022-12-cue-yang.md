@@ -1,6 +1,6 @@
 +++
 title = "Network Automation with CUE - Working with YANG-based APIs"
-date = 2022-12-05T00:00:00Z
+date = 2022-12-07T00:00:00Z
 categories = ["howto"]
 tags = ["automation", "cue", "ansible"]
 summary = "Using CUE to automate YANG-based network APIs"
